@@ -39,7 +39,7 @@ let modelSuppressionPromise: Promise<typeof import("./model-suppression.runtime.
 const NON_PI_NATIVE_MODEL_PROVIDERS = new Set(["kilocode"]);
 
 function shouldLogModelCatalogTiming(): boolean {
-  return process.env.OPENCLAW_DEBUG_INGRESS_TIMING === "1";
+  return process.env.LAIA_ARCH_DEBUG_INGRESS_TIMING === "1";
 }
 
 function loadProviderRuntime() {

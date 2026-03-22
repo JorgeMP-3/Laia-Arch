@@ -86,10 +86,10 @@ describe("config plugin validation", () => {
     ({
       ...process.env,
       HOME: suiteHome,
-      OPENCLAW_HOME: undefined,
-      OPENCLAW_STATE_DIR: path.join(suiteHome, ".openclaw"),
+      LAIA_ARCH_HOME: undefined,
+      LAIA_ARCH_STATE_DIR: path.join(suiteHome, ".openclaw"),
       CLAWDBOT_STATE_DIR: undefined,
-      OPENCLAW_PLUGIN_MANIFEST_CACHE_MS: "10000",
+      LAIA_ARCH_PLUGIN_MANIFEST_CACHE_MS: "10000",
     }) satisfies NodeJS.ProcessEnv;
 
   const validateInSuite = (raw: unknown) =>
@@ -245,7 +245,7 @@ describe("config plugin validation", () => {
       {
         env: {
           ...suiteEnv(),
-          OPENCLAW_BUNDLED_PLUGINS_DIR: path.join(suiteHome, "missing-bundled-plugins"),
+          LAIA_ARCH_BUNDLED_PLUGINS_DIR: path.join(suiteHome, "missing-bundled-plugins"),
         },
       },
     );

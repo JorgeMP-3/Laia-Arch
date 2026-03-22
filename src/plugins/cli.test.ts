@@ -50,7 +50,7 @@ describe("registerPluginCliCommands", () => {
 
   it("forwards an explicit env to plugin loading", () => {
     const program = new Command();
-    const env = { OPENCLAW_HOME: "/srv/openclaw-home" } as NodeJS.ProcessEnv;
+    const env = { LAIA_ARCH_HOME: "/srv/openclaw-home" } as NodeJS.ProcessEnv;
 
     registerPluginCliCommands(program, {} as OpenClawConfig, env);
 

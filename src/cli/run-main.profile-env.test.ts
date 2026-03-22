@@ -7,7 +7,7 @@ const dotenvState = vi.hoisted(() => {
   return {
     state,
     loadDotEnv: vi.fn(() => {
-      state.profileAtDotenvLoad = process.env.OPENCLAW_PROFILE;
+      state.profileAtDotenvLoad = process.env.LAIA_ARCH_PROFILE;
     }),
   };
 });
@@ -39,33 +39,33 @@ vi.mock("./windows-argv.js", () => ({
 import { runCli } from "./run-main.js";
 
 describe("runCli profile env bootstrap", () => {
-  const originalProfile = process.env.OPENCLAW_PROFILE;
-  const originalStateDir = process.env.OPENCLAW_STATE_DIR;
-  const originalConfigPath = process.env.OPENCLAW_CONFIG_PATH;
+  const originalProfile = process.env.LAIA_ARCH_PROFILE;
+  const originalStateDir = process.env.LAIA_ARCH_STATE_DIR;
+  const originalConfigPath = process.env.LAIA_ARCH_CONFIG_PATH;
 
   beforeEach(() => {
-    delete process.env.OPENCLAW_PROFILE;
-    delete process.env.OPENCLAW_STATE_DIR;
-    delete process.env.OPENCLAW_CONFIG_PATH;
+    delete process.env.LAIA_ARCH_PROFILE;
+    delete process.env.LAIA_ARCH_STATE_DIR;
+    delete process.env.LAIA_ARCH_CONFIG_PATH;
     dotenvState.state.profileAtDotenvLoad = undefined;
     dotenvState.loadDotEnv.mockClear();
   });
 
   afterEach(() => {
     if (originalProfile === undefined) {
-      delete process.env.OPENCLAW_PROFILE;
+      delete process.env.LAIA_ARCH_PROFILE;
     } else {
-      process.env.OPENCLAW_PROFILE = originalProfile;
+      process.env.LAIA_ARCH_PROFILE = originalProfile;
     }
     if (originalStateDir === undefined) {
-      delete process.env.OPENCLAW_STATE_DIR;
+      delete process.env.LAIA_ARCH_STATE_DIR;
     } else {
-      process.env.OPENCLAW_STATE_DIR = originalStateDir;
+      process.env.LAIA_ARCH_STATE_DIR = originalStateDir;
     }
     if (originalConfigPath === undefined) {
-      delete process.env.OPENCLAW_CONFIG_PATH;
+      delete process.env.LAIA_ARCH_CONFIG_PATH;
     } else {
-      process.env.OPENCLAW_CONFIG_PATH = originalConfigPath;
+      process.env.LAIA_ARCH_CONFIG_PATH = originalConfigPath;
     }
   });
 
@@ -74,6 +74,6 @@ describe("runCli profile env bootstrap", () => {
 
     expect(dotenvState.loadDotEnv).toHaveBeenCalledOnce();
     expect(dotenvState.state.profileAtDotenvLoad).toBe("rawdog");
-    expect(process.env.OPENCLAW_PROFILE).toBe("rawdog");
+    expect(process.env.LAIA_ARCH_PROFILE).toBe("rawdog");
   });
 });

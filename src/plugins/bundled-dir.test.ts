@@ -6,7 +6,7 @@ import { resolveBundledPluginsDir } from "./bundled-dir.js";
 
 const tempDirs: string[] = [];
 const originalCwd = process.cwd();
-const originalBundledDir = process.env.OPENCLAW_BUNDLED_PLUGINS_DIR;
+const originalBundledDir = process.env.LAIA_ARCH_BUNDLED_PLUGINS_DIR;
 const originalVitest = process.env.VITEST;
 
 function makeRepoRoot(prefix: string): string {
@@ -18,9 +18,9 @@ function makeRepoRoot(prefix: string): string {
 afterEach(() => {
   process.chdir(originalCwd);
   if (originalBundledDir === undefined) {
-    delete process.env.OPENCLAW_BUNDLED_PLUGINS_DIR;
+    delete process.env.LAIA_ARCH_BUNDLED_PLUGINS_DIR;
   } else {
-    process.env.OPENCLAW_BUNDLED_PLUGINS_DIR = originalBundledDir;
+    process.env.LAIA_ARCH_BUNDLED_PLUGINS_DIR = originalBundledDir;
   }
   if (originalVitest === undefined) {
     delete process.env.VITEST;

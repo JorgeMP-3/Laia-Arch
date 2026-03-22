@@ -20,7 +20,7 @@ export async function createOperatorApprovalsGatewayClient(
   const gatewayUrlOverrideSource =
     urlSource === "cli --url"
       ? "cli"
-      : urlSource === "env OPENCLAW_GATEWAY_URL"
+      : urlSource === "env LAIA_ARCH_GATEWAY_URL"
         ? "env"
         : undefined;
   const auth = await resolveGatewayConnectionAuth({

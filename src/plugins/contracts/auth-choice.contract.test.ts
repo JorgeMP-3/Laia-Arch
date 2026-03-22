@@ -52,8 +52,8 @@ type StoredAuthProfile = {
 
 describe("provider auth-choice contract", () => {
   const lifecycle = createAuthTestLifecycle([
-    "OPENCLAW_STATE_DIR",
-    "OPENCLAW_AGENT_DIR",
+    "LAIA_ARCH_STATE_DIR",
+    "LAIA_ARCH_AGENT_DIR",
     "PI_CODING_AGENT_DIR",
   ]);
   let activeStateDir: string | null = null;

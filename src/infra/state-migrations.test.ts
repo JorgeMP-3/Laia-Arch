@@ -31,7 +31,7 @@ function createConfig(): OpenClawConfig {
 function createEnv(stateDir: string): NodeJS.ProcessEnv {
   return {
     ...process.env,
-    OPENCLAW_STATE_DIR: stateDir,
+    LAIA_ARCH_STATE_DIR: stateDir,
   };
 }
 

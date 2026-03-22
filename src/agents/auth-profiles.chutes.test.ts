@@ -26,8 +26,8 @@ describe("auth-profiles (chutes)", () => {
     const agentDir = path.join(tempDir, "agents", "main", "agent");
     await withEnvAsync(
       {
-        OPENCLAW_STATE_DIR: tempDir,
-        OPENCLAW_AGENT_DIR: agentDir,
+        LAIA_ARCH_STATE_DIR: tempDir,
+        LAIA_ARCH_AGENT_DIR: agentDir,
         PI_CODING_AGENT_DIR: agentDir,
         CHUTES_CLIENT_ID: undefined,
       },

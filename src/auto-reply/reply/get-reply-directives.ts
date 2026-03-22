@@ -41,7 +41,7 @@ function loadSkillCommands() {
 }
 
 function shouldLogDirectiveTiming(): boolean {
-  return process.env.OPENCLAW_DEBUG_INGRESS_TIMING === "1";
+  return process.env.LAIA_ARCH_DEBUG_INGRESS_TIMING === "1";
 }
 
 export type ReplyDirectiveContinuation = {

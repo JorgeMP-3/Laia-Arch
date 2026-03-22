@@ -36,7 +36,7 @@ const PROVIDER_PLUGIN_IDS: Array<{ pluginId: string; providerId: string }> = [
   { pluginId: "copilot-proxy", providerId: "copilot-proxy" },
   { pluginId: "minimax", providerId: "minimax-portal" },
 ];
-const ENV_CATALOG_PATHS = ["OPENCLAW_PLUGIN_CATALOG_PATHS", "OPENCLAW_MPM_CATALOG_PATHS"];
+const ENV_CATALOG_PATHS = ["LAIA_ARCH_PLUGIN_CATALOG_PATHS", "LAIA_ARCH_MPM_CATALOG_PATHS"];
 
 function collectModelRefs(cfg: OpenClawConfig): string[] {
   const refs: string[] = [];

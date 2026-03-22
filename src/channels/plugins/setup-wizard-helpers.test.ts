@@ -405,11 +405,11 @@ describe("promptSingleChannelSecretInput", () => {
   });
 
   it("returns ref + resolved value when external env ref is selected", async () => {
-    process.env.OPENCLAW_TEST_TOKEN = "secret-token";
+    process.env.LAIA_ARCH_TEST_TOKEN = "secret-token";
     const prompter = {
       select: vi.fn().mockResolvedValueOnce("ref").mockResolvedValueOnce("env"),
       confirm: vi.fn(async () => false),
-      text: vi.fn(async () => "OPENCLAW_TEST_TOKEN"),
+      text: vi.fn(async () => "LAIA_ARCH_TEST_TOKEN"),
       note: vi.fn(async () => undefined),
     };
 
@@ -425,7 +425,7 @@ describe("promptSingleChannelSecretInput", () => {
       envPrompt: "use env",
       keepPrompt: "keep",
       inputPrompt: "token",
-      preferredEnvVar: "OPENCLAW_TEST_TOKEN",
+      preferredEnvVar: "LAIA_ARCH_TEST_TOKEN",
     });
 
     expect(result).toEqual({
@@ -433,7 +433,7 @@ describe("promptSingleChannelSecretInput", () => {
       value: {
         source: "env",
         provider: "default",
-        id: "OPENCLAW_TEST_TOKEN",
+        id: "LAIA_ARCH_TEST_TOKEN",
       },
       resolvedValue: "secret-token",
     });

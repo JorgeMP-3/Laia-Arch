@@ -250,7 +250,7 @@ describe("loadPluginManifestRegistry", () => {
 
     const registry = loadPluginManifestRegistry({
       cache: false,
-      env: { OPENCLAW_VERSION: "2026.3.13" },
+      env: { LAIA_ARCH_VERSION: "2026.3.13" },
       candidates: [
         createPluginCandidate({
           idHint: "synology-chat",
@@ -311,7 +311,7 @@ describe("loadPluginManifestRegistry", () => {
 
     const registry = loadPluginManifestRegistry({
       cache: false,
-      env: { OPENCLAW_VERSION: "unknown" },
+      env: { LAIA_ARCH_VERSION: "unknown" },
       candidates: [
         createPluginCandidate({
           idHint: "synology-chat",
@@ -747,14 +747,14 @@ describe("loadPluginManifestRegistry", () => {
       cache: true,
       env: {
         ...process.env,
-        OPENCLAW_BUNDLED_PLUGINS_DIR: bundledA,
+        LAIA_ARCH_BUNDLED_PLUGINS_DIR: bundledA,
       },
     });
     const second = loadPluginManifestRegistry({
       cache: true,
       env: {
         ...process.env,
-        OPENCLAW_BUNDLED_PLUGINS_DIR: bundledB,
+        LAIA_ARCH_BUNDLED_PLUGINS_DIR: bundledB,
       },
     });
 
@@ -800,8 +800,8 @@ describe("loadPluginManifestRegistry", () => {
       env: {
         ...process.env,
         HOME: homeA,
-        OPENCLAW_HOME: undefined,
-        OPENCLAW_STATE_DIR: path.join(homeA, ".state"),
+        LAIA_ARCH_HOME: undefined,
+        LAIA_ARCH_STATE_DIR: path.join(homeA, ".state"),
       },
     });
     const second = loadPluginManifestRegistry({
@@ -810,8 +810,8 @@ describe("loadPluginManifestRegistry", () => {
       env: {
         ...process.env,
         HOME: homeB,
-        OPENCLAW_HOME: undefined,
-        OPENCLAW_STATE_DIR: path.join(homeB, ".state"),
+        LAIA_ARCH_HOME: undefined,
+        LAIA_ARCH_STATE_DIR: path.join(homeB, ".state"),
       },
     });
 
@@ -847,7 +847,7 @@ describe("loadPluginManifestRegistry", () => {
       candidates,
       env: {
         ...process.env,
-        OPENCLAW_VERSION: "2026.3.13",
+        LAIA_ARCH_VERSION: "2026.3.13",
       },
     });
     const newerHost = loadPluginManifestRegistry({
@@ -855,7 +855,7 @@ describe("loadPluginManifestRegistry", () => {
       candidates,
       env: {
         ...process.env,
-        OPENCLAW_VERSION: "2026.3.14",
+        LAIA_ARCH_VERSION: "2026.3.14",
       },
     });
 

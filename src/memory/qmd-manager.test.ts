@@ -152,7 +152,7 @@ describe("QmdMemoryManager", () => {
     // Only workspace must exist for configured collection paths; state paths are
     // created lazily by manager code when needed.
     await fs.mkdir(workspaceDir);
-    process.env.OPENCLAW_STATE_DIR = stateDir;
+    process.env.LAIA_ARCH_STATE_DIR = stateDir;
     // Keep the default Windows path unresolved for most tests so spawn mocks can
     // match the logical package command. Tests that verify wrapper resolution
     // install explicit shim fixtures inline.
@@ -180,7 +180,7 @@ describe("QmdMemoryManager", () => {
     openManagers.clear();
     await fs.rm(tmpRoot, { recursive: true, force: true });
     vi.useRealTimers();
-    delete process.env.OPENCLAW_STATE_DIR;
+    delete process.env.LAIA_ARCH_STATE_DIR;
     if (originalPath === undefined) {
       delete process.env.PATH;
     } else {

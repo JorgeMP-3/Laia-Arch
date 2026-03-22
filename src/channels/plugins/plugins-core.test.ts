@@ -195,9 +195,9 @@ describe("channel plugin catalog", () => {
     const entry = listChannelPluginCatalogEntries({
       env: {
         ...process.env,
-        OPENCLAW_STATE_DIR: stateDir,
+        LAIA_ARCH_STATE_DIR: stateDir,
         CLAWDBOT_STATE_DIR: undefined,
-        OPENCLAW_BUNDLED_PLUGINS_DIR: "/nonexistent/bundled/plugins",
+        LAIA_ARCH_BUNDLED_PLUGINS_DIR: "/nonexistent/bundled/plugins",
       },
     }).find((item) => item.id === "demo-channel");
 
@@ -234,7 +234,7 @@ describe("channel plugin catalog", () => {
     const ids = listChannelPluginCatalogEntries({
       env: {
         ...process.env,
-        OPENCLAW_PLUGIN_CATALOG_PATHS: "~/catalog.json",
+        LAIA_ARCH_PLUGIN_CATALOG_PATHS: "~/catalog.json",
         HOME: home,
       },
     }).map((entry) => entry.id);
@@ -272,7 +272,7 @@ describe("channel plugin catalog", () => {
     const ids = listChannelPluginCatalogEntries({
       env: {
         ...process.env,
-        OPENCLAW_STATE_DIR: stateDir,
+        LAIA_ARCH_STATE_DIR: stateDir,
         CLAWDBOT_STATE_DIR: undefined,
       },
     }).map((entry) => entry.id);
@@ -320,7 +320,7 @@ describe("channel plugin catalog", () => {
     const entry = listChannelPluginCatalogEntries({
       env: {
         ...process.env,
-        OPENCLAW_BUNDLED_PLUGINS_DIR: path.join(packageRoot, "dist", "extensions"),
+        LAIA_ARCH_BUNDLED_PLUGINS_DIR: path.join(packageRoot, "dist", "extensions"),
       },
     }).find((item) => item.id === "whatsapp");
 

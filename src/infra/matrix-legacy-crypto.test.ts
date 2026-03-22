@@ -38,7 +38,7 @@ function writeMatrixPluginFixture(rootDir: string): void {
 }
 
 const matrixHelperEnv = {
-  OPENCLAW_BUNDLED_PLUGINS_DIR: (home: string) => path.join(home, "bundled"),
+  LAIA_ARCH_BUNDLED_PLUGINS_DIR: (home: string) => path.join(home, "bundled"),
 };
 
 describe("matrix legacy encrypted-state migration", () => {
@@ -440,7 +440,7 @@ describe("matrix legacy encrypted-state migration", () => {
       },
       {
         env: {
-          OPENCLAW_BUNDLED_PLUGINS_DIR: (home) => path.join(home, "empty-bundled"),
+          LAIA_ARCH_BUNDLED_PLUGINS_DIR: (home) => path.join(home, "empty-bundled"),
         },
       },
     );

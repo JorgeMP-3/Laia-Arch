@@ -104,7 +104,7 @@ describe("Windows startup fallback", () => {
         env,
         stdout,
         programArguments: ["node", "gateway.js", "--port", "18789"],
-        environment: { OPENCLAW_GATEWAY_PORT: "18789" },
+        environment: { LAIA_ARCH_GATEWAY_PORT: "18789" },
       });
 
       const startupEntryPath = resolveStartupEntryPath(env);
@@ -134,7 +134,7 @@ describe("Windows startup fallback", () => {
         env,
         stdout,
         programArguments: ["node", "gateway.js", "--port", "18789"],
-        environment: { OPENCLAW_GATEWAY_PORT: "18789" },
+        environment: { LAIA_ARCH_GATEWAY_PORT: "18789" },
       });
 
       await expect(fs.access(resolveStartupEntryPath(env))).resolves.toBeUndefined();
@@ -219,7 +219,7 @@ describe("Windows startup fallback", () => {
 
       const stdout = new PassThrough();
       const envWithoutPort = { ...env };
-      delete envWithoutPort.OPENCLAW_GATEWAY_PORT;
+      delete envWithoutPort.LAIA_ARCH_GATEWAY_PORT;
       await stopScheduledTask({ env: envWithoutPort, stdout });
 
       expectGatewayTermination(5151);

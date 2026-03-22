@@ -13,7 +13,7 @@ export async function startGmailWatcherWithLogs(params: {
   log: GMailWatcherLog;
   onSkipped?: () => void;
 }) {
-  if (isTruthyEnvValue(process.env.OPENCLAW_SKIP_GMAIL_WATCHER)) {
+  if (isTruthyEnvValue(process.env.LAIA_ARCH_SKIP_GMAIL_WATCHER)) {
     params.onSkipped?.();
     return;
   }

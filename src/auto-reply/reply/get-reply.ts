@@ -27,7 +27,7 @@ import { stageSandboxMedia } from "./stage-sandbox-media.js";
 import { createTypingController } from "./typing.js";
 
 function shouldLogCoreIngressTiming(): boolean {
-  return process.env.OPENCLAW_DEBUG_INGRESS_TIMING === "1";
+  return process.env.LAIA_ARCH_DEBUG_INGRESS_TIMING === "1";
 }
 
 type ResetCommandAction = "new" | "reset";
@@ -120,7 +120,7 @@ export async function getReplyFromConfig(
       `[ingress] session=${sessionKey} stage=${stage} elapsedMs=${Date.now() - ingressStartMs}${suffix}`,
     );
   };
-  const isFastTestEnv = process.env.OPENCLAW_TEST_FAST === "1";
+  const isFastTestEnv = process.env.LAIA_ARCH_TEST_FAST === "1";
   const cfg = configOverride ?? loadConfig();
   const targetSessionKey =
     ctx.CommandSource === "native" ? ctx.CommandTargetSessionKey?.trim() : undefined;

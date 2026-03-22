@@ -22,8 +22,9 @@ import {
 } from "./live-test-helpers.js";
 import { generateImage } from "./runtime.js";
 
-const LIVE = isTruthyEnvValue(process.env.LIVE) || isTruthyEnvValue(process.env.OPENCLAW_LIVE_TEST);
-const REQUIRE_PROFILE_KEYS = isTruthyEnvValue(process.env.OPENCLAW_LIVE_REQUIRE_PROFILE_KEYS);
+const LIVE =
+  isTruthyEnvValue(process.env.LIVE) || isTruthyEnvValue(process.env.LAIA_ARCH_LIVE_TEST);
+const REQUIRE_PROFILE_KEYS = isTruthyEnvValue(process.env.LAIA_ARCH_LIVE_REQUIRE_PROFILE_KEYS);
 const describeLive = LIVE ? describe : describe.skip;
 
 type LiveImageCase = {
@@ -113,9 +114,9 @@ describeLive("image generation live (provider sweep)", () => {
   it("generates images for every configured image-generation variant with available auth", async () => {
     const cfg = withPluginsEnabled(loadConfig());
     const agentDir = resolveOpenClawAgentDir();
-    const providerFilter = parseCsvFilter(process.env.OPENCLAW_LIVE_IMAGE_GENERATION_PROVIDERS);
-    const caseFilter = parseCaseFilter(process.env.OPENCLAW_LIVE_IMAGE_GENERATION_CASES);
-    const envModelMap = parseProviderModelMap(process.env.OPENCLAW_LIVE_IMAGE_GENERATION_MODELS);
+    const providerFilter = parseCsvFilter(process.env.LAIA_ARCH_LIVE_IMAGE_GENERATION_PROVIDERS);
+    const caseFilter = parseCaseFilter(process.env.LAIA_ARCH_LIVE_IMAGE_GENERATION_CASES);
+    const envModelMap = parseProviderModelMap(process.env.LAIA_ARCH_LIVE_IMAGE_GENERATION_MODELS);
     const configuredModels = resolveConfiguredLiveImageModels(cfg);
     const availableProviders = imageGenerationProviderContractRegistry
       .map((entry) => entry.provider.id)

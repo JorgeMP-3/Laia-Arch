@@ -100,7 +100,7 @@ describe("resolvePluginWebSearchProviders", () => {
         allow: ["brave"],
       },
     };
-    const env = { OPENCLAW_HOME: "/tmp/openclaw-home" } as NodeJS.ProcessEnv;
+    const env = { LAIA_ARCH_HOME: "/tmp/openclaw-home" } as NodeJS.ProcessEnv;
 
     const first = resolvePluginWebSearchProviders({
       config,
@@ -126,7 +126,7 @@ describe("resolvePluginWebSearchProviders", () => {
       },
     };
     const env = {
-      OPENCLAW_HOME: "/tmp/openclaw-home-a",
+      LAIA_ARCH_HOME: "/tmp/openclaw-home-a",
     } as NodeJS.ProcessEnv;
 
     resolvePluginWebSearchProviders({
@@ -136,7 +136,7 @@ describe("resolvePluginWebSearchProviders", () => {
       workspaceDir: "/tmp/workspace",
     });
     config.plugins.allow = ["perplexity"];
-    env.OPENCLAW_HOME = "/tmp/openclaw-home-b";
+    env.LAIA_ARCH_HOME = "/tmp/openclaw-home-b";
     resolvePluginWebSearchProviders({
       config,
       env,
@@ -154,8 +154,8 @@ describe("resolvePluginWebSearchProviders", () => {
       },
     };
     const env = {
-      OPENCLAW_HOME: "/tmp/openclaw-home",
-      OPENCLAW_DISABLE_PLUGIN_DISCOVERY_CACHE: "1",
+      LAIA_ARCH_HOME: "/tmp/openclaw-home",
+      LAIA_ARCH_DISABLE_PLUGIN_DISCOVERY_CACHE: "1",
     } as NodeJS.ProcessEnv;
 
     resolvePluginWebSearchProviders({
@@ -181,8 +181,8 @@ describe("resolvePluginWebSearchProviders", () => {
       },
     };
     const env = {
-      OPENCLAW_HOME: "/tmp/openclaw-home",
-      OPENCLAW_PLUGIN_DISCOVERY_CACHE_MS: "0",
+      LAIA_ARCH_HOME: "/tmp/openclaw-home",
+      LAIA_ARCH_PLUGIN_DISCOVERY_CACHE_MS: "0",
     } as NodeJS.ProcessEnv;
 
     resolvePluginWebSearchProviders({
@@ -204,7 +204,7 @@ describe("resolvePluginWebSearchProviders", () => {
   it("invalidates the snapshot cache when global Vitest fallback changes", () => {
     const originalVitest = process.env.VITEST;
     const config = {};
-    const env = { OPENCLAW_HOME: "/tmp/openclaw-home" } as NodeJS.ProcessEnv;
+    const env = { LAIA_ARCH_HOME: "/tmp/openclaw-home" } as NodeJS.ProcessEnv;
 
     try {
       delete process.env.VITEST;
@@ -241,9 +241,9 @@ describe("resolvePluginWebSearchProviders", () => {
       },
     };
     const env = {
-      OPENCLAW_HOME: "/tmp/openclaw-home",
-      OPENCLAW_PLUGIN_DISCOVERY_CACHE_MS: "5",
-      OPENCLAW_PLUGIN_MANIFEST_CACHE_MS: "20",
+      LAIA_ARCH_HOME: "/tmp/openclaw-home",
+      LAIA_ARCH_PLUGIN_DISCOVERY_CACHE_MS: "5",
+      LAIA_ARCH_PLUGIN_MANIFEST_CACHE_MS: "20",
     } as NodeJS.ProcessEnv;
 
     resolvePluginWebSearchProviders({
@@ -277,8 +277,8 @@ describe("resolvePluginWebSearchProviders", () => {
       },
     };
     const env = {
-      OPENCLAW_HOME: "/tmp/openclaw-home",
-      OPENCLAW_PLUGIN_DISCOVERY_CACHE_MS: "1000",
+      LAIA_ARCH_HOME: "/tmp/openclaw-home",
+      LAIA_ARCH_PLUGIN_DISCOVERY_CACHE_MS: "1000",
     } as NodeJS.ProcessEnv;
 
     resolvePluginWebSearchProviders({
@@ -288,7 +288,7 @@ describe("resolvePluginWebSearchProviders", () => {
       workspaceDir: "/tmp/workspace",
     });
 
-    env.OPENCLAW_PLUGIN_DISCOVERY_CACHE_MS = "5";
+    env.LAIA_ARCH_PLUGIN_DISCOVERY_CACHE_MS = "5";
 
     resolvePluginWebSearchProviders({
       config,

@@ -15,7 +15,7 @@ import {
 import { resolveRuntimeServiceVersion } from "../version.js";
 import { installPluginFromArchive, type InstallPluginResult } from "./install.js";
 
-export const OPENCLAW_PLUGIN_API_VERSION = "1.2.0";
+export const LAIA_ARCH_PLUGIN_API_VERSION = "1.2.0";
 
 type PluginInstallLogger = {
   info?: (message: string) => void;
@@ -103,10 +103,10 @@ function validateClawHubPluginPackage(params: {
   const compatibility = params.compatibility;
   if (
     compatibility?.pluginApiRange &&
-    !satisfiesPluginApiRange(OPENCLAW_PLUGIN_API_VERSION, compatibility.pluginApiRange)
+    !satisfiesPluginApiRange(LAIA_ARCH_PLUGIN_API_VERSION, compatibility.pluginApiRange)
   ) {
     throw new Error(
-      `Plugin "${pkg.name}" requires plugin API ${compatibility.pluginApiRange}, but this OpenClaw runtime exposes ${OPENCLAW_PLUGIN_API_VERSION}.`,
+      `Plugin "${pkg.name}" requires plugin API ${compatibility.pluginApiRange}, but this OpenClaw runtime exposes ${LAIA_ARCH_PLUGIN_API_VERSION}.`,
     );
   }
 
@@ -231,7 +231,7 @@ export async function installPluginFromClawHub(params: {
         source: "clawhub",
         clawhubUrl:
           params.baseUrl?.trim() ||
-          process.env.OPENCLAW_CLAWHUB_URL?.trim() ||
+          process.env.LAIA_ARCH_CLAWHUB_URL?.trim() ||
           "https://clawhub.ai",
         clawhubPackage: parsed.name,
         clawhubFamily,

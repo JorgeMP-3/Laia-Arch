@@ -246,10 +246,10 @@ describe("applyPluginAutoEnable", () => {
       },
       env: {
         ...process.env,
-        OPENCLAW_HOME: undefined,
-        OPENCLAW_STATE_DIR: stateDir,
+        LAIA_ARCH_HOME: undefined,
+        LAIA_ARCH_STATE_DIR: stateDir,
         CLAWDBOT_STATE_DIR: undefined,
-        OPENCLAW_BUNDLED_PLUGINS_DIR: "/nonexistent/bundled/plugins",
+        LAIA_ARCH_BUNDLED_PLUGINS_DIR: "/nonexistent/bundled/plugins",
       },
     });
 
@@ -295,7 +295,7 @@ describe("applyPluginAutoEnable", () => {
       },
       env: {
         ...process.env,
-        OPENCLAW_STATE_DIR: stateDir,
+        LAIA_ARCH_STATE_DIR: stateDir,
         CLAWDBOT_STATE_DIR: undefined,
       },
       manifestRegistry: makeRegistry([]),
@@ -491,10 +491,10 @@ describe("applyPluginAutoEnable", () => {
         config: makeApnChannelConfig(),
         env: {
           ...process.env,
-          OPENCLAW_HOME: undefined,
-          OPENCLAW_STATE_DIR: stateDir,
+          LAIA_ARCH_HOME: undefined,
+          LAIA_ARCH_STATE_DIR: stateDir,
           CLAWDBOT_STATE_DIR: undefined,
-          OPENCLAW_BUNDLED_PLUGINS_DIR: "/nonexistent/bundled/plugins",
+          LAIA_ARCH_BUNDLED_PLUGINS_DIR: "/nonexistent/bundled/plugins",
         },
       });
 

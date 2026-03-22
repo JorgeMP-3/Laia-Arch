@@ -12,7 +12,7 @@ import {
   globalInstallFallbackArgs,
   isExplicitPackageInstallSpec,
   isMainPackageTarget,
-  OPENCLAW_MAIN_PACKAGE_SPEC,
+  LAIA_ARCH_MAIN_PACKAGE_SPEC,
   resolveGlobalPackageRoot,
   resolveGlobalInstallSpec,
   resolveGlobalRoot,
@@ -28,8 +28,8 @@ describe("update global helpers", () => {
   });
 
   it("prefers explicit package spec overrides", () => {
-    envSnapshot = captureEnv(["OPENCLAW_UPDATE_PACKAGE_SPEC"]);
-    process.env.OPENCLAW_UPDATE_PACKAGE_SPEC = "file:/tmp/openclaw.tgz";
+    envSnapshot = captureEnv(["LAIA_ARCH_UPDATE_PACKAGE_SPEC"]);
+    process.env.LAIA_ARCH_UPDATE_PACKAGE_SPEC = "file:/tmp/openclaw.tgz";
 
     expect(resolveGlobalInstallSpec({ packageName: "openclaw", tag: "latest" })).toBe(
       "file:/tmp/openclaw.tgz",
@@ -38,7 +38,7 @@ describe("update global helpers", () => {
       resolveGlobalInstallSpec({
         packageName: "openclaw",
         tag: "beta",
-        env: { OPENCLAW_UPDATE_PACKAGE_SPEC: "openclaw@next" },
+        env: { LAIA_ARCH_UPDATE_PACKAGE_SPEC: "openclaw@next" },
       }),
     ).toBe("openclaw@next");
   });
@@ -66,7 +66,7 @@ describe("update global helpers", () => {
 
   it("maps main and explicit install specs for global installs", () => {
     expect(resolveGlobalInstallSpec({ packageName: "openclaw", tag: "main" })).toBe(
-      OPENCLAW_MAIN_PACKAGE_SPEC,
+      LAIA_ARCH_MAIN_PACKAGE_SPEC,
     );
     expect(
       resolveGlobalInstallSpec({

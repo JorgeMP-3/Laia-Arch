@@ -33,8 +33,8 @@ describe("tailscale helpers", () => {
   let envSnapshot: ReturnType<typeof captureEnv>;
 
   beforeEach(() => {
-    envSnapshot = captureEnv(["OPENCLAW_TEST_TAILSCALE_BINARY"]);
-    process.env.OPENCLAW_TEST_TAILSCALE_BINARY = "tailscale";
+    envSnapshot = captureEnv(["LAIA_ARCH_TEST_TAILSCALE_BINARY"]);
+    process.env.LAIA_ARCH_TEST_TAILSCALE_BINARY = "tailscale";
   });
 
   afterEach(() => {

@@ -139,7 +139,7 @@ afterAll(async () => {
 beforeEach(() => {
   setDefaultChannelPluginRegistryForTests();
   readConfigFileSnapshotMock.mockImplementation(async () => {
-    const configPath = process.env.OPENCLAW_CONFIG_PATH;
+    const configPath = process.env.LAIA_ARCH_CONFIG_PATH;
     if (!configPath) {
       return { valid: false, parsed: null };
     }
@@ -151,7 +151,7 @@ beforeEach(() => {
     config,
   }));
   writeConfigFileMock.mockImplementation(async (config: unknown) => {
-    const configPath = process.env.OPENCLAW_CONFIG_PATH;
+    const configPath = process.env.LAIA_ARCH_CONFIG_PATH;
     if (!configPath) {
       return;
     }
@@ -168,16 +168,16 @@ async function withTempConfigPath<T>(
 ): Promise<T> {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-commands-config-"));
   const configPath = path.join(dir, "openclaw.json");
-  const previous = process.env.OPENCLAW_CONFIG_PATH;
-  process.env.OPENCLAW_CONFIG_PATH = configPath;
+  const previous = process.env.LAIA_ARCH_CONFIG_PATH;
+  process.env.LAIA_ARCH_CONFIG_PATH = configPath;
   await fs.writeFile(configPath, JSON.stringify(initialConfig, null, 2), "utf-8");
   try {
     return await run(configPath);
   } finally {
     if (previous === undefined) {
-      delete process.env.OPENCLAW_CONFIG_PATH;
+      delete process.env.LAIA_ARCH_CONFIG_PATH;
     } else {
-      process.env.OPENCLAW_CONFIG_PATH = previous;
+      process.env.LAIA_ARCH_CONFIG_PATH = previous;
     }
     await fs.rm(dir, { recursive: true, force: true });
   }

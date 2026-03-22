@@ -42,8 +42,8 @@ let ensureOpenClawCliOnPath: typeof import("./path-env.js").ensureOpenClawCliOnP
 describe("ensureOpenClawCliOnPath", () => {
   const envKeys = [
     "PATH",
-    "OPENCLAW_PATH_BOOTSTRAPPED",
-    "OPENCLAW_ALLOW_PROJECT_LOCAL_BIN",
+    "LAIA_ARCH_PATH_BOOTSTRAPPED",
+    "LAIA_ARCH_ALLOW_PROJECT_LOCAL_BIN",
     "MISE_DATA_DIR",
     "HOMEBREW_PREFIX",
     "HOMEBREW_BREW_FILE",
@@ -100,7 +100,7 @@ describe("ensureOpenClawCliOnPath", () => {
   it("prepends the bundled app bin dir when a sibling openclaw exists", () => {
     const { tmp, appBinDir, appCli } = setupAppCliRoot("case-bundled");
     process.env.PATH = "/usr/bin";
-    delete process.env.OPENCLAW_PATH_BOOTSTRAPPED;
+    delete process.env.LAIA_ARCH_PATH_BOOTSTRAPPED;
 
     const updated = bootstrapPath({
       execPath: appCli,
@@ -113,7 +113,7 @@ describe("ensureOpenClawCliOnPath", () => {
 
   it("is idempotent", () => {
     process.env.PATH = "/bin";
-    process.env.OPENCLAW_PATH_BOOTSTRAPPED = "1";
+    process.env.LAIA_ARCH_PATH_BOOTSTRAPPED = "1";
     ensureOpenClawCliOnPath({
       execPath: "/tmp/does-not-matter",
       cwd: "/tmp",
@@ -132,7 +132,7 @@ describe("ensureOpenClawCliOnPath", () => {
 
     process.env.MISE_DATA_DIR = miseDataDir;
     process.env.PATH = "/usr/bin";
-    delete process.env.OPENCLAW_PATH_BOOTSTRAPPED;
+    delete process.env.LAIA_ARCH_PATH_BOOTSTRAPPED;
 
     const updated = bootstrapPath({
       execPath: appCli,
@@ -168,8 +168,8 @@ describe("ensureOpenClawCliOnPath", () => {
       setExe(localCli);
 
       process.env.PATH = "/usr/bin";
-      delete process.env.OPENCLAW_PATH_BOOTSTRAPPED;
-      delete process.env.OPENCLAW_ALLOW_PROJECT_LOCAL_BIN;
+      delete process.env.LAIA_ARCH_PATH_BOOTSTRAPPED;
+      delete process.env.LAIA_ARCH_ALLOW_PROJECT_LOCAL_BIN;
 
       const withoutOptIn = bootstrapPath({
         execPath: appCli,
@@ -180,11 +180,11 @@ describe("ensureOpenClawCliOnPath", () => {
       expect(withoutOptIn.includes(localBinDir)).toBe(false);
 
       process.env.PATH = "/usr/bin";
-      delete process.env.OPENCLAW_PATH_BOOTSTRAPPED;
+      delete process.env.LAIA_ARCH_PATH_BOOTSTRAPPED;
       if (envValue === undefined) {
-        delete process.env.OPENCLAW_ALLOW_PROJECT_LOCAL_BIN;
+        delete process.env.LAIA_ARCH_ALLOW_PROJECT_LOCAL_BIN;
       } else {
-        process.env.OPENCLAW_ALLOW_PROJECT_LOCAL_BIN = envValue;
+        process.env.LAIA_ARCH_ALLOW_PROJECT_LOCAL_BIN = envValue;
       }
 
       const withOptIn = bootstrapPath({
@@ -211,7 +211,7 @@ describe("ensureOpenClawCliOnPath", () => {
 
     process.env.PATH = "/usr/bin";
     process.env.XDG_BIN_HOME = xdgBinHome;
-    delete process.env.OPENCLAW_PATH_BOOTSTRAPPED;
+    delete process.env.LAIA_ARCH_PATH_BOOTSTRAPPED;
 
     const updated = bootstrapPath({
       execPath: appCli,
@@ -236,7 +236,7 @@ describe("ensureOpenClawCliOnPath", () => {
     setDir(linuxbrewSbin);
 
     process.env.PATH = "/usr/bin";
-    delete process.env.OPENCLAW_PATH_BOOTSTRAPPED;
+    delete process.env.LAIA_ARCH_PATH_BOOTSTRAPPED;
     delete process.env.HOMEBREW_PREFIX;
     delete process.env.HOMEBREW_BREW_FILE;
     delete process.env.XDG_BIN_HOME;

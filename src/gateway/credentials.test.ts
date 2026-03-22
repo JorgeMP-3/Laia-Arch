@@ -15,8 +15,8 @@ type GatewayConfig = NonNullable<OpenClawConfig["gateway"]>;
 const DEFAULT_GATEWAY_AUTH = { token: "config-token", password: "config-password" }; // pragma: allowlist secret
 const DEFAULT_REMOTE_AUTH = { token: "remote-token", password: "remote-password" }; // pragma: allowlist secret
 const DEFAULT_GATEWAY_ENV = {
-  OPENCLAW_GATEWAY_TOKEN: "env-token",
-  OPENCLAW_GATEWAY_PASSWORD: "env-password", // pragma: allowlist secret
+  LAIA_ARCH_GATEWAY_TOKEN: "env-token",
+  LAIA_ARCH_GATEWAY_PASSWORD: "env-password", // pragma: allowlist secret
 } as NodeJS.ProcessEnv;
 
 function resolveGatewayCredentialsFor(
@@ -166,9 +166,9 @@ describe("resolveGatewayCredentialsFromConfig", () => {
         },
       }),
       env: {
-        OPENCLAW_GATEWAY_TOKEN: "env-token",
-        OPENCLAW_GATEWAY_PASSWORD: "env-password", // pragma: allowlist secret
-        OPENCLAW_SERVICE_KIND: "gateway",
+        LAIA_ARCH_GATEWAY_TOKEN: "env-token",
+        LAIA_ARCH_GATEWAY_PASSWORD: "env-password", // pragma: allowlist secret
+        LAIA_ARCH_SERVICE_KIND: "gateway",
       } as NodeJS.ProcessEnv,
     });
     expect(resolved).toEqual({
@@ -228,12 +228,12 @@ describe("resolveGatewayCredentialsFromConfig", () => {
           mode: "local",
           auth: {
             mode: "token",
-            token: "${OPENCLAW_GATEWAY_TOKEN}",
+            token: "${LAIA_ARCH_GATEWAY_TOKEN}",
           },
         },
       }),
       env: {
-        OPENCLAW_GATEWAY_TOKEN: "env-token",
+        LAIA_ARCH_GATEWAY_TOKEN: "env-token",
       } as NodeJS.ProcessEnv,
       includeLegacyEnv: false,
     });
@@ -252,7 +252,7 @@ describe("resolveGatewayCredentialsFromConfig", () => {
             mode: "local",
             auth: {
               mode: "token",
-              token: "${OPENCLAW_GATEWAY_TOKEN}",
+              token: "${LAIA_ARCH_GATEWAY_TOKEN}",
             },
           },
         }),
@@ -379,7 +379,7 @@ describe("resolveGatewayCredentialsFromConfig", () => {
         },
       }),
       env: {
-        OPENCLAW_GATEWAY_TOKEN: "env-token",
+        LAIA_ARCH_GATEWAY_TOKEN: "env-token",
       } as NodeJS.ProcessEnv,
       remoteTokenFallback: "remote-only",
     });
@@ -532,8 +532,8 @@ describe("resolveGatewayCredentialsFromValues", () => {
       configToken: "config-token",
       configPassword: "config-password", // pragma: allowlist secret
       env: {
-        OPENCLAW_GATEWAY_TOKEN: "env-token",
-        OPENCLAW_GATEWAY_PASSWORD: "env-password", // pragma: allowlist secret
+        LAIA_ARCH_GATEWAY_TOKEN: "env-token",
+        LAIA_ARCH_GATEWAY_PASSWORD: "env-password", // pragma: allowlist secret
       } as NodeJS.ProcessEnv,
       includeLegacyEnv: false,
       tokenPrecedence: "config-first",
@@ -550,8 +550,8 @@ describe("resolveGatewayCredentialsFromValues", () => {
       configToken: "config-token",
       configPassword: "config-password", // pragma: allowlist secret
       env: {
-        OPENCLAW_GATEWAY_TOKEN: "env-token",
-        OPENCLAW_GATEWAY_PASSWORD: "env-password", // pragma: allowlist secret
+        LAIA_ARCH_GATEWAY_TOKEN: "env-token",
+        LAIA_ARCH_GATEWAY_PASSWORD: "env-password", // pragma: allowlist secret
       } as NodeJS.ProcessEnv,
     });
     expect(resolved).toEqual({
@@ -562,8 +562,8 @@ describe("resolveGatewayCredentialsFromValues", () => {
 
   it("rejects unresolved env var placeholders in config credentials", () => {
     const resolved = resolveGatewayCredentialsFromValues({
-      configToken: "${OPENCLAW_GATEWAY_TOKEN}",
-      configPassword: "${OPENCLAW_GATEWAY_PASSWORD}",
+      configToken: "${LAIA_ARCH_GATEWAY_TOKEN}",
+      configPassword: "${LAIA_ARCH_GATEWAY_PASSWORD}",
       env: {} as NodeJS.ProcessEnv,
       tokenPrecedence: "config-first",
       passwordPrecedence: "config-first", // pragma: allowlist secret

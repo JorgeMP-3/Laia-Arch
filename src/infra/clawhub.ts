@@ -181,7 +181,7 @@ type ClawHubRequestParams = {
 
 function normalizeBaseUrl(baseUrl?: string): string {
   const envValue =
-    process.env.OPENCLAW_CLAWHUB_URL?.trim() ||
+    process.env.LAIA_ARCH_CLAWHUB_URL?.trim() ||
     process.env.CLAWHUB_URL?.trim() ||
     DEFAULT_CLAWHUB_URL;
   const value = (baseUrl?.trim() || envValue).replace(/\/+$/, "");

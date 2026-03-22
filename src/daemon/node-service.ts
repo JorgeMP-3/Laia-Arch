@@ -14,13 +14,13 @@ function withNodeServiceEnv(
 ): Record<string, string | undefined> {
   return {
     ...env,
-    OPENCLAW_LAUNCHD_LABEL: resolveNodeLaunchAgentLabel(),
-    OPENCLAW_SYSTEMD_UNIT: resolveNodeSystemdServiceName(),
-    OPENCLAW_WINDOWS_TASK_NAME: resolveNodeWindowsTaskName(),
-    OPENCLAW_TASK_SCRIPT_NAME: NODE_WINDOWS_TASK_SCRIPT_NAME,
-    OPENCLAW_LOG_PREFIX: "node",
-    OPENCLAW_SERVICE_MARKER: NODE_SERVICE_MARKER,
-    OPENCLAW_SERVICE_KIND: NODE_SERVICE_KIND,
+    LAIA_ARCH_LAUNCHD_LABEL: resolveNodeLaunchAgentLabel(),
+    LAIA_ARCH_SYSTEMD_UNIT: resolveNodeSystemdServiceName(),
+    LAIA_ARCH_WINDOWS_TASK_NAME: resolveNodeWindowsTaskName(),
+    LAIA_ARCH_TASK_SCRIPT_NAME: NODE_WINDOWS_TASK_SCRIPT_NAME,
+    LAIA_ARCH_LOG_PREFIX: "node",
+    LAIA_ARCH_SERVICE_MARKER: NODE_SERVICE_MARKER,
+    LAIA_ARCH_SERVICE_KIND: NODE_SERVICE_KIND,
   };
 }
 
@@ -30,13 +30,13 @@ function withNodeInstallEnv(args: GatewayServiceInstallArgs): GatewayServiceInst
     env: withNodeServiceEnv(args.env),
     environment: {
       ...args.environment,
-      OPENCLAW_LAUNCHD_LABEL: resolveNodeLaunchAgentLabel(),
-      OPENCLAW_SYSTEMD_UNIT: resolveNodeSystemdServiceName(),
-      OPENCLAW_WINDOWS_TASK_NAME: resolveNodeWindowsTaskName(),
-      OPENCLAW_TASK_SCRIPT_NAME: NODE_WINDOWS_TASK_SCRIPT_NAME,
-      OPENCLAW_LOG_PREFIX: "node",
-      OPENCLAW_SERVICE_MARKER: NODE_SERVICE_MARKER,
-      OPENCLAW_SERVICE_KIND: NODE_SERVICE_KIND,
+      LAIA_ARCH_LAUNCHD_LABEL: resolveNodeLaunchAgentLabel(),
+      LAIA_ARCH_SYSTEMD_UNIT: resolveNodeSystemdServiceName(),
+      LAIA_ARCH_WINDOWS_TASK_NAME: resolveNodeWindowsTaskName(),
+      LAIA_ARCH_TASK_SCRIPT_NAME: NODE_WINDOWS_TASK_SCRIPT_NAME,
+      LAIA_ARCH_LOG_PREFIX: "node",
+      LAIA_ARCH_SERVICE_MARKER: NODE_SERVICE_MARKER,
+      LAIA_ARCH_SERVICE_KIND: NODE_SERVICE_KIND,
     },
   };
 }

@@ -76,8 +76,8 @@ describe("run-node script", () => {
           args: ["--version"],
           env: {
             ...process.env,
-            OPENCLAW_FORCE_BUILD: "1",
-            OPENCLAW_RUNNER_LOG: "0",
+            LAIA_ARCH_FORCE_BUILD: "1",
+            LAIA_ARCH_RUNNER_LOG: "0",
           },
           spawn,
           execPath: process.execPath,
@@ -135,8 +135,8 @@ describe("run-node script", () => {
         args: ["status"],
         env: {
           ...process.env,
-          OPENCLAW_FORCE_BUILD: "1",
-          OPENCLAW_RUNNER_LOG: "0",
+          LAIA_ARCH_FORCE_BUILD: "1",
+          LAIA_ARCH_RUNNER_LOG: "0",
         },
         spawn,
         execPath: process.execPath,
@@ -209,7 +209,7 @@ describe("run-node script", () => {
         args: ["status"],
         env: {
           ...process.env,
-          OPENCLAW_RUNNER_LOG: "0",
+          LAIA_ARCH_RUNNER_LOG: "0",
         },
         spawn,
         spawnSync,
@@ -236,8 +236,8 @@ describe("run-node script", () => {
         args: ["status"],
         env: {
           ...process.env,
-          OPENCLAW_FORCE_BUILD: "1",
-          OPENCLAW_RUNNER_LOG: "0",
+          LAIA_ARCH_FORCE_BUILD: "1",
+          LAIA_ARCH_RUNNER_LOG: "0",
         },
         spawn,
         execPath: process.execPath,
@@ -284,7 +284,7 @@ describe("run-node script", () => {
         args: ["status"],
         env: {
           ...process.env,
-          OPENCLAW_RUNNER_LOG: "0",
+          LAIA_ARCH_RUNNER_LOG: "0",
         },
         spawn,
         spawnSync,
@@ -355,7 +355,7 @@ describe("run-node script", () => {
         args: ["status"],
         env: {
           ...process.env,
-          OPENCLAW_RUNNER_LOG: "0",
+          LAIA_ARCH_RUNNER_LOG: "0",
         },
         spawn,
         spawnSync,
@@ -419,7 +419,7 @@ describe("run-node script", () => {
         args: ["status"],
         env: {
           ...process.env,
-          OPENCLAW_RUNNER_LOG: "0",
+          LAIA_ARCH_RUNNER_LOG: "0",
         },
         spawn,
         spawnSync,
@@ -489,7 +489,7 @@ describe("run-node script", () => {
         args: ["status"],
         env: {
           ...process.env,
-          OPENCLAW_RUNNER_LOG: "0",
+          LAIA_ARCH_RUNNER_LOG: "0",
         },
         spawn,
         spawnSync,
@@ -558,7 +558,7 @@ describe("run-node script", () => {
         args: ["status"],
         env: {
           ...process.env,
-          OPENCLAW_RUNNER_LOG: "0",
+          LAIA_ARCH_RUNNER_LOG: "0",
         },
         spawn,
         spawnSync,
@@ -633,7 +633,7 @@ describe("run-node script", () => {
         args: ["status"],
         env: {
           ...process.env,
-          OPENCLAW_RUNNER_LOG: "0",
+          LAIA_ARCH_RUNNER_LOG: "0",
         },
         spawn,
         spawnSync,
@@ -692,7 +692,7 @@ describe("run-node script", () => {
         args: ["status"],
         env: {
           ...process.env,
-          OPENCLAW_RUNNER_LOG: "0",
+          LAIA_ARCH_RUNNER_LOG: "0",
         },
         spawn,
         spawnSync,
@@ -753,7 +753,7 @@ describe("run-node script", () => {
         args: ["status"],
         env: {
           ...process.env,
-          OPENCLAW_RUNNER_LOG: "0",
+          LAIA_ARCH_RUNNER_LOG: "0",
         },
         spawn,
         spawnSync,

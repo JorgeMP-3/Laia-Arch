@@ -96,6 +96,8 @@ function isLikelyOpenClawCliProcess(argv: string[] = process.argv): boolean {
     .trim()
     .toLowerCase();
   return (
+    entryBasename === "laia-arch" ||
+    entryBasename === "laia-arch.mjs" ||
     entryBasename === "openclaw" ||
     entryBasename === "openclaw.mjs" ||
     entryBasename === "entry.js" ||

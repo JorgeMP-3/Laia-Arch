@@ -39,7 +39,7 @@ function mkdirSafe(dir: string) {
 
 const fixtureRoot = mkdtempSafe(path.join(os.tmpdir(), "openclaw-plugin-"));
 let tempDirIndex = 0;
-const prevBundledDir = process.env.OPENCLAW_BUNDLED_PLUGINS_DIR;
+const prevBundledDir = process.env.LAIA_ARCH_BUNDLED_PLUGINS_DIR;
 const EMPTY_PLUGIN_SCHEMA = { type: "object", additionalProperties: false, properties: {} };
 let cachedBundledTelegramDir = "";
 let cachedBundledMemoryDir = "";
@@ -105,7 +105,7 @@ function loadBundledMemoryPluginRegistry(options?: {
   pluginFilename?: string;
 }) {
   if (!options && cachedBundledMemoryDir) {
-    process.env.OPENCLAW_BUNDLED_PLUGINS_DIR = cachedBundledMemoryDir;
+    process.env.LAIA_ARCH_BUNDLED_PLUGINS_DIR = cachedBundledMemoryDir;
     return loadOpenClawPlugins({
       cache: false,
       workspaceDir: cachedBundledMemoryDir,
@@ -154,7 +154,7 @@ function loadBundledMemoryPluginRegistry(options?: {
   if (!options) {
     cachedBundledMemoryDir = bundledDir;
   }
-  process.env.OPENCLAW_BUNDLED_PLUGINS_DIR = bundledDir;
+  process.env.LAIA_ARCH_BUNDLED_PLUGINS_DIR = bundledDir;
 
   return loadOpenClawPlugins({
     cache: false,
@@ -179,7 +179,7 @@ function setupBundledTelegramPlugin() {
       filename: "telegram.cjs",
     });
   }
-  process.env.OPENCLAW_BUNDLED_PLUGINS_DIR = cachedBundledTelegramDir;
+  process.env.LAIA_ARCH_BUNDLED_PLUGINS_DIR = cachedBundledTelegramDir;
 }
 
 function expectTelegramLoaded(registry: ReturnType<typeof loadOpenClawPlugins>) {
@@ -189,7 +189,7 @@ function expectTelegramLoaded(registry: ReturnType<typeof loadOpenClawPlugins>) 
 }
 
 function useNoBundledPlugins() {
-  process.env.OPENCLAW_BUNDLED_PLUGINS_DIR = "/nonexistent/bundled/plugins";
+  process.env.LAIA_ARCH_BUNDLED_PLUGINS_DIR = "/nonexistent/bundled/plugins";
 }
 
 function loadRegistryFromSinglePlugin(params: {
@@ -277,7 +277,7 @@ function loadBundleFixture(params: {
   const stateDir = makeTempDir();
   const bundleRoot = path.join(workspaceDir, ".openclaw", "extensions", params.pluginId);
   params.build(bundleRoot);
-  return withEnv({ OPENCLAW_STATE_DIR: stateDir, ...params.env }, () =>
+  return withEnv({ LAIA_ARCH_STATE_DIR: stateDir, ...params.env }, () =>
     loadOpenClawPlugins({
       workspaceDir,
       onlyPluginIds: params.onlyPluginIds ?? [params.pluginId],
@@ -469,11 +469,11 @@ function createEnvResolvedPluginFixture(pluginId: string) {
   });
   const env = {
     ...process.env,
-    OPENCLAW_HOME: openclawHome,
+    LAIA_ARCH_HOME: openclawHome,
     HOME: ignoredHome,
-    OPENCLAW_STATE_DIR: stateDir,
+    LAIA_ARCH_STATE_DIR: stateDir,
     CLAWDBOT_STATE_DIR: undefined,
-    OPENCLAW_BUNDLED_PLUGINS_DIR: "/nonexistent/bundled/plugins",
+    LAIA_ARCH_BUNDLED_PLUGINS_DIR: "/nonexistent/bundled/plugins",
   };
   return { plugin, env };
 }
@@ -524,9 +524,9 @@ afterEach(() => {
   clearPluginLoaderCache();
   resetDiagnosticEventsForTest();
   if (prevBundledDir === undefined) {
-    delete process.env.OPENCLAW_BUNDLED_PLUGINS_DIR;
+    delete process.env.LAIA_ARCH_BUNDLED_PLUGINS_DIR;
   } else {
-    process.env.OPENCLAW_BUNDLED_PLUGINS_DIR = prevBundledDir;
+    process.env.LAIA_ARCH_BUNDLED_PLUGINS_DIR = prevBundledDir;
   }
 });
 
@@ -552,7 +552,7 @@ describe("bundle plugins", () => {
       "---\ndescription: fixture\n---\n",
     );
 
-    const registry = withEnv({ OPENCLAW_STATE_DIR: stateDir }, () =>
+    const registry = withEnv({ LAIA_ARCH_STATE_DIR: stateDir }, () =>
       loadOpenClawPlugins({
         workspaceDir,
         onlyPluginIds: ["sample-bundle"],
@@ -659,7 +659,7 @@ describe("bundle plugins", () => {
     const registry = loadBundleFixture({
       pluginId: "claude-mcp-url",
       env: {
-        OPENCLAW_HOME: stateDir,
+        LAIA_ARCH_HOME: stateDir,
       },
       build: (bundleRoot) => {
         mkdirSafe(path.join(bundleRoot, ".claude-plugin"));
@@ -718,7 +718,7 @@ describe("loadOpenClawPlugins", () => {
       dir: bundledDir,
       filename: "bundled.cjs",
     });
-    process.env.OPENCLAW_BUNDLED_PLUGINS_DIR = bundledDir;
+    process.env.LAIA_ARCH_BUNDLED_PLUGINS_DIR = bundledDir;
 
     const registry = loadOpenClawPlugins({
       cache: false,
@@ -820,7 +820,7 @@ describe("loadOpenClawPlugins", () => {
       {
         label: "loads plugins from config paths",
         run: () => {
-          process.env.OPENCLAW_BUNDLED_PLUGINS_DIR = "/nonexistent/bundled/plugins";
+          process.env.LAIA_ARCH_BUNDLED_PLUGINS_DIR = "/nonexistent/bundled/plugins";
           const plugin = writePlugin({
             id: "allowed-config-path",
             filename: "allowed-config-path.cjs",
@@ -1098,7 +1098,7 @@ module.exports = { id: "skipped-scoped-only", register() { throw new Error("skip
   });
 
   it("re-initializes global hook runner when serving registry from cache", () => {
-    process.env.OPENCLAW_BUNDLED_PLUGINS_DIR = "/nonexistent/bundled/plugins";
+    process.env.LAIA_ARCH_BUNDLED_PLUGINS_DIR = "/nonexistent/bundled/plugins";
     const plugin = writePlugin({
       id: "cache-hook-runner",
       filename: "cache-hook-runner.cjs",
@@ -1167,7 +1167,7 @@ module.exports = { id: "skipped-scoped-only", register() { throw new Error("skip
               ...options,
               env: {
                 ...process.env,
-                OPENCLAW_BUNDLED_PLUGINS_DIR: bundledA,
+                LAIA_ARCH_BUNDLED_PLUGINS_DIR: bundledA,
               },
             }),
           loadSecond: () =>
@@ -1175,7 +1175,7 @@ module.exports = { id: "skipped-scoped-only", register() { throw new Error("skip
               ...options,
               env: {
                 ...process.env,
-                OPENCLAW_BUNDLED_PLUGINS_DIR: bundledB,
+                LAIA_ARCH_BUNDLED_PLUGINS_DIR: bundledB,
               },
             }),
         };
@@ -1225,9 +1225,9 @@ module.exports = { id: "skipped-scoped-only", register() { throw new Error("skip
               env: {
                 ...process.env,
                 HOME: homeA,
-                OPENCLAW_HOME: undefined,
-                OPENCLAW_STATE_DIR: stateDir,
-                OPENCLAW_BUNDLED_PLUGINS_DIR: bundledDir,
+                LAIA_ARCH_HOME: undefined,
+                LAIA_ARCH_STATE_DIR: stateDir,
+                LAIA_ARCH_BUNDLED_PLUGINS_DIR: bundledDir,
               },
             }),
           loadSecond: () =>
@@ -1236,9 +1236,9 @@ module.exports = { id: "skipped-scoped-only", register() { throw new Error("skip
               env: {
                 ...process.env,
                 HOME: homeB,
-                OPENCLAW_HOME: undefined,
-                OPENCLAW_STATE_DIR: stateDir,
-                OPENCLAW_BUNDLED_PLUGINS_DIR: bundledDir,
+                LAIA_ARCH_HOME: undefined,
+                LAIA_ARCH_STATE_DIR: stateDir,
+                LAIA_ARCH_BUNDLED_PLUGINS_DIR: bundledDir,
               },
             }),
         };
@@ -1295,11 +1295,11 @@ module.exports = { id: "skipped-scoped-only", register() { throw new Error("skip
               ...options,
               env: {
                 ...process.env,
-                OPENCLAW_HOME: openclawHome,
+                LAIA_ARCH_HOME: openclawHome,
                 HOME: ignoredHome,
-                OPENCLAW_STATE_DIR: stateDir,
+                LAIA_ARCH_STATE_DIR: stateDir,
                 CLAWDBOT_STATE_DIR: undefined,
-                OPENCLAW_BUNDLED_PLUGINS_DIR: "/nonexistent/bundled/plugins",
+                LAIA_ARCH_BUNDLED_PLUGINS_DIR: "/nonexistent/bundled/plugins",
               },
             }),
           loadVariant: () =>
@@ -1307,11 +1307,11 @@ module.exports = { id: "skipped-scoped-only", register() { throw new Error("skip
               ...options,
               env: {
                 ...process.env,
-                OPENCLAW_HOME: secondHome,
+                LAIA_ARCH_HOME: secondHome,
                 HOME: ignoredHome,
-                OPENCLAW_STATE_DIR: stateDir,
+                LAIA_ARCH_STATE_DIR: stateDir,
                 CLAWDBOT_STATE_DIR: undefined,
-                OPENCLAW_BUNDLED_PLUGINS_DIR: "/nonexistent/bundled/plugins",
+                LAIA_ARCH_BUNDLED_PLUGINS_DIR: "/nonexistent/bundled/plugins",
               },
             }),
         };
@@ -1372,8 +1372,8 @@ module.exports = { id: "skipped-scoped-only", register() { throw new Error("skip
       loadOpenClawPlugins({
         env: {
           ...process.env,
-          OPENCLAW_STATE_DIR: stateDir,
-          OPENCLAW_BUNDLED_PLUGINS_DIR: "/nonexistent/bundled/plugins",
+          LAIA_ARCH_STATE_DIR: stateDir,
+          LAIA_ARCH_BUNDLED_PLUGINS_DIR: "/nonexistent/bundled/plugins",
         },
         config: {
           plugins: {
@@ -1417,8 +1417,8 @@ module.exports = { id: "skipped-scoped-only", register() { throw new Error("skip
       env: {
         ...process.env,
         HOME: homeDir,
-        OPENCLAW_HOME: undefined,
-        OPENCLAW_BUNDLED_PLUGINS_DIR: override,
+        LAIA_ARCH_HOME: undefined,
+        LAIA_ARCH_BUNDLED_PLUGINS_DIR: override,
       },
       config: {
         plugins: {
@@ -1435,7 +1435,7 @@ module.exports = { id: "skipped-scoped-only", register() { throw new Error("skip
     ).toBe(fs.realpathSync(plugin.file));
   });
 
-  it("prefers OPENCLAW_HOME over HOME for env-expanded load paths", () => {
+  it("prefers LAIA_ARCH_HOME over HOME for env-expanded load paths", () => {
     const ignoredHome = makeTempDir();
     const openclawHome = makeTempDir();
     const stateDir = makeTempDir();
@@ -1451,9 +1451,9 @@ module.exports = { id: "skipped-scoped-only", register() { throw new Error("skip
       env: {
         ...process.env,
         HOME: ignoredHome,
-        OPENCLAW_HOME: openclawHome,
-        OPENCLAW_STATE_DIR: stateDir,
-        OPENCLAW_BUNDLED_PLUGINS_DIR: bundledDir,
+        LAIA_ARCH_HOME: openclawHome,
+        LAIA_ARCH_STATE_DIR: stateDir,
+        LAIA_ARCH_BUNDLED_PLUGINS_DIR: bundledDir,
       },
       config: {
         plugins: {
@@ -2067,7 +2067,7 @@ module.exports = { id: "skipped-scoped-only", register() { throw new Error("skip
   });
 
   it("respects explicit disable in config", () => {
-    process.env.OPENCLAW_BUNDLED_PLUGINS_DIR = "/nonexistent/bundled/plugins";
+    process.env.LAIA_ARCH_BUNDLED_PLUGINS_DIR = "/nonexistent/bundled/plugins";
     const plugin = writePlugin({
       id: "config-disable",
       body: `module.exports = { id: "config-disable", register() {} };`,
@@ -2413,7 +2413,7 @@ module.exports = {
       {
         label: "enforces memory slot selection",
         loadRegistry: () => {
-          process.env.OPENCLAW_BUNDLED_PLUGINS_DIR = "/nonexistent/bundled/plugins";
+          process.env.LAIA_ARCH_BUNDLED_PLUGINS_DIR = "/nonexistent/bundled/plugins";
           const memoryA = writePlugin({
             id: "memory-a",
             body: `module.exports = { id: "memory-a", kind: "memory", register() {} };`,
@@ -2486,7 +2486,7 @@ module.exports = {
             ),
             "utf-8",
           );
-          process.env.OPENCLAW_BUNDLED_PLUGINS_DIR = bundledDir;
+          process.env.LAIA_ARCH_BUNDLED_PLUGINS_DIR = bundledDir;
 
           return loadOpenClawPlugins({
             cache: false,
@@ -2513,7 +2513,7 @@ module.exports = {
       {
         label: "disables memory plugins when slot is none",
         loadRegistry: () => {
-          process.env.OPENCLAW_BUNDLED_PLUGINS_DIR = "/nonexistent/bundled/plugins";
+          process.env.LAIA_ARCH_BUNDLED_PLUGINS_DIR = "/nonexistent/bundled/plugins";
           const memory = writePlugin({
             id: "memory-off",
             body: `module.exports = { id: "memory-off", kind: "memory", register() {} };`,
@@ -2556,7 +2556,7 @@ module.exports = {
             dir: bundledDir,
             filename: "shadow.cjs",
           });
-          process.env.OPENCLAW_BUNDLED_PLUGINS_DIR = bundledDir;
+          process.env.LAIA_ARCH_BUNDLED_PLUGINS_DIR = bundledDir;
 
           const override = writePlugin({
             id: "shadow",
@@ -2590,10 +2590,10 @@ module.exports = {
             dir: bundledDir,
             filename: "index.cjs",
           });
-          process.env.OPENCLAW_BUNDLED_PLUGINS_DIR = bundledDir;
+          process.env.LAIA_ARCH_BUNDLED_PLUGINS_DIR = bundledDir;
 
           const stateDir = makeTempDir();
-          return withEnv({ OPENCLAW_STATE_DIR: stateDir, CLAWDBOT_STATE_DIR: undefined }, () => {
+          return withEnv({ LAIA_ARCH_STATE_DIR: stateDir, CLAWDBOT_STATE_DIR: undefined }, () => {
             const globalDir = path.join(stateDir, "extensions", "feishu");
             mkdirSafe(globalDir);
             writePlugin({
@@ -2632,10 +2632,10 @@ module.exports = {
             dir: bundledDir,
             filename: "index.cjs",
           });
-          process.env.OPENCLAW_BUNDLED_PLUGINS_DIR = bundledDir;
+          process.env.LAIA_ARCH_BUNDLED_PLUGINS_DIR = bundledDir;
 
           const stateDir = makeTempDir();
-          return withEnv({ OPENCLAW_STATE_DIR: stateDir, CLAWDBOT_STATE_DIR: undefined }, () => {
+          return withEnv({ LAIA_ARCH_STATE_DIR: stateDir, CLAWDBOT_STATE_DIR: undefined }, () => {
             const globalDir = path.join(stateDir, "extensions", "zalouser");
             mkdirSafe(globalDir);
             writePlugin({
@@ -2816,7 +2816,7 @@ module.exports = {
             dir: bundledDir,
             filename: "index.cjs",
           });
-          process.env.OPENCLAW_BUNDLED_PLUGINS_DIR = bundledDir;
+          process.env.LAIA_ARCH_BUNDLED_PLUGINS_DIR = bundledDir;
 
           const workspaceDir = makeTempDir();
           const workspaceExtDir = path.join(workspaceDir, ".openclaw", "extensions", "shadowed");
@@ -2880,7 +2880,7 @@ module.exports = {
       ),
       "utf-8",
     );
-    process.env.OPENCLAW_BUNDLED_PLUGINS_DIR = bundledDir;
+    process.env.LAIA_ARCH_BUNDLED_PLUGINS_DIR = bundledDir;
 
     const registry = loadOpenClawPlugins({
       cache: false,
@@ -2934,7 +2934,7 @@ module.exports = {
         label: "warns when loaded non-bundled plugin has no install/load-path provenance",
         loadRegistry: () => {
           const stateDir = makeTempDir();
-          return withEnv({ OPENCLAW_STATE_DIR: stateDir, CLAWDBOT_STATE_DIR: undefined }, () => {
+          return withEnv({ LAIA_ARCH_STATE_DIR: stateDir, CLAWDBOT_STATE_DIR: undefined }, () => {
             const globalDir = path.join(stateDir, "extensions", "rogue");
             mkdirSafe(globalDir);
             writePlugin({
@@ -3094,7 +3094,7 @@ module.exports = {
       throw err;
     }
 
-    process.env.OPENCLAW_BUNDLED_PLUGINS_DIR = bundledDir;
+    process.env.LAIA_ARCH_BUNDLED_PLUGINS_DIR = bundledDir;
     const registry = loadOpenClawPlugins({
       cache: false,
       workspaceDir: bundledDir,
@@ -3136,7 +3136,7 @@ module.exports = {
 } };`,
     });
 
-    const registry = withEnv({ OPENCLAW_STATE_DIR: stateDir }, () =>
+    const registry = withEnv({ LAIA_ARCH_STATE_DIR: stateDir }, () =>
       loadRegistryFromSinglePlugin({
         plugin,
         pluginConfig: {
@@ -3164,17 +3164,19 @@ module.exports = {
       };`,
     });
 
-    const registry = withEnv({ OPENCLAW_BUNDLED_PLUGINS_DIR: "/nonexistent/bundled/plugins" }, () =>
-      loadOpenClawPlugins({
-        cache: false,
-        workspaceDir: plugin.dir,
-        config: {
-          plugins: {
-            load: { paths: [plugin.file] },
-            allow: ["legacy-root-import"],
+    const registry = withEnv(
+      { LAIA_ARCH_BUNDLED_PLUGINS_DIR: "/nonexistent/bundled/plugins" },
+      () =>
+        loadOpenClawPlugins({
+          cache: false,
+          workspaceDir: plugin.dir,
+          config: {
+            plugins: {
+              load: { paths: [plugin.file] },
+              allow: ["legacy-root-import"],
+            },
           },
-        },
-      }),
+        }),
     );
     const record = registry.plugins.find((entry) => entry.id === "legacy-root-import");
     expect(record?.status).toBe("loaded");
@@ -3209,7 +3211,7 @@ module.exports = {
 
     try {
       const registry = withEnv(
-        { OPENCLAW_BUNDLED_PLUGINS_DIR: "/nonexistent/bundled/plugins" },
+        { LAIA_ARCH_BUNDLED_PLUGINS_DIR: "/nonexistent/bundled/plugins" },
         () =>
           loadOpenClawPlugins({
             cache: false,

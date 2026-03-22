@@ -18,6 +18,7 @@ export function isGatewayArgv(args: string[], opts?: { allowGatewayBinary?: bool
   const entryCandidates = [
     "dist/index.js",
     "dist/entry.js",
+    "laia-arch.mjs",
     "openclaw.mjs",
     "scripts/run-node.mjs",
     "src/entry.ts",

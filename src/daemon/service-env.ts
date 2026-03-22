@@ -265,20 +265,20 @@ export function buildServiceEnvironment(params: {
     extraPathDirs,
     params.execPath,
   );
-  const profile = env.OPENCLAW_PROFILE;
+  const profile = env.LAIA_ARCH_PROFILE;
   const resolvedLaunchdLabel =
     launchdLabel || (platform === "darwin" ? resolveGatewayLaunchAgentLabel(profile) : undefined);
   const systemdUnit = `${resolveGatewaySystemdServiceName(profile)}.service`;
   return {
     ...buildCommonServiceEnvironment(env, sharedEnv),
-    OPENCLAW_PROFILE: profile,
-    OPENCLAW_GATEWAY_PORT: String(port),
-    OPENCLAW_LAUNCHD_LABEL: resolvedLaunchdLabel,
-    OPENCLAW_SYSTEMD_UNIT: systemdUnit,
-    OPENCLAW_WINDOWS_TASK_NAME: resolveGatewayWindowsTaskName(profile),
-    OPENCLAW_SERVICE_MARKER: GATEWAY_SERVICE_MARKER,
-    OPENCLAW_SERVICE_KIND: GATEWAY_SERVICE_KIND,
-    OPENCLAW_SERVICE_VERSION: VERSION,
+    LAIA_ARCH_PROFILE: profile,
+    LAIA_ARCH_GATEWAY_PORT: String(port),
+    LAIA_ARCH_LAUNCHD_LABEL: resolvedLaunchdLabel,
+    LAIA_ARCH_SYSTEMD_UNIT: systemdUnit,
+    LAIA_ARCH_WINDOWS_TASK_NAME: resolveGatewayWindowsTaskName(profile),
+    LAIA_ARCH_SERVICE_MARKER: GATEWAY_SERVICE_MARKER,
+    LAIA_ARCH_SERVICE_KIND: GATEWAY_SERVICE_KIND,
+    LAIA_ARCH_SERVICE_VERSION: VERSION,
   };
 }
 
@@ -297,18 +297,18 @@ export function buildNodeServiceEnvironment(params: {
     params.execPath,
   );
   const gatewayToken =
-    env.OPENCLAW_GATEWAY_TOKEN?.trim() || env.CLAWDBOT_GATEWAY_TOKEN?.trim() || undefined;
+    env.LAIA_ARCH_GATEWAY_TOKEN?.trim() || env.CLAWDBOT_GATEWAY_TOKEN?.trim() || undefined;
   return {
     ...buildCommonServiceEnvironment(env, sharedEnv),
-    OPENCLAW_GATEWAY_TOKEN: gatewayToken,
-    OPENCLAW_LAUNCHD_LABEL: resolveNodeLaunchAgentLabel(),
-    OPENCLAW_SYSTEMD_UNIT: resolveNodeSystemdServiceName(),
-    OPENCLAW_WINDOWS_TASK_NAME: resolveNodeWindowsTaskName(),
-    OPENCLAW_TASK_SCRIPT_NAME: NODE_WINDOWS_TASK_SCRIPT_NAME,
-    OPENCLAW_LOG_PREFIX: "node",
-    OPENCLAW_SERVICE_MARKER: NODE_SERVICE_MARKER,
-    OPENCLAW_SERVICE_KIND: NODE_SERVICE_KIND,
-    OPENCLAW_SERVICE_VERSION: VERSION,
+    LAIA_ARCH_GATEWAY_TOKEN: gatewayToken,
+    LAIA_ARCH_LAUNCHD_LABEL: resolveNodeLaunchAgentLabel(),
+    LAIA_ARCH_SYSTEMD_UNIT: resolveNodeSystemdServiceName(),
+    LAIA_ARCH_WINDOWS_TASK_NAME: resolveNodeWindowsTaskName(),
+    LAIA_ARCH_TASK_SCRIPT_NAME: NODE_WINDOWS_TASK_SCRIPT_NAME,
+    LAIA_ARCH_LOG_PREFIX: "node",
+    LAIA_ARCH_SERVICE_MARKER: NODE_SERVICE_MARKER,
+    LAIA_ARCH_SERVICE_KIND: NODE_SERVICE_KIND,
+    LAIA_ARCH_SERVICE_VERSION: VERSION,
   };
 }
 
@@ -322,8 +322,8 @@ function buildCommonServiceEnvironment(
     ...sharedEnv.proxyEnv,
     NODE_EXTRA_CA_CERTS: sharedEnv.nodeCaCerts,
     NODE_USE_SYSTEM_CA: sharedEnv.nodeUseSystemCa,
-    OPENCLAW_STATE_DIR: sharedEnv.stateDir,
-    OPENCLAW_CONFIG_PATH: sharedEnv.configPath,
+    LAIA_ARCH_STATE_DIR: sharedEnv.stateDir,
+    LAIA_ARCH_CONFIG_PATH: sharedEnv.configPath,
   };
   if (sharedEnv.minimalPath) {
     serviceEnv.PATH = sharedEnv.minimalPath;
@@ -337,8 +337,8 @@ function resolveSharedServiceEnvironmentFields(
   extraPathDirs: string[] | undefined,
   execPath?: string,
 ): SharedServiceEnvironmentFields {
-  const stateDir = env.OPENCLAW_STATE_DIR;
-  const configPath = env.OPENCLAW_CONFIG_PATH;
+  const stateDir = env.LAIA_ARCH_STATE_DIR;
+  const configPath = env.LAIA_ARCH_CONFIG_PATH;
   // Keep a usable temp directory for supervised services even when the host env omits TMPDIR.
   const tmpDir = env.TMPDIR?.trim() || os.tmpdir();
   const proxyEnv = readServiceProxyEnvironment(env);

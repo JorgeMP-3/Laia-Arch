@@ -26,8 +26,8 @@ async function withTempConfig(
 async function withWrapperEnvContext(configPath: string, run: () => Promise<void>): Promise<void> {
   await withEnvAsync(
     {
-      OPENCLAW_CONFIG_PATH: configPath,
-      OPENCLAW_DISABLE_CONFIG_CACHE: "1",
+      LAIA_ARCH_CONFIG_PATH: configPath,
+      LAIA_ARCH_DISABLE_CONFIG_CACHE: "1",
       MY_API_KEY: "original-key-123",
     },
     run,

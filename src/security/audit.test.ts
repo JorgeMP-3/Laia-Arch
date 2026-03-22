@@ -271,7 +271,7 @@ describe("security audit", () => {
     const credentialsDir = path.join(sharedChannelSecurityStateDir, "credentials");
     await fs.rm(credentialsDir, { recursive: true, force: true }).catch(() => undefined);
     await fs.mkdir(credentialsDir, { recursive: true, mode: 0o700 });
-    await withEnvAsync({ OPENCLAW_STATE_DIR: sharedChannelSecurityStateDir }, () =>
+    await withEnvAsync({ LAIA_ARCH_STATE_DIR: sharedChannelSecurityStateDir }, () =>
       fn(sharedChannelSecurityStateDir),
     );
   };
@@ -329,9 +329,9 @@ description: test skill
 
   beforeAll(async () => {
     fixtureRoot = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-security-audit-"));
-    previousOpenClawHome = process.env.OPENCLAW_HOME;
-    process.env.OPENCLAW_HOME = path.join(fixtureRoot, "home");
-    await fs.mkdir(process.env.OPENCLAW_HOME, { recursive: true, mode: 0o700 });
+    previousOpenClawHome = process.env.LAIA_ARCH_HOME;
+    process.env.LAIA_ARCH_HOME = path.join(fixtureRoot, "home");
+    await fs.mkdir(process.env.LAIA_ARCH_HOME, { recursive: true, mode: 0o700 });
     channelSecurityRoot = path.join(fixtureRoot, "channel-security");
     await fs.mkdir(channelSecurityRoot, { recursive: true, mode: 0o700 });
     sharedChannelSecurityStateDir = path.join(channelSecurityRoot, "state-shared");
@@ -353,9 +353,9 @@ description: test skill
 
   afterAll(async () => {
     if (previousOpenClawHome === undefined) {
-      delete process.env.OPENCLAW_HOME;
+      delete process.env.LAIA_ARCH_HOME;
     } else {
-      process.env.OPENCLAW_HOME = previousOpenClawHome;
+      process.env.LAIA_ARCH_HOME = previousOpenClawHome;
     }
     if (!fixtureRoot) {
       return;
@@ -389,8 +389,8 @@ description: test skill
         run: async () =>
           withEnvAsync(
             {
-              OPENCLAW_GATEWAY_TOKEN: undefined,
-              OPENCLAW_GATEWAY_PASSWORD: undefined,
+              LAIA_ARCH_GATEWAY_TOKEN: undefined,
+              LAIA_ARCH_GATEWAY_PASSWORD: undefined,
             },
             async () =>
               audit({
@@ -415,7 +415,7 @@ description: test skill
                   password: {
                     source: "env",
                     provider: "default",
-                    id: "OPENCLAW_GATEWAY_PASSWORD",
+                    id: "LAIA_ARCH_GATEWAY_PASSWORD",
                   },
                 },
               },
@@ -436,7 +436,7 @@ description: test skill
                 token: {
                   source: "env",
                   provider: "default",
-                  id: "OPENCLAW_GATEWAY_TOKEN",
+                  id: "LAIA_ARCH_GATEWAY_TOKEN",
                 },
               },
             },
@@ -1622,7 +1622,7 @@ description: test skill
             password: {
               source: "env",
               provider: "default",
-              id: "OPENCLAW_GATEWAY_PASSWORD",
+              id: "LAIA_ARCH_GATEWAY_PASSWORD",
             },
           },
         },
@@ -2945,7 +2945,7 @@ description: test skill
           hooks: { enabled: true, token: "shared-gateway-token-1234567890" },
         } satisfies OpenClawConfig,
         env: {
-          OPENCLAW_GATEWAY_TOKEN: "shared-gateway-token-1234567890",
+          LAIA_ARCH_GATEWAY_TOKEN: "shared-gateway-token-1234567890",
         },
         expectedFinding: "hooks.token_reuse_gateway_token",
         expectedSeverity: "critical" as const,
@@ -3679,10 +3679,10 @@ description: test skill
     const makeProbeEnv = (env?: { token?: string; password?: string }) => {
       const probeEnv: NodeJS.ProcessEnv = {};
       if (env?.token !== undefined) {
-        probeEnv.OPENCLAW_GATEWAY_TOKEN = env.token;
+        probeEnv.LAIA_ARCH_GATEWAY_TOKEN = env.token;
       }
       if (env?.password !== undefined) {
-        probeEnv.OPENCLAW_GATEWAY_PASSWORD = env.password;
+        probeEnv.LAIA_ARCH_GATEWAY_PASSWORD = env.password;
       }
       return probeEnv;
     };

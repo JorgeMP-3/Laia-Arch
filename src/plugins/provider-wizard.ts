@@ -25,17 +25,17 @@ const DEFAULT_DISCOVERY_CACHE_MS = 1000;
 const DEFAULT_MANIFEST_CACHE_MS = 1000;
 
 function shouldUseProviderWizardCache(env: NodeJS.ProcessEnv): boolean {
-  if (env.OPENCLAW_DISABLE_PLUGIN_DISCOVERY_CACHE?.trim()) {
+  if (env.LAIA_ARCH_DISABLE_PLUGIN_DISCOVERY_CACHE?.trim()) {
     return false;
   }
-  if (env.OPENCLAW_DISABLE_PLUGIN_MANIFEST_CACHE?.trim()) {
+  if (env.LAIA_ARCH_DISABLE_PLUGIN_MANIFEST_CACHE?.trim()) {
     return false;
   }
-  const discoveryCacheMs = env.OPENCLAW_PLUGIN_DISCOVERY_CACHE_MS?.trim();
+  const discoveryCacheMs = env.LAIA_ARCH_PLUGIN_DISCOVERY_CACHE_MS?.trim();
   if (discoveryCacheMs === "0") {
     return false;
   }
-  const manifestCacheMs = env.OPENCLAW_PLUGIN_MANIFEST_CACHE_MS?.trim();
+  const manifestCacheMs = env.LAIA_ARCH_PLUGIN_MANIFEST_CACHE_MS?.trim();
   if (manifestCacheMs === "0") {
     return false;
   }
@@ -44,11 +44,11 @@ function shouldUseProviderWizardCache(env: NodeJS.ProcessEnv): boolean {
 
 function resolveProviderWizardCacheTtlMs(env: NodeJS.ProcessEnv): number {
   const discoveryCacheMs = resolveCacheMs(
-    env.OPENCLAW_PLUGIN_DISCOVERY_CACHE_MS,
+    env.LAIA_ARCH_PLUGIN_DISCOVERY_CACHE_MS,
     DEFAULT_DISCOVERY_CACHE_MS,
   );
   const manifestCacheMs = resolveCacheMs(
-    env.OPENCLAW_PLUGIN_MANIFEST_CACHE_MS,
+    env.LAIA_ARCH_PLUGIN_MANIFEST_CACHE_MS,
     DEFAULT_MANIFEST_CACHE_MS,
   );
   return Math.min(discoveryCacheMs, manifestCacheMs);
@@ -78,17 +78,17 @@ function buildProviderWizardCacheKey(params: {
     workspaceDir: params.workspaceDir ?? "",
     config: params.config,
     env: {
-      OPENCLAW_BUNDLED_PLUGINS_DIR: params.env.OPENCLAW_BUNDLED_PLUGINS_DIR ?? "",
-      OPENCLAW_DISABLE_PLUGIN_DISCOVERY_CACHE:
-        params.env.OPENCLAW_DISABLE_PLUGIN_DISCOVERY_CACHE ?? "",
-      OPENCLAW_DISABLE_PLUGIN_MANIFEST_CACHE:
-        params.env.OPENCLAW_DISABLE_PLUGIN_MANIFEST_CACHE ?? "",
-      OPENCLAW_PLUGIN_DISCOVERY_CACHE_MS: params.env.OPENCLAW_PLUGIN_DISCOVERY_CACHE_MS ?? "",
-      OPENCLAW_PLUGIN_MANIFEST_CACHE_MS: params.env.OPENCLAW_PLUGIN_MANIFEST_CACHE_MS ?? "",
-      OPENCLAW_HOME: params.env.OPENCLAW_HOME ?? "",
-      OPENCLAW_STATE_DIR: params.env.OPENCLAW_STATE_DIR ?? "",
+      LAIA_ARCH_BUNDLED_PLUGINS_DIR: params.env.LAIA_ARCH_BUNDLED_PLUGINS_DIR ?? "",
+      LAIA_ARCH_DISABLE_PLUGIN_DISCOVERY_CACHE:
+        params.env.LAIA_ARCH_DISABLE_PLUGIN_DISCOVERY_CACHE ?? "",
+      LAIA_ARCH_DISABLE_PLUGIN_MANIFEST_CACHE:
+        params.env.LAIA_ARCH_DISABLE_PLUGIN_MANIFEST_CACHE ?? "",
+      LAIA_ARCH_PLUGIN_DISCOVERY_CACHE_MS: params.env.LAIA_ARCH_PLUGIN_DISCOVERY_CACHE_MS ?? "",
+      LAIA_ARCH_PLUGIN_MANIFEST_CACHE_MS: params.env.LAIA_ARCH_PLUGIN_MANIFEST_CACHE_MS ?? "",
+      LAIA_ARCH_HOME: params.env.LAIA_ARCH_HOME ?? "",
+      LAIA_ARCH_STATE_DIR: params.env.LAIA_ARCH_STATE_DIR ?? "",
       CLAWDBOT_STATE_DIR: params.env.CLAWDBOT_STATE_DIR ?? "",
-      OPENCLAW_CONFIG_PATH: params.env.OPENCLAW_CONFIG_PATH ?? "",
+      LAIA_ARCH_CONFIG_PATH: params.env.LAIA_ARCH_CONFIG_PATH ?? "",
       HOME: params.env.HOME ?? "",
       USERPROFILE: params.env.USERPROFILE ?? "",
       VITEST: params.env.VITEST ?? "",

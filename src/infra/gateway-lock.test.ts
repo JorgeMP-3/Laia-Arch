@@ -20,8 +20,8 @@ async function makeEnv() {
   await fs.mkdir(resolveGatewayLockDir(), { recursive: true });
   return {
     ...process.env,
-    OPENCLAW_STATE_DIR: dir,
-    OPENCLAW_CONFIG_PATH: configPath,
+    LAIA_ARCH_STATE_DIR: dir,
+    LAIA_ARCH_CONFIG_PATH: configPath,
   };
 }
 
@@ -273,7 +273,7 @@ describe("gateway lock", () => {
   it("returns null when multi-gateway override is enabled", async () => {
     const env = await makeEnv();
     const lock = await acquireGatewayLock({
-      env: { ...env, OPENCLAW_ALLOW_MULTI_GATEWAY: "1", VITEST: "" },
+      env: { ...env, LAIA_ARCH_ALLOW_MULTI_GATEWAY: "1", VITEST: "" },
     });
     expect(lock).toBeNull();
   });

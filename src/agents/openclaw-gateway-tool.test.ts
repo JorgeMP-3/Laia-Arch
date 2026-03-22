@@ -84,7 +84,7 @@ describe("gateway tool", () => {
 
     try {
       await withEnvAsync(
-        { OPENCLAW_STATE_DIR: stateDir, OPENCLAW_PROFILE: "isolated" },
+        { LAIA_ARCH_STATE_DIR: stateDir, LAIA_ARCH_PROFILE: "isolated" },
         async () => {
           const tool = requireGatewayTool();
 
