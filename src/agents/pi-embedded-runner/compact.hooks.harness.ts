@@ -80,7 +80,7 @@ export const sessionMessages: unknown[] = [
   },
 ];
 export const sessionAbortCompactionMock: Mock<(reason?: unknown) => void> = vi.fn();
-export const createOpenClawCodingToolsMock = vi.fn(() => []);
+export const createLaiaArchCodingToolsMock = vi.fn(() => []);
 
 export function resetCompactHooksHarnessMocks(): void {
   hookRunner.hasHooks.mockReset();
@@ -161,8 +161,8 @@ export function resetCompactHooksHarnessMocks(): void {
     },
   );
   sessionAbortCompactionMock.mockReset();
-  createOpenClawCodingToolsMock.mockReset();
-  createOpenClawCodingToolsMock.mockReturnValue([]);
+  createLaiaArchCodingToolsMock.mockReset();
+  createLaiaArchCodingToolsMock.mockReturnValue([]);
 }
 
 export async function loadCompactHooksHarness(): Promise<{
@@ -300,7 +300,7 @@ export async function loadCompactHooksHarness(): Promise<{
   }));
 
   vi.doMock("../pi-tools.js", () => ({
-    createOpenClawCodingTools: createOpenClawCodingToolsMock,
+    createLaiaArchCodingTools: createLaiaArchCodingToolsMock,
   }));
 
   vi.doMock("./google.js", () => ({

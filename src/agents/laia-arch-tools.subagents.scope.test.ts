@@ -6,7 +6,7 @@ import {
   callGatewayMock,
   resetSubagentsConfigOverride,
   setSubagentsConfigOverride,
-} from "./openclaw-tools.subagents.test-harness.js";
+} from "./laia-arch-tools.subagents.test-harness.js";
 import { addSubagentRunForTests, resetSubagentRegistryForTests } from "./subagent-registry.js";
 import "./test-helpers/fast-core-tools.js";
 import { createPerSenderSessionConfig } from "./test-helpers/session-config.js";

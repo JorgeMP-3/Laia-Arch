@@ -1,6 +1,6 @@
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { POSIX_LAIA_ARCH_TMP_DIR, resolvePreferredOpenClawTmpDir } from "./tmp-openclaw-dir.js";
+import { POSIX_LAIA_ARCH_TMP_DIR, resolvePreferredOpenClawTmpDir } from "./tmp-laia-arch-dir.js";
 
 type TmpDirOptions = NonNullable<Parameters<typeof resolvePreferredOpenClawTmpDir>[0]>;
 

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { OpenClawConfig } from "../config/config.js";
 import * as imageGenerationRuntime from "../image-generation/runtime.js";
-import { createOpenClawTools } from "./openclaw-tools.js";
+import { createLaiaArchTools } from "./laia-arch-tools.js";
 
 vi.mock("../plugins/tools.js", () => ({
   resolvePluginTools: () => [],
@@ -49,7 +49,7 @@ describe("openclaw tools image generation registration", () => {
   });
 
   it("registers image_generate when image-generation config is present", () => {
-    const tools = createOpenClawTools({
+    const tools = createLaiaArchTools({
       config: asConfig({
         agents: {
           defaults: {
@@ -69,7 +69,7 @@ describe("openclaw tools image generation registration", () => {
     stubImageGenerationProviders();
     vi.stubEnv("OPENAI_API_KEY", "openai-test");
 
-    const tools = createOpenClawTools({
+    const tools = createLaiaArchTools({
       config: asConfig({}),
       agentDir: "/tmp/openclaw-agent-main",
     });
@@ -80,7 +80,7 @@ describe("openclaw tools image generation registration", () => {
   it("omits image_generate when config is absent and no compatible provider auth exists", () => {
     stubImageGenerationProviders();
 
-    const tools = createOpenClawTools({
+    const tools = createLaiaArchTools({
       config: asConfig({}),
       agentDir: "/tmp/openclaw-agent-main",
     });

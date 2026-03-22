@@ -1,5 +1,5 @@
 import { readConfigFileSnapshot, writeConfigFile } from "./io.js";
-import type { OpenClawConfig } from "./types.openclaw.js";
+import type { OpenClawConfig } from "./types.laia-arch.js";
 import { validateConfigObjectWithPlugins } from "./validation.js";
 
 export type ConfigMcpServers = Record<string, Record<string, unknown>>;

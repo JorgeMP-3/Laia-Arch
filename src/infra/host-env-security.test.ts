@@ -11,7 +11,7 @@ import {
   sanitizeHostExecEnvWithDiagnostics,
   sanitizeSystemRunEnvOverrides,
 } from "./host-env-security.js";
-import { LAIA_ARCH_CLI_ENV_VALUE } from "./openclaw-exec-env.js";
+import { LAIA_ARCH_CLI_ENV_VALUE } from "./laia-arch-exec-env.js";
 
 function getSystemGitPath() {
   if (process.platform === "win32") {

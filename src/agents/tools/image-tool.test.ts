@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { OpenClawConfig } from "../../config/config.js";
 import type { ModelDefinitionConfig } from "../../config/types.models.js";
 import { withFetchPreconnect } from "../../test-utils/fetch-mock.js";
-import { createOpenClawCodingTools } from "../pi-tools.js";
+import { createLaiaArchCodingTools } from "../pi-tools.js";
 import { createHostSandboxFsBridge } from "../test-helpers/host-sandbox-fs-bridge.js";
 import { createUnsafeMountedSandbox } from "../test-helpers/unsafe-mounted-sandbox.js";
 import { makeZeroUsageSnapshot } from "../usage.js";
@@ -561,13 +561,13 @@ describe("image tool implicit imageModel config", () => {
     });
   });
 
-  it("allows workspace images via createOpenClawCodingTools default workspace root", async () => {
+  it("allows workspace images via createLaiaArchCodingTools default workspace root", async () => {
     await withTempWorkspacePng(async ({ imagePath }) => {
       const fetch = stubMinimaxOkFetch();
       await withTempAgentDir(async (agentDir) => {
         const cfg = createMinimaxImageConfig();
 
-        const tools = createOpenClawCodingTools({ config: cfg, agentDir });
+        const tools = createLaiaArchCodingTools({ config: cfg, agentDir });
         const tool = requireImageTool(tools.find((candidate) => candidate.name === "image"));
 
         await expectImageToolExecOk(tool, imagePath);
@@ -611,7 +611,7 @@ describe("image tool implicit imageModel config", () => {
         tools: { fs: { workspaceOnly: true } },
       };
 
-      const tools = createOpenClawCodingTools({
+      const tools = createLaiaArchCodingTools({
         config: cfg,
         agentDir,
         sandbox,

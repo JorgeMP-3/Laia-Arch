@@ -19,7 +19,7 @@ import { listChannelAgentTools } from "./channel-tools.js";
 import { resolveImageSanitizationLimits } from "./image-sanitization.js";
 import type { ModelAuthMode } from "./model-auth.js";
 import { hasNativeWebSearchTool } from "./model-compat.js";
-import { createOpenClawTools } from "./openclaw-tools.js";
+import { createLaiaArchTools } from "./laia-arch-tools.js";
 import { wrapToolWithAbortSignal } from "./pi-tools.abort.js";
 import { wrapToolWithBeforeToolCallHook } from "./pi-tools.before-tool-call.js";
 import {
@@ -197,7 +197,7 @@ export const __testing = {
   applyModelProviderToolPolicy,
 } as const;
 
-export function createOpenClawCodingTools(options?: {
+export function createLaiaArchCodingTools(options?: {
   agentId?: string;
   exec?: ExecToolDefaults & ProcessToolDefaults;
   messageProvider?: string;
@@ -497,7 +497,7 @@ export function createOpenClawCodingTools(options?: {
     processTool as unknown as AnyAgentTool,
     // Channel docking: include channel-defined agent tools (login, etc.).
     ...listChannelAgentTools({ cfg: options?.config }),
-    ...createOpenClawTools({
+    ...createLaiaArchTools({
       sandboxBrowserBridgeUrl: sandbox?.browser?.bridgeUrl,
       allowHostBrowserControl: sandbox ? sandbox.browserAllowHostControl : true,
       agentSessionKey: options?.sessionKey,

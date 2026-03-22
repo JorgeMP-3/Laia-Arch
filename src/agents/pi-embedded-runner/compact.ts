@@ -65,7 +65,7 @@ import {
   validateGeminiTurns,
 } from "../pi-embedded-helpers.js";
 import { createPreparedEmbeddedPiSettingsManager } from "../pi-project-settings.js";
-import { createOpenClawCodingTools } from "../pi-tools.js";
+import { createLaiaArchCodingTools } from "../pi-tools.js";
 import { ensureRuntimePluginsLoaded } from "../runtime-plugins.js";
 import { resolveSandboxContext } from "../sandbox.js";
 import { repairSessionFileIfNeeded } from "../session-file-repair.js";
@@ -576,7 +576,7 @@ export async function compactEmbeddedPiSessionDirect(
     );
 
     const runAbortController = new AbortController();
-    const toolsRaw = createOpenClawCodingTools({
+    const toolsRaw = createLaiaArchCodingTools({
       exec: {
         elevated: params.bashElevated,
       },

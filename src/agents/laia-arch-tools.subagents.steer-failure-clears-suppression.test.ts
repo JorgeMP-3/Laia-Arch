@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
   callGatewayMock,
   setSubagentsConfigOverride,
-} from "./openclaw-tools.subagents.test-harness.js";
+} from "./laia-arch-tools.subagents.test-harness.js";
 import {
   addSubagentRunForTests,
   listSubagentRunsForRequester,

@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { OpenClawConfig, ConfigFileSnapshot } from "../config/types.openclaw.js";
+import type { OpenClawConfig, ConfigFileSnapshot } from "../config/types.laia-arch.js";
 import type { UpdateRunResult } from "../infra/update-runner.js";
 import { withEnvAsync } from "../test-utils/env.js";
 
@@ -37,7 +37,7 @@ vi.mock("../infra/update-runner.js", () => ({
   runGatewayUpdate: vi.fn(),
 }));
 
-vi.mock("../infra/openclaw-root.js", () => ({
+vi.mock("../infra/laia-arch-root.js", () => ({
   resolveOpenClawPackageRoot: vi.fn(),
 }));
 
@@ -137,7 +137,7 @@ vi.mock("../runtime.js", () => ({
 }));
 
 const { runGatewayUpdate } = await import("../infra/update-runner.js");
-const { resolveOpenClawPackageRoot } = await import("../infra/openclaw-root.js");
+const { resolveOpenClawPackageRoot } = await import("../infra/laia-arch-root.js");
 const { readConfigFileSnapshot, writeConfigFile } = await import("../config/config.js");
 const { checkUpdateStatus, fetchNpmTagVersion, resolveNpmChannelTag } =
   await import("../infra/update-check.js");

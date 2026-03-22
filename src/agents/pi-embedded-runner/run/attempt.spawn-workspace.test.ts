@@ -226,7 +226,7 @@ vi.mock("../../cache-trace.js", () => ({
 }));
 
 vi.mock("../../pi-tools.js", () => ({
-  createOpenClawCodingTools: () => [],
+  createLaiaArchCodingTools: () => [],
   resolveToolLoopDetectionConfig: () => undefined,
 }));
 

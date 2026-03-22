@@ -99,7 +99,7 @@ vi.mock("../infra/provider-usage.js", () => ({
 }));
 
 import "./test-helpers/fast-core-tools.js";
-import { createOpenClawTools } from "./openclaw-tools.js";
+import { createLaiaArchTools } from "./laia-arch-tools.js";
 
 function resetSessionStore(store: Record<string, unknown>) {
   loadSessionStoreMock.mockClear();
@@ -160,7 +160,7 @@ function expectSpawnedSessionLookupCalls(spawnedBy: string) {
 }
 
 function getSessionStatusTool(agentSessionKey = "main", options?: { sandboxed?: boolean }) {
-  const tool = createOpenClawTools({
+  const tool = createLaiaArchTools({
     agentSessionKey,
     sandboxed: options?.sandboxed,
   }).find((candidate) => candidate.name === "session_status");

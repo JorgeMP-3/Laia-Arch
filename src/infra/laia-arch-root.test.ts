@@ -90,13 +90,13 @@ vi.mock("node:fs/promises", async (importOriginal) => {
 });
 
 describe("resolveOpenClawPackageRoot", () => {
-  let resolveOpenClawPackageRoot: typeof import("./openclaw-root.js").resolveOpenClawPackageRoot;
-  let resolveOpenClawPackageRootSync: typeof import("./openclaw-root.js").resolveOpenClawPackageRootSync;
+  let resolveOpenClawPackageRoot: typeof import("./laia-arch-root.js").resolveOpenClawPackageRoot;
+  let resolveOpenClawPackageRootSync: typeof import("./laia-arch-root.js").resolveOpenClawPackageRootSync;
 
   beforeEach(async () => {
     vi.resetModules();
     ({ resolveOpenClawPackageRoot, resolveOpenClawPackageRootSync } =
-      await import("./openclaw-root.js"));
+      await import("./laia-arch-root.js"));
     state.entries.clear();
     state.realpaths.clear();
     state.realpathErrors.clear();

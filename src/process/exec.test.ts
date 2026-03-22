@@ -3,7 +3,7 @@ import { EventEmitter } from "node:events";
 import fs from "node:fs";
 import process from "node:process";
 import { describe, expect, it, vi } from "vitest";
-import { LAIA_ARCH_CLI_ENV_VALUE } from "../infra/openclaw-exec-env.js";
+import { LAIA_ARCH_CLI_ENV_VALUE } from "../infra/laia-arch-exec-env.js";
 import { attachChildProcessBridge } from "./child-process-bridge.js";
 import { resolveCommandEnv, runCommandWithTimeout, shouldSpawnWithShell } from "./exec.js";
 

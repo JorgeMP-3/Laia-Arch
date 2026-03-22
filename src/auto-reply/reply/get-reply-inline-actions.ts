@@ -219,8 +219,8 @@ export async function handleInlineActions(params: {
         resolveGatewayMessageChannel(ctx.Provider) ??
         undefined;
 
-      const { createOpenClawTools } = await import("../../agents/openclaw-tools.runtime.js");
-      const tools = createOpenClawTools({
+      const { createLaiaArchTools } = await import("../../agents/laia-arch-tools.runtime.js");
+      const tools = createLaiaArchTools({
         agentSessionKey: sessionKey,
         agentChannel: channel,
         agentAccountId: (ctx as { AccountId?: string }).AccountId,

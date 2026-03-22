@@ -25,7 +25,7 @@ import {
   type ConfigSchemaResponse,
 } from "../../config/schema.js";
 import { extractDeliveryInfo } from "../../config/sessions.js";
-import type { ConfigValidationIssue, OpenClawConfig } from "../../config/types.openclaw.js";
+import type { ConfigValidationIssue, OpenClawConfig } from "../../config/types.laia-arch.js";
 import {
   formatDoctorNonInteractiveHint,
   type RestartSentinelPayload,

@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
 import "./test-helpers/fast-core-tools.js";
-import { createOpenClawTools } from "./openclaw-tools.js";
+import { createLaiaArchTools } from "./laia-arch-tools.js";
 
 function readToolByName() {
-  return new Map(createOpenClawTools().map((tool) => [tool.name, tool]));
+  return new Map(createLaiaArchTools().map((tool) => [tool.name, tool]));
 }
 
-describe("createOpenClawTools owner authorization", () => {
+describe("createLaiaArchTools owner authorization", () => {
   it("marks owner-only core tools in raw registration", () => {
     const tools = readToolByName();
     expect(tools.get("cron")?.ownerOnly).toBe(true);

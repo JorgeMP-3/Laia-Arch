@@ -68,7 +68,7 @@ vi.mock("../infra/exec-approvals.js", async (importOriginal) => {
   return { ...mod, resolveExecApprovals: () => approvals };
 });
 
-const { createOpenClawCodingTools } = await import("./pi-tools.js");
+const { createLaiaArchCodingTools } = await import("./pi-tools.js");
 
 type ExecToolResult = {
   content: Array<{ type: string; text?: string }>;
@@ -109,7 +109,7 @@ async function createSafeBinsExecTool(params: {
     },
   };
 
-  const tools = createOpenClawCodingTools({
+  const tools = createLaiaArchCodingTools({
     config: cfg,
     sessionKey: "agent:main:main",
     workspaceDir: tmpDir,
@@ -137,7 +137,7 @@ async function withSafeBinsExecTool(
   }
 }
 
-describe("createOpenClawCodingTools safeBins", () => {
+describe("createLaiaArchCodingTools safeBins", () => {
   it("threads tools.exec.safeBins into exec allowlist checks", async () => {
     await withSafeBinsExecTool(
       {

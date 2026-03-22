@@ -5,7 +5,7 @@ import {
   TRUSTED_CLIENT_TOKEN,
   generateSecMsGecToken,
 } from "node-edge-tts/dist/drm.js";
-import { resolvePreferredOpenClawTmpDir } from "../../infra/tmp-openclaw-dir.js";
+import { resolvePreferredOpenClawTmpDir } from "../../infra/tmp-laia-arch-dir.js";
 import { isVoiceCompatibleAudio } from "../../media/audio.js";
 import type { SpeechProviderPlugin } from "../../plugins/types.js";
 import type { SpeechVoiceOption } from "../provider-types.js";

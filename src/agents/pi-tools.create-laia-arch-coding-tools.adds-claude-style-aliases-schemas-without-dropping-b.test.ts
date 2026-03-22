@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { OpenClawConfig } from "../config/config.js";
 import "./test-helpers/fast-coding-tools.js";
-import { createOpenClawCodingTools } from "./pi-tools.js";
+import { createLaiaArchCodingTools } from "./pi-tools.js";
 
-const defaultTools = createOpenClawCodingTools({ senderIsOwner: true });
+const defaultTools = createLaiaArchCodingTools({ senderIsOwner: true });
 
-describe("createOpenClawCodingTools", () => {
+describe("createLaiaArchCodingTools", () => {
   it("preserves action enums in normalized schemas", () => {
     const toolNames = ["browser", "canvas", "nodes", "cron", "gateway", "message"];
 
@@ -63,14 +63,14 @@ describe("createOpenClawCodingTools", () => {
         },
       },
     };
-    const openAiTools = createOpenClawCodingTools({
+    const openAiTools = createLaiaArchCodingTools({
       config: enabledConfig,
       modelProvider: "openai",
       modelId: "gpt-5.2",
     });
     expect(openAiTools.some((tool) => tool.name === "apply_patch")).toBe(true);
 
-    const anthropicTools = createOpenClawCodingTools({
+    const anthropicTools = createLaiaArchCodingTools({
       config: enabledConfig,
       modelProvider: "anthropic",
       modelId: "claude-opus-4-5",
@@ -84,21 +84,21 @@ describe("createOpenClawCodingTools", () => {
         },
       },
     };
-    const allowed = createOpenClawCodingTools({
+    const allowed = createLaiaArchCodingTools({
       config: allowModelsConfig,
       modelProvider: "openai",
       modelId: "gpt-5.2",
     });
     expect(allowed.some((tool) => tool.name === "apply_patch")).toBe(true);
 
-    const denied = createOpenClawCodingTools({
+    const denied = createLaiaArchCodingTools({
       config: allowModelsConfig,
       modelProvider: "openai",
       modelId: "gpt-5-mini",
     });
     expect(denied.some((tool) => tool.name === "apply_patch")).toBe(false);
 
-    const oauthTools = createOpenClawCodingTools({
+    const oauthTools = createLaiaArchCodingTools({
       modelProvider: "anthropic",
       modelAuthMode: "oauth",
     });
@@ -110,7 +110,7 @@ describe("createOpenClawCodingTools", () => {
     expect(names.has("apply_patch")).toBe(false);
   });
   it("provides top-level object schemas for all tools", () => {
-    const tools = createOpenClawCodingTools();
+    const tools = createLaiaArchCodingTools();
     const offenders = tools
       .map((tool) => {
         const schema =

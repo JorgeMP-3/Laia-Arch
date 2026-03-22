@@ -18,7 +18,7 @@ import { hasAmbiguousGatewayAuthModeConfig } from "../gateway/auth-mode-policy.j
 import { resolveGatewayAuth } from "../gateway/auth.js";
 import { buildGatewayConnectionDetails } from "../gateway/call.js";
 import { runStartupMatrixMigration } from "../gateway/server-startup-matrix-migration.js";
-import { resolveOpenClawPackageRoot } from "../infra/openclaw-root.js";
+import { resolveOpenClawPackageRoot } from "../infra/laia-arch-root.js";
 import type { RuntimeEnv } from "../runtime.js";
 import { defaultRuntime } from "../runtime.js";
 import { note } from "../terminal/note.js";

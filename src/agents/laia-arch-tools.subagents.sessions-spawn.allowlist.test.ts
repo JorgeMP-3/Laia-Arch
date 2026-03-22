@@ -5,7 +5,7 @@ import {
   getSessionsSpawnTool,
   resetSessionsSpawnConfigOverride,
   setSessionsSpawnConfigOverride,
-} from "./openclaw-tools.subagents.sessions-spawn.test-harness.js";
+} from "./laia-arch-tools.subagents.sessions-spawn.test-harness.js";
 import { resetSubagentRegistryForTests } from "./subagent-registry.js";
 
 const callGatewayMock = getCallGatewayMock();

@@ -10,7 +10,7 @@ import {
   createChannelTestPluginBase,
   createTestRegistry,
 } from "../../test-utils/channel-plugins.js";
-import { resolvePreferredOpenClawTmpDir } from "../tmp-openclaw-dir.js";
+import { resolvePreferredOpenClawTmpDir } from "../tmp-laia-arch-dir.js";
 
 vi.mock("../../media/web-media.js", async () => {
   const actual = await vi.importActual<typeof import("../../media/web-media.js")>(

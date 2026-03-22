@@ -1,15 +1,15 @@
 import { describe, expect, it } from "vitest";
 import {
-  ensureOpenClawExecMarkerOnProcess,
-  markOpenClawExecEnv,
+  ensureLaiaArchExecMarkerOnProcess,
+  markLaiaArchExecEnv,
   LAIA_ARCH_CLI_ENV_VALUE,
   LAIA_ARCH_CLI_ENV_VAR,
-} from "./openclaw-exec-env.js";
+} from "./laia-arch-exec-env.js";
 
-describe("markOpenClawExecEnv", () => {
+describe("markLaiaArchExecEnv", () => {
   it("returns a cloned env object with the exec marker set", () => {
     const env = { PATH: "/usr/bin", LAIA_ARCH_CLI: "0" };
-    const marked = markOpenClawExecEnv(env);
+    const marked = markLaiaArchExecEnv(env);
 
     expect(marked).toEqual({
       PATH: "/usr/bin",
@@ -20,11 +20,11 @@ describe("markOpenClawExecEnv", () => {
   });
 });
 
-describe("ensureOpenClawExecMarkerOnProcess", () => {
+describe("ensureLaiaArchExecMarkerOnProcess", () => {
   it("mutates and returns the provided process env", () => {
     const env: NodeJS.ProcessEnv = { PATH: "/usr/bin" };
 
-    expect(ensureOpenClawExecMarkerOnProcess(env)).toBe(env);
+    expect(ensureLaiaArchExecMarkerOnProcess(env)).toBe(env);
     expect(env[LAIA_ARCH_CLI_ENV_VAR]).toBe(LAIA_ARCH_CLI_ENV_VALUE);
   });
 
@@ -33,7 +33,7 @@ describe("ensureOpenClawExecMarkerOnProcess", () => {
     delete process.env[LAIA_ARCH_CLI_ENV_VAR];
 
     try {
-      expect(ensureOpenClawExecMarkerOnProcess()).toBe(process.env);
+      expect(ensureLaiaArchExecMarkerOnProcess()).toBe(process.env);
       expect(process.env[LAIA_ARCH_CLI_ENV_VAR]).toBe(LAIA_ARCH_CLI_ENV_VALUE);
     } finally {
       if (previous === undefined) {

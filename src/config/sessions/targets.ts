@@ -8,7 +8,7 @@ import {
 } from "../../agents/session-dirs.js";
 import { DEFAULT_AGENT_ID, normalizeAgentId } from "../../routing/session-key.js";
 import { resolveStateDir } from "../paths.js";
-import type { OpenClawConfig } from "../types.openclaw.js";
+import type { OpenClawConfig } from "../types.laia-arch.js";
 import { resolveAgentsDirFromSessionStorePath, resolveStorePath } from "./paths.js";
 
 export type SessionStoreSelectionOptions = {

@@ -3,17 +3,17 @@ import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import "./test-helpers/fast-coding-tools.js";
-import { createOpenClawCodingTools } from "./pi-tools.js";
+import { createLaiaArchCodingTools } from "./pi-tools.js";
 import { createHostSandboxFsBridge } from "./test-helpers/host-sandbox-fs-bridge.js";
 import { createPiToolsSandboxContext } from "./test-helpers/pi-tools-sandbox-context.js";
 
-const defaultTools = createOpenClawCodingTools();
+const defaultTools = createLaiaArchCodingTools();
 const tinyPngBuffer = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO2f7z8AAAAASUVORK5CYII=",
   "base64",
 );
 
-describe("createOpenClawCodingTools", () => {
+describe("createLaiaArchCodingTools", () => {
   it("returns image metadata for images and text-only blocks for text files", async () => {
     const readTool = defaultTools.find((tool) => tool.name === "read");
     expect(readTool).toBeDefined();
@@ -68,7 +68,7 @@ describe("createOpenClawCodingTools", () => {
         deny: ["browser"],
       },
     });
-    const tools = createOpenClawCodingTools({ sandbox });
+    const tools = createLaiaArchCodingTools({ sandbox });
     expect(tools.some((tool) => tool.name === "exec")).toBe(true);
     expect(tools.some((tool) => tool.name === "read")).toBe(false);
     expect(tools.some((tool) => tool.name === "browser")).toBe(false);
@@ -85,7 +85,7 @@ describe("createOpenClawCodingTools", () => {
         deny: [],
       },
     });
-    const tools = createOpenClawCodingTools({ sandbox });
+    const tools = createLaiaArchCodingTools({ sandbox });
     expect(tools.some((tool) => tool.name === "read")).toBe(true);
     expect(tools.some((tool) => tool.name === "write")).toBe(false);
     expect(tools.some((tool) => tool.name === "edit")).toBe(false);

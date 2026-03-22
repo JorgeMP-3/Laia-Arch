@@ -1,6 +1,6 @@
 import { loadConfig } from "../../config/config.js";
 import { extractDeliveryInfo } from "../../config/sessions.js";
-import { resolveOpenClawPackageRoot } from "../../infra/openclaw-root.js";
+import { resolveOpenClawPackageRoot } from "../../infra/laia-arch-root.js";
 import {
   formatDoctorNonInteractiveHint,
   type RestartSentinelPayload,

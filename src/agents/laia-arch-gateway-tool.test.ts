@@ -4,7 +4,7 @@ import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { withEnvAsync } from "../test-utils/env.js";
 import "./test-helpers/fast-core-tools.js";
-import { createOpenClawTools } from "./openclaw-tools.js";
+import { createLaiaArchTools } from "./laia-arch-tools.js";
 
 vi.mock("./tools/gateway.js", () => ({
   callGatewayTool: vi.fn(async (method: string) => {
@@ -38,7 +38,7 @@ vi.mock("./tools/gateway.js", () => ({
 }));
 
 function requireGatewayTool(agentSessionKey?: string) {
-  const tool = createOpenClawTools({
+  const tool = createLaiaArchTools({
     ...(agentSessionKey ? { agentSessionKey } : {}),
     config: { commands: { restart: true } },
   }).find((candidate) => candidate.name === "gateway");

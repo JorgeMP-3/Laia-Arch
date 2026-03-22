@@ -6,7 +6,7 @@ import {
   prepareSecretsRuntimeSnapshot,
 } from "../secrets/runtime.js";
 import { withFetchPreconnect } from "../test-utils/fetch-mock.js";
-import { createOpenClawTools } from "./openclaw-tools.js";
+import { createLaiaArchTools } from "./laia-arch-tools.js";
 
 vi.mock("../plugins/tools.js", () => ({
   resolvePluginTools: () => [],
@@ -17,7 +17,7 @@ function asConfig(value: unknown): OpenClawConfig {
 }
 
 function findTool(name: string, config: OpenClawConfig) {
-  const allTools = createOpenClawTools({ config, sandboxed: true });
+  const allTools = createLaiaArchTools({ config, sandboxed: true });
   const tool = allTools.find((candidate) => candidate.name === name);
   expect(tool).toBeDefined();
   if (!tool) {

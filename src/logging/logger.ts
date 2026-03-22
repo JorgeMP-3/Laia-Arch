@@ -6,7 +6,7 @@ import type { OpenClawConfig } from "../config/types.js";
 import {
   POSIX_LAIA_ARCH_TMP_DIR,
   resolvePreferredOpenClawTmpDir,
-} from "../infra/tmp-openclaw-dir.js";
+} from "../infra/tmp-laia-arch-dir.js";
 import { readLoggingConfig } from "./config.js";
 import type { ConsoleStyle } from "./console.js";
 import { resolveEnvLogLevelOverride } from "./env-log-level.js";

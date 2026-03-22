@@ -28,7 +28,7 @@ import { createTtsTool } from "./tools/tts-tool.js";
 import { createWebFetchTool, createWebSearchTool } from "./tools/web-tools.js";
 import { resolveWorkspaceRoot } from "./workspace-dir.js";
 
-export function createOpenClawTools(
+export function createLaiaArchTools(
   options?: {
     sandboxBrowserBridgeUrl?: string;
     allowHostBrowserControl?: boolean;

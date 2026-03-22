@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { resolveOpenClawPackageRootSync } from "../infra/openclaw-root.js";
+import { resolveOpenClawPackageRootSync } from "../infra/laia-arch-root.js";
 
 type PluginSdkAliasCandidateKind = "dist" | "src";
 
@@ -38,7 +38,7 @@ function listPluginSdkSubpathsFromPackageJson(pkg: PluginSdkPackageJson): string
     .toSorted();
 }
 
-function hasTrustedOpenClawRootIndicator(params: {
+function hasTrustedLaiaArchRootIndicator(params: {
   packageRoot: string;
   packageJson: PluginSdkPackageJson;
 }): boolean {
@@ -66,7 +66,7 @@ function readPluginSdkSubpathsFromPackageRoot(packageRoot: string): string[] | n
   if (!pkg) {
     return null;
   }
-  if (!hasTrustedOpenClawRootIndicator({ packageRoot, packageJson: pkg })) {
+  if (!hasTrustedLaiaArchRootIndicator({ packageRoot, packageJson: pkg })) {
     return null;
   }
   const subpaths = listPluginSdkSubpathsFromPackageJson(pkg);
