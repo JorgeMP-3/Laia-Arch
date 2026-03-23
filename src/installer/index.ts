@@ -1,38 +1,60 @@
 // index.ts — Orquestador del instalador conversacional de Laia Arch
+// Fases: 0 Bootstrap → 1 Escáner → 2 Conversación → 3 Plan → 4 Credenciales → 5 Ejecución
 
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import * as readline from "node:readline";
 import { runBootstrap } from "./bootstrap.js";
+import { runConversation } from "./conversation.js";
+import { provisionCredential } from "./credential-manager.js";
+import { executePlan } from "./executor.js";
+import { displayPlan, generatePlan } from "./plan-generator.js";
 import { runScanner } from "./scanner.js";
-import type { SystemScan, BootstrapResult } from "./types.js";
+import type { BootstrapResult, InstallerConfig, SystemScan } from "./types.js";
+
+/** Pide una confirmación explícita al usuario antes de continuar. */
+async function askConfirmation(question: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const rl = readline.createInterface({
+      input: process.stdin,
+      output: process.stdout,
+      terminal: true,
+    });
+    rl.question(`  ${question} (s/n): `, (answer) => {
+      rl.close();
+      const norm = answer.toLowerCase().trim();
+      resolve(norm === "s" || norm === "si" || norm === "sí" || norm === "y" || norm === "yes");
+    });
+  });
+}
 
 export async function runInstaller(): Promise<void> {
   let bootstrapResult: BootstrapResult;
   let systemScan: SystemScan;
+  let config: InstallerConfig;
 
-  // Phase 0: configure AI provider
+  // ── Fase 0: Configurar proveedor IA ──────────────────────────────────────
   try {
     bootstrapResult = await runBootstrap();
-    console.log(`  Proveedor configurado: ${bootstrapResult.providerId}`);
-    console.log(`  Modelo: ${bootstrapResult.model}\n`);
+    console.log(`  Proveedor : ${bootstrapResult.providerId} / ${bootstrapResult.model}\n`);
   } catch (err) {
-    console.error("\n  Error en la Fase 0 (configuracion del proveedor):");
+    console.error("\n  Error en Fase 0 (proveedor IA):");
     console.error(err instanceof Error ? err.message : String(err));
     process.exit(1);
   }
 
-  // Phase 1: system scan
+  // ── Fase 1: Escaneo del sistema ───────────────────────────────────────────
   try {
     systemScan = await runScanner();
-    console.log("  Escaneo completado\n");
+    console.log("  Escaneo completado.\n");
   } catch (err) {
-    console.error("\n  Error en la Fase 1 (escaneo del sistema):");
+    console.error("\n  Error en Fase 1 (escaneo del sistema):");
     console.error(err instanceof Error ? err.message : String(err));
     process.exit(1);
   }
 
-  // Save scan result to ~/.laia-arch/last-scan.json
+  // Guardar escaneo en ~/.laia-arch/last-scan.json
   try {
     const configDir = path.join(os.homedir(), ".laia-arch");
     fs.mkdirSync(configDir, { recursive: true });
@@ -42,17 +64,99 @@ export async function runInstaller(): Promise<void> {
       JSON.stringify({ timestamp: new Date().toISOString(), scan: systemScan }, null, 2),
       { mode: 0o600 },
     );
-    console.log(`  Escaneo guardado en: ${scanPath}\n`);
-  } catch (err) {
-    console.warn("  Aviso: no se pudo guardar el escaneo en disco:", String(err));
+  } catch {
+    console.warn("  Aviso: no se pudo guardar el escaneo en disco.");
   }
 
-  // Phases 0 and 1 complete — Phase 2 (conversation) will be built next
-  console.log("╔══════════════════════════════════════════════════════════╗");
-  console.log("║            FASES 0 Y 1 COMPLETADAS                     ║");
-  console.log("╚══════════════════════════════════════════════════════════╝");
-  console.log(`\n  Proveedor IA: ${bootstrapResult.providerId} / ${bootstrapResult.model}`);
-  console.log(`  Servidor:     ${systemScan.os.hostname} (${systemScan.os.distribution})`);
-  console.log(`  IP local:     ${systemScan.network.localIp}`);
-  console.log(`\n  Fase 2 (conversacion con la IA) se construye en el proximo paso.\n`);
+  // ── Fase 2: Conversación con la IA ───────────────────────────────────────
+  try {
+    config = await runConversation(bootstrapResult, systemScan);
+  } catch (err) {
+    console.error("\n  Error en Fase 2 (conversación):");
+    console.error(err instanceof Error ? err.message : String(err));
+    process.exit(1);
+  }
+
+  // ── Fase 3: Generar el plan ───────────────────────────────────────────────
+  let plan;
+  try {
+    plan = await generatePlan(config);
+    displayPlan(plan);
+  } catch (err) {
+    console.error("\n  Error generando el plan de instalación:");
+    console.error(err instanceof Error ? err.message : String(err));
+    process.exit(1);
+  }
+
+  // Confirmación explícita antes de continuar con la ejecución
+  const confirmed = await askConfirmation(
+    "¿Apruebas este plan y quieres continuar con la instalación?",
+  );
+  if (!confirmed) {
+    console.log(
+      "\n  Instalación cancelada. El plan ha sido guardado en ~/.laia-arch/installer-config.json",
+    );
+    process.exit(0);
+  }
+
+  // ── Fase 4: Generar credenciales de forma segura ─────────────────────────
+  console.log("\n╔══════════════════════════════════════════════════════════╗");
+  console.log("║              FASE 4 — GENERACIÓN DE CREDENCIALES       ║");
+  console.log("╚══════════════════════════════════════════════════════════╝\n");
+  console.log("  Las siguientes contraseñas se generan ahora y se almacenan");
+  console.log("  de forma segura. NUNCA pasan por el contexto de la IA.\n");
+
+  const passwordComplexityLength: Record<string, number> = {
+    basic: 16,
+    medium: 24,
+    high: 32,
+  };
+  const pwLength = passwordComplexityLength[config.security.passwordComplexity] ?? 24;
+
+  try {
+    for (const credId of plan.requiredCredentials) {
+      await provisionCredential(credId, credId.replace(/^laia-arch-/, "").replace(/-/g, " "), {
+        length: pwLength,
+        symbols: config.security.passwordComplexity !== "basic",
+      });
+      console.log();
+    }
+  } catch (err) {
+    console.error("\n  Error generando credenciales:");
+    console.error(err instanceof Error ? err.message : String(err));
+    process.exit(1);
+  }
+
+  const readyToExecute = await askConfirmation(
+    "¿Has guardado todas las contraseñas? ¿Listo para ejecutar la instalación?",
+  );
+  if (!readyToExecute) {
+    console.log("\n  Instalación pospuesta. Ejecuta 'laia-arch install' cuando estés listo.");
+    process.exit(0);
+  }
+
+  // ── Fase 5: Ejecutar el plan ──────────────────────────────────────────────
+  let results;
+  try {
+    results = await executePlan(plan);
+  } catch (err) {
+    console.error("\n  Error durante la ejecución:");
+    console.error(err instanceof Error ? err.message : String(err));
+    process.exit(1);
+  }
+
+  const failed = results.filter((r) => r.status === "failed" || r.status === "skipped").length;
+  if (failed > 0) {
+    console.error(`\n  La instalación terminó con ${failed} pasos fallidos o rechazados.`);
+    process.exit(1);
+  }
+
+  console.log("\n╔══════════════════════════════════════════════════════════╗");
+  console.log("║              INSTALACIÓN COMPLETADA                    ║");
+  console.log("╚══════════════════════════════════════════════════════════╝\n");
+  console.log(`  Servidor : ${systemScan.os.hostname}`);
+  console.log(`  Sistema  : ${systemScan.os.distribution} ${systemScan.os.version}`);
+  console.log(`  IP local : ${systemScan.network.localIp}\n`);
+  console.log("  Laia Arch ha terminado su trabajo.");
+  console.log("  Lo que construyó queda.\n");
 }
