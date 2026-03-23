@@ -5,7 +5,8 @@ import { execSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as readline from "node:readline";
-import type { BootstrapResult, AiProvider } from "./types.js";
+import { laiaTheme as t } from "../cli/laia-arch-theme.js";
+import type { AiProvider, BootstrapResult } from "./types.js";
 
 const SUPPORTED_PROVIDERS: AiProvider[] = [
   {
@@ -213,18 +214,14 @@ function askSecret(question: string): Promise<string> {
 }
 
 export async function runBootstrap(): Promise<BootstrapResult> {
-  console.log("\n");
-  console.log("╔══════════════════════════════════════════════════════════╗");
-  console.log("║       LAIA ARCH — Instalador conversacional             ║");
-  console.log("║       El arquitecto que construye tu servidor           ║");
-  console.log("╚══════════════════════════════════════════════════════════╝");
-  console.log("\nAntes de empezar necesito configurar el modelo de IA.\n");
+  console.log(t.banner());
+  console.log(t.dim("  Antes de empezar necesito configurar el modelo de IA.\n"));
 
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
 
-  console.log("Proveedores disponibles:\n");
+  console.log(t.label("Proveedores disponibles:") + "\n");
   SUPPORTED_PROVIDERS.forEach((p, i) => {
-    console.log(`  ${i + 1}. ${p.name}`);
+    console.log(`  ${t.brand(String(i + 1) + ".")} ${p.name}`);
   });
   console.log();
 
@@ -270,7 +267,7 @@ export async function runBootstrap(): Promise<BootstrapResult> {
       throw new Error("API key demasiado corta. Verifica que la has copiado correctamente.");
     }
 
-    console.log("\n  Validando la API key...");
+    console.log("\n" + t.step("Validando la API key..."));
     const valid = await validateApiKey(selectedProvider.id, apiKey, selectedModel, baseUrl);
 
     if (!valid) {
@@ -279,25 +276,25 @@ export async function runBootstrap(): Promise<BootstrapResult> {
       );
     }
 
-    console.log("  API key valida\n");
+    console.log("  " + t.good("API key válida\n"));
   } else {
-    console.log("\n  Verificando servidor Ollama local...");
+    console.log("\n" + t.step("Verificando servidor Ollama local..."));
     const valid = await validateApiKey("ollama", "", selectedModel);
     if (!valid) {
       throw new Error(
         "No se puede conectar con Ollama en localhost:11434. Asegurate de que Ollama esta instalado y corriendo.",
       );
     }
-    console.log("  Ollama disponible\n");
+    console.log("  " + t.good("Ollama disponible\n"));
   }
 
-  console.log("  Almacenando credenciales en el keychain del sistema...");
+  console.log(t.step("Almacenando credenciales en el keychain del sistema..."));
   const credentialId = await storeKeySecurely(selectedProvider.id, apiKey);
   // Destroy key from memory immediately
   apiKey = apiKey.replace(/./g, "\0");
   apiKey = "";
-  console.log("  Credenciales almacenadas de forma segura.");
-  console.log("  (La key nunca aparecera en logs ni en el contexto de la IA)\n");
+  console.log("  " + t.good("Credenciales almacenadas de forma segura."));
+  console.log(t.dim("  (La key nunca aparecerá en logs ni en el contexto de la IA)\n"));
 
   return {
     providerId: selectedProvider.id,

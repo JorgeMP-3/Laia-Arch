@@ -2,6 +2,7 @@
 // Muestra cada paso antes de ejecutarlo y espera aprobación explícita.
 
 import * as readline from "node:readline";
+import { laiaTheme as t } from "../cli/laia-arch-theme.js";
 import type { ApprovalRequest, ApprovalResult, InstallStep } from "./types.js";
 
 const ACCEPT = new Set(["s", "si", "sí", "y", "yes", "ok", "adelante", "aprobado"]);
@@ -22,22 +23,22 @@ export async function requestApproval(
     timeoutSeconds,
   };
 
-  const divider = "─".repeat(62);
+  const divider = t.brandDim("─".repeat(62));
   console.log(`\n${divider}`);
-  console.log(`  APROBACIÓN REQUERIDA — ${step.id}`);
+  console.log(`  ${t.label("APROBACIÓN REQUERIDA")} ${t.dim("—")} ${t.brand(step.id)}`);
   console.log(divider);
-  console.log(`  Descripción : ${step.description}`);
-  console.log(`  Fase        : ${step.phase}`);
+  console.log(`  ${t.label("Descripción")} : ${t.value(step.description)}`);
+  console.log(`  ${t.label("Fase")}        : ${t.dim(String(step.phase))}`);
 
   if (step.commands.length > 0) {
-    console.log("\n  Comandos a ejecutar:");
+    console.log(`\n  ${t.dim("Comandos a ejecutar:")}`);
     for (const cmd of step.commands) {
-      console.log(`    $ ${cmd}`);
+      console.log(t.cmd(cmd));
     }
   }
 
   if (step.rollback) {
-    console.log(`\n  Rollback disponible : ${step.rollback}`);
+    console.log(`\n  ${t.dim("Rollback disponible:")} ${t.muted(step.rollback)}`);
   }
 
   console.log();

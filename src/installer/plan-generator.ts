@@ -1,6 +1,7 @@
 // plan-generator.ts — Generación determinista del plan de instalación
 // El plan se genera por código, no por la IA. La IA solo recopila la config.
 
+import { laiaTheme as t } from "../cli/laia-arch-theme.js";
 import type { InstallerConfig, InstallPlan, InstallStep } from "./types.js";
 
 export type PlanStatus = "draft" | "approved" | "executing";
@@ -260,33 +261,31 @@ export async function generatePlan(config: InstallerConfig): Promise<InstallPlan
 
 /** Muestra el plan en la terminal de forma legible. */
 export function displayPlan(plan: InstallPlan): void {
-  console.log("\n╔══════════════════════════════════════════════════════════╗");
-  console.log("║                   PLAN DE INSTALACIÓN                  ║");
-  console.log("╚══════════════════════════════════════════════════════════╝\n");
-  console.log(`  Pasos totales   : ${plan.steps.length}`);
-  console.log(`  Tiempo estimado : ~${plan.estimatedMinutes} minutos\n`);
+  console.log(t.section("PLAN DE INSTALACIÓN"));
+  console.log(`\n  ${t.label("Pasos totales:")}   ${t.value(String(plan.steps.length))}`);
+  console.log(`  ${t.label("Tiempo estimado:")} ${t.value(`~${plan.estimatedMinutes} minutos`)}\n`);
 
   let currentPhase = -1;
   for (const step of plan.steps) {
     if (step.phase !== currentPhase) {
       currentPhase = step.phase;
-      console.log(`\n  ── Fase ${step.phase} ──`);
+      console.log(`\n  ${t.brandDim("── Fase " + step.phase + " ──")}`);
     }
-    const approval = step.requiresApproval ? " [requiere aprobación]" : "";
-    console.log(`    ${step.id}  ${step.description}${approval}`);
+    const approval = step.requiresApproval ? t.dim(" [requiere aprobación]") : "";
+    console.log(`    ${t.muted(step.id)}  ${t.value(step.description)}${approval}`);
   }
 
   if (plan.warnings.length > 0) {
-    console.log("\n  ADVERTENCIAS:");
+    console.log();
     for (const w of plan.warnings) {
-      console.log(`    ⚠  ${w}`);
+      console.log("  " + t.warn(w));
     }
   }
 
   if (plan.requiredCredentials.length > 0) {
-    console.log("\n  Credenciales que se generarán de forma segura:");
+    console.log(`\n  ${t.dim("Credenciales que se generarán de forma segura:")}`);
     for (const cred of plan.requiredCredentials) {
-      console.log(`    🔑 ${cred}`);
+      console.log(`    ${t.brand("🔑")} ${t.muted(cred)}`);
     }
   }
 

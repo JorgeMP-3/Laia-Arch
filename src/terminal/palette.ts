@@ -1,12 +1,12 @@
-// Lobster palette tokens for CLI/UI theming. Use this palette for all CLI color output.
+// Laia Arch palette — tema oscuro dorado.
 // Keep in sync with docs/cli/index.md (CLI palette section).
 export const LOBSTER_PALETTE = {
-  accent: "#FF5A2D",
-  accentBright: "#FF7A3D",
-  accentDim: "#D14A22",
-  info: "#FF8A5B",
-  success: "#2FBF71",
-  warn: "#FFB020",
-  error: "#E23D2D",
-  muted: "#8B7F77",
+  accent: "#FFC45A",
+  accentBright: "#FFD580",
+  accentDim: "#E0A830",
+  info: "#3B82F6",
+  success: "#22C55E",
+  warn: "#F59E0B",
+  error: "#EF4444",
+  muted: "#A0A0A0",
 } as const;

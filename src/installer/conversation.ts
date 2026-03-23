@@ -6,6 +6,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import * as readline from "node:readline";
 import { fileURLToPath } from "node:url";
+import { laiaTheme as t } from "../cli/laia-arch-theme.js";
 import { retrieveKey } from "./bootstrap.js";
 import type {
   AccessModel,
@@ -144,11 +145,11 @@ function formatScan(scan: SystemScan): string {
 /** Muestra el texto de la IA en la terminal con un prefijo visual. */
 function printAiMessage(text: string): void {
   console.log();
-  const prefix = "  Laia: ";
-  const indent = "        ";
+  const prefix = "  " + t.brand("Laia:") + " ";
+  const indent = "         ";
   const lines = text.split("\n");
   for (let i = 0; i < lines.length; i++) {
-    process.stdout.write((i === 0 ? prefix : indent) + lines[i] + "\n");
+    process.stdout.write((i === 0 ? prefix : indent) + t.primary(lines[i]) + "\n");
   }
   console.log();
 }
@@ -206,7 +207,7 @@ async function runStage(
 
     // Leer respuesta del usuario
     const userInput = await new Promise<string>((resolve) => {
-      rl.question("  Tú: ", resolve);
+      rl.question("  " + t.brandDim("Tú:") + " ", resolve);
     });
 
     const normalized = userInput.toLowerCase().trim();
@@ -284,11 +285,9 @@ export async function runConversation(
   bootstrap: BootstrapResult,
   scan: SystemScan,
 ): Promise<InstallerConfig> {
-  console.log("\n╔══════════════════════════════════════════════════════════╗");
-  console.log("║           FASE 2 — CONVERSACIÓN CON LA IA              ║");
-  console.log("╚══════════════════════════════════════════════════════════╝\n");
-  console.log("  Escribe 'continuar' o 'siguiente' para avanzar de etapa.");
-  console.log("  Escribe 'salir' en cualquier momento para cancelar.\n");
+  console.log(t.section("FASE 2 — CONVERSACIÓN CON LA IA"));
+  console.log(t.dim("\n  Escribe 'continuar' o 'siguiente' para avanzar de etapa."));
+  console.log(t.dim("  Escribe 'salir' en cualquier momento para cancelar.\n"));
 
   const rl = readline.createInterface({
     input: process.stdin,
@@ -300,7 +299,7 @@ export async function runConversation(
 
   try {
     // ── Etapa 0: Contexto del sistema ─────────────────────────────────────
-    console.log("  ── Etapa 0/5: Revisión del sistema ──\n");
+    console.log(t.step("Etapa 0/5: Revisión del sistema\n"));
     const stage0System = loadPrompt("00-system-context.md") + "\n\n" + scanContext;
     await runStage(
       rl,
@@ -311,7 +310,7 @@ export async function runConversation(
     );
 
     // ── Etapa 1: Perfil de la empresa ─────────────────────────────────────
-    console.log("  ── Etapa 1/5: Perfil de la empresa ──\n");
+    console.log(t.step("Etapa 1/5: Perfil de la empresa\n"));
     const stage1System = loadPrompt("01-company-profile.md") + "\n\n" + scanContext;
     const { messages: msgs1 } = await runStage(
       rl,
@@ -342,7 +341,7 @@ export async function runConversation(
     );
 
     // ── Etapa 2: Modelo de acceso ─────────────────────────────────────────
-    console.log("  ── Etapa 2/5: Modelo de acceso ──\n");
+    console.log(t.step("Etapa 2/5: Modelo de acceso\n"));
     const stage2System =
       loadPrompt("02-access-model.md") +
       "\n\nEmpresa: " +
@@ -383,7 +382,7 @@ export async function runConversation(
     );
 
     // ── Etapa 3: Selección de servicios ───────────────────────────────────
-    console.log("  ── Etapa 3/5: Servicios a instalar ──\n");
+    console.log(t.step("Etapa 3/5: Servicios a instalar\n"));
     const stage3System =
       loadPrompt("03-services-selection.md") +
       "\n\nEmpresa: " +
@@ -427,7 +426,7 @@ export async function runConversation(
     );
 
     // ── Etapa 4: Política de seguridad ────────────────────────────────────
-    console.log("  ── Etapa 4/5: Política de seguridad ──\n");
+    console.log(t.step("Etapa 4/5: Política de seguridad\n"));
     const stage4System =
       loadPrompt("04-security-policy.md") +
       "\n\nServicios seleccionados: " +
@@ -460,7 +459,7 @@ export async function runConversation(
     );
 
     // ── Etapa 5: Cumplimiento normativo ───────────────────────────────────
-    console.log("  ── Etapa 5/5: Cumplimiento normativo ──\n");
+    console.log(t.step("Etapa 5/5: Cumplimiento normativo\n"));
     const stage5System = loadPrompt("05-data-compliance.md") + "\n\n" + scanContext;
     const { messages: msgs5 } = await runStage(
       rl,

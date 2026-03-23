@@ -265,9 +265,11 @@ export function pickTagline(options: TaglineOptions = {}): string {
   if (options.mode === "off") {
     return "";
   }
-  if (options.mode === "default") {
+  // "default" mode OR no explicit mode → always show DEFAULT_TAGLINE
+  if (options.mode === "default" || options.mode === undefined) {
     return DEFAULT_TAGLINE;
   }
+  // "random" mode requires explicit opt-in
   const env = options.env ?? process.env;
   const override = env?.LAIA_ARCH_TAGLINE_INDEX;
   if (override !== undefined) {

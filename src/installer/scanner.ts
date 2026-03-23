@@ -2,7 +2,8 @@
 
 import { exec } from "node:child_process";
 import { promisify } from "node:util";
-import type { SystemScan, NetworkDevice } from "./types.js";
+import { laiaTheme as t } from "../cli/laia-arch-theme.js";
+import type { NetworkDevice, SystemScan } from "./types.js";
 
 const execAsync = promisify(exec);
 
@@ -107,8 +108,8 @@ function detectWarnings(scan: Omit<SystemScan, "warnings">): string[] {
 }
 
 export async function runScanner(): Promise<SystemScan> {
-  console.log("  Escaneando el sistema y la red...");
-  console.log("  (Esto puede tardar entre 30 y 60 segundos)\n");
+  console.log(t.step("Escaneando el sistema y la red..."));
+  console.log(t.dim("  (Esto puede tardar entre 30 y 60 segundos)\n"));
 
   // Launch all commands in parallel
   const [
@@ -212,37 +213,34 @@ export async function runScanner(): Promise<SystemScan> {
   };
 
   // Display readable summary
-  console.log("╔══════════════════════════════════════════════════════════╗");
-  console.log("║                  RESULTADO DEL ESCANEO                  ║");
-  console.log("╚══════════════════════════════════════════════════════════╝");
-  console.log(
-    `\n  Hardware: ${scan.hardware.arch}, ${scan.hardware.cores} cores, ${scan.hardware.ramGb} GB RAM`,
-  );
-  console.log(
-    `  Disco:    ${scan.hardware.diskFreeGb.toFixed(1)} GB libres de ${scan.hardware.diskTotalGb.toFixed(1)} GB`,
-  );
-  console.log(`  Sistema:  ${scan.os.distribution}`);
-  console.log(`  Kernel:   ${scan.os.kernel}`);
-  console.log(`  Hostname: ${scan.os.hostname}`);
-  console.log(`  IP local: ${scan.network.localIp}${scan.network.subnet}`);
-  console.log(`  Gateway:  ${scan.network.gateway}`);
-  console.log(`  DNS:      ${scan.network.dns}`);
-  console.log(`  Internet: ${scan.network.hasInternet ? "Disponible" : "Sin conexion"}`);
-  console.log(`  Dispositivos en red: ${scan.network.devices.length} detectados`);
-  console.log(`  Servicios activos:   ${scan.services.length}`);
-  console.log(`  Puertos abiertos:    ${scan.ports.length}`);
+  console.log(t.section("RESULTADO DEL ESCANEO"));
+  const row = (label: string, value: string) =>
+    console.log(`  ${t.label(label.padEnd(10))} ${t.value(value)}`);
+
+  row("Hardware:", `${scan.hardware.arch}, ${scan.hardware.cores} cores, ${scan.hardware.ramGb} GB RAM`);
+  row("Disco:", `${scan.hardware.diskFreeGb.toFixed(1)} GB libres de ${scan.hardware.diskTotalGb.toFixed(1)} GB`);
+  row("Sistema:", scan.os.distribution);
+  row("Kernel:", scan.os.kernel);
+  row("Hostname:", scan.os.hostname);
+  row("IP local:", `${scan.network.localIp}${scan.network.subnet}`);
+  row("Gateway:", scan.network.gateway);
+  row("DNS:", scan.network.dns);
+  row("Internet:", scan.network.hasInternet ? t.success("Disponible") : t.error("Sin conexión"));
+  row("Red:", `${scan.network.devices.length} dispositivos detectados`);
+  row("Servicios:", `${scan.services.length} activos`);
+  row("Puertos:", `${scan.ports.length} abiertos`);
 
   const sw = Object.entries(scan.software)
     .filter(([, v]) => v)
     .map(([k, v]) => `${k}=${v}`)
     .join(", ");
   if (sw) {
-    console.log(`  Software:  ${sw}`);
+    row("Software:", sw);
   }
 
   if (scan.warnings.length > 0) {
-    console.log("\n  Advertencias detectadas:");
-    scan.warnings.forEach((w) => console.log(`    - ${w}`));
+    console.log();
+    scan.warnings.forEach((w) => console.log("  " + t.warn(w)));
   }
 
   console.log();

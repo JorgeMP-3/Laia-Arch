@@ -5,6 +5,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import * as readline from "node:readline";
+import { laiaTheme as t } from "../cli/laia-arch-theme.js";
 import { runBootstrap } from "./bootstrap.js";
 import { runConversation } from "./conversation.js";
 import { provisionCredential } from "./credential-manager.js";
@@ -37,7 +38,7 @@ export async function runInstaller(): Promise<void> {
   // ── Fase 0: Configurar proveedor IA ──────────────────────────────────────
   try {
     bootstrapResult = await runBootstrap();
-    console.log(`  Proveedor : ${bootstrapResult.providerId} / ${bootstrapResult.model}\n`);
+    console.log("  " + t.good(`Proveedor: ${bootstrapResult.providerId} / ${bootstrapResult.model}\n`));
   } catch (err) {
     console.error("\n  Error en Fase 0 (proveedor IA):");
     console.error(err instanceof Error ? err.message : String(err));
@@ -47,7 +48,7 @@ export async function runInstaller(): Promise<void> {
   // ── Fase 1: Escaneo del sistema ───────────────────────────────────────────
   try {
     systemScan = await runScanner();
-    console.log("  Escaneo completado.\n");
+    console.log("  " + t.good("Escaneo completado.\n"));
   } catch (err) {
     console.error("\n  Error en Fase 1 (escaneo del sistema):");
     console.error(err instanceof Error ? err.message : String(err));
@@ -100,11 +101,9 @@ export async function runInstaller(): Promise<void> {
   }
 
   // ── Fase 4: Generar credenciales de forma segura ─────────────────────────
-  console.log("\n╔══════════════════════════════════════════════════════════╗");
-  console.log("║              FASE 4 — GENERACIÓN DE CREDENCIALES       ║");
-  console.log("╚══════════════════════════════════════════════════════════╝\n");
-  console.log("  Las siguientes contraseñas se generan ahora y se almacenan");
-  console.log("  de forma segura. NUNCA pasan por el contexto de la IA.\n");
+  console.log(t.section("FASE 4 — GENERACIÓN DE CREDENCIALES"));
+  console.log(t.dim("\n  Las siguientes contraseñas se generan ahora y se almacenan"));
+  console.log(t.dim("  de forma segura. NUNCA pasan por el contexto de la IA.\n"));
 
   const passwordComplexityLength: Record<string, number> = {
     basic: 16,
@@ -151,12 +150,10 @@ export async function runInstaller(): Promise<void> {
     process.exit(1);
   }
 
-  console.log("\n╔══════════════════════════════════════════════════════════╗");
-  console.log("║              INSTALACIÓN COMPLETADA                    ║");
-  console.log("╚══════════════════════════════════════════════════════════╝\n");
-  console.log(`  Servidor : ${systemScan.os.hostname}`);
-  console.log(`  Sistema  : ${systemScan.os.distribution} ${systemScan.os.version}`);
-  console.log(`  IP local : ${systemScan.network.localIp}\n`);
-  console.log("  Laia Arch ha terminado su trabajo.");
-  console.log("  Lo que construyó queda.\n");
+  console.log(t.section("INSTALACIÓN COMPLETADA"));
+  console.log(`\n  ${t.label("Servidor:")} ${t.value(systemScan.os.hostname)}`);
+  console.log(`  ${t.label("Sistema: ")} ${t.value(`${systemScan.os.distribution} ${systemScan.os.version}`)}`);
+  console.log(`  ${t.label("IP local:")} ${t.value(systemScan.network.localIp)}\n`);
+  console.log("  " + t.good("Laia Arch ha terminado su trabajo."));
+  console.log(t.dim("  Lo que construyó queda.\n"));
 }
