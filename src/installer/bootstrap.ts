@@ -138,12 +138,28 @@ async function validateApiKey(
   baseUrl?: string,
 ): Promise<boolean> {
   try {
-    if (providerId === "anthropic" || providerId === "anthropic-token") {
+    if (providerId === "anthropic") {
       const response = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           "x-api-key": key,
+          "anthropic-version": "2023-06-01",
+        },
+        body: JSON.stringify({
+          model,
+          max_tokens: 10,
+          messages: [{ role: "user", content: "Responde solo con: OK" }],
+        }),
+      });
+      return response.ok;
+    } else if (providerId === "anthropic-token") {
+      // El setup-token es un OAuth token: se envía como Bearer, no como x-api-key
+      const response = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${key}`,
           "anthropic-version": "2023-06-01",
         },
         body: JSON.stringify({

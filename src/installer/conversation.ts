@@ -45,13 +45,14 @@ async function callAI(
   const key = bootstrap.providerId !== "ollama" ? retrieveKey(bootstrap.credentialId) : "";
 
   if (bootstrap.providerId === "anthropic") {
+    // setup-token es OAuth: usa Authorization: Bearer en lugar de x-api-key
+    const anthropicHeaders: Record<string, string> =
+      bootstrap.authMethod === "setup-token"
+        ? { "Content-Type": "application/json", Authorization: `Bearer ${key}`, "anthropic-version": "2023-06-01" }
+        : { "Content-Type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01" };
     const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": key,
-        "anthropic-version": "2023-06-01",
-      },
+      headers: anthropicHeaders,
       body: JSON.stringify({
         model: bootstrap.model,
         max_tokens: 2048,
