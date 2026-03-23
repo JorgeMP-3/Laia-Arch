@@ -288,9 +288,9 @@ async function handleSetupToken(model: string): Promise<{ credentialId: string }
 
   let token = await askSecret("Setup-token: ");
 
-  if (!token.startsWith("sk-ant-oat-")) {
+  if (!token.startsWith("sk-ant-oat")) {
     throw new Error(
-      'El setup-token debe empezar por "sk-ant-oat-". Verifica que has copiado el token completo.',
+      'El setup-token debe empezar por "sk-ant-oat". Verifica que has copiado el token completo.',
     );
   }
 
