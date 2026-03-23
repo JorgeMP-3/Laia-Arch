@@ -42,6 +42,20 @@ const coreEntries: CoreCliEntry[] = [
   {
     commands: [
       {
+        name: "install",
+        description:
+          "Instalador conversacional de Laia Arch — configura el servidor completo con IA",
+        hasSubcommands: false,
+      },
+    ],
+    register: async ({ program }) => {
+      const mod = await import("./register.install.js");
+      mod.registerInstallCommand(program);
+    },
+  },
+  {
+    commands: [
+      {
         name: "setup",
         description: "Initialize local config and agent workspace",
         hasSubcommands: false,

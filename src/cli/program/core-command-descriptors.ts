@@ -6,6 +6,12 @@ export type CoreCliCommandDescriptor = {
 
 export const CORE_CLI_COMMAND_DESCRIPTORS = [
   {
+    name: "install",
+    description:
+      "Instalador conversacional de Laia Arch — configura el servidor completo con IA",
+    hasSubcommands: false,
+  },
+  {
     name: "setup",
     description: "Initialize local config and agent workspace",
     hasSubcommands: false,

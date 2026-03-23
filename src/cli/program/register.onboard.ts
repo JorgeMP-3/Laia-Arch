@@ -14,8 +14,6 @@ import type {
 import { setupWizardCommand } from "../../commands/onboard.js";
 import { resolveManifestProviderOnboardAuthFlags } from "../../plugins/provider-auth-choices.js";
 import { defaultRuntime } from "../../runtime.js";
-import { formatDocsLink } from "../../terminal/links.js";
-import { theme } from "../../terminal/theme.js";
 import { runCommandWithRuntime } from "../cli-utils.js";
 
 function resolveInstallDaemonFlag(
@@ -64,11 +62,6 @@ export function registerOnboardCommand(program: Command) {
   const command = program
     .command("onboard")
     .description("Interactive onboarding for the gateway, workspace, and skills")
-    .addHelpText(
-      "after",
-      () =>
-        `\n${theme.muted("Docs:")} ${formatDocsLink("/cli/onboard", "docs.openclaw.ai/cli/onboard")}\n`,
-    )
     .option("--workspace <dir>", "Agent workspace directory (default: ~/.laia-arch/workspace)")
     .option(
       "--reset",
@@ -140,6 +133,45 @@ export function registerOnboardCommand(program: Command) {
     .option("--json", "Output JSON summary", false);
 
   command.action(async (opts, commandRuntime) => {
+    // Si no se han pasado flags de automatización, ofrecer el menú de elección
+    const hasAutoFlags = Boolean(
+      opts.nonInteractive || opts.flow || opts.authChoice || opts.token || opts.remoteUrl,
+    );
+
+    if (!hasAutoFlags && process.stdout.isTTY) {
+      const { select, intro, isCancel } = await import("@clack/prompts");
+
+      intro("Laia Arch — Instalación");
+
+      const choice = await select({
+        message: "¿Qué tipo de instalación quieres hacer?",
+        options: [
+          {
+            value: "laia",
+            label: "Instalación Laia Arch  (recomendado)",
+            hint: "Escanea el sistema, conversa contigo y configura el servidor completo",
+          },
+          {
+            value: "standard",
+            label: "Instalación estándar",
+            hint: "El wizard original de configuración del gateway",
+          },
+        ],
+      });
+
+      if (isCancel(choice)) {
+        console.log("\n  Instalación cancelada.");
+        process.exit(0);
+      }
+
+      if (choice === "laia") {
+        const { runInstaller } = await import("../../installer/index.js");
+        await runInstaller();
+        return;
+      }
+      // choice === "standard" → continúa con el flujo original
+    }
+
     await runCommandWithRuntime(defaultRuntime, async () => {
       const installDaemon = resolveInstallDaemonFlag(commandRuntime, {
         installDaemon: Boolean(opts.installDaemon),
