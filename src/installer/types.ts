@@ -119,16 +119,20 @@ export interface ApprovalRequest {
   timeoutSeconds: number;
 }
 
+export type AuthMethod = "api-key" | "setup-token" | "oauth";
+
 export interface AiProvider {
-  id: "anthropic" | "openai" | "ollama" | "openai-compatible";
+  id: "anthropic" | "openai" | "ollama" | "openai-compatible" | "openrouter";
   name: string;
   models: string[];
   baseUrl?: string;
+  authMethods?: string[];
 }
 
 export interface BootstrapResult {
   providerId: string;
   model: string;
   credentialId: string;
+  authMethod: AuthMethod;
   baseUrl?: string;
 }

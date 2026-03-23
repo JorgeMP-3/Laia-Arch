@@ -69,9 +69,17 @@ async function callAI(
     return data.content.find((b) => b.type === "text")?.text ?? "";
   }
 
-  if (bootstrap.providerId === "openai" || bootstrap.providerId === "openai-compatible") {
-    const baseUrl = bootstrap.baseUrl ?? "https://api.openai.com";
-    const response = await fetch(`${baseUrl}/v1/chat/completions`, {
+  if (
+    bootstrap.providerId === "openai" ||
+    bootstrap.providerId === "openai-compatible" ||
+    bootstrap.providerId === "openrouter"
+  ) {
+    const baseUrl =
+      bootstrap.baseUrl ??
+      (bootstrap.providerId === "openrouter"
+        ? "https://openrouter.ai/api/v1"
+        : "https://api.openai.com/v1");
+    const response = await fetch(`${baseUrl}/chat/completions`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
