@@ -1,48 +1,61 @@
 // bootstrap.ts — Fase 0: Configuración del proveedor IA antes del instalador conversacional
 
-import { execSync, spawn } from "child_process";
-import * as fs from "fs";
-import * as os from "os";
-import * as readline from "readline";
+import { spawn } from "node:child_process";
+import { execSync } from "node:child_process";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as readline from "node:readline";
+import type { BootstrapResult, AiProvider } from "./types.js";
 
-export interface BootstrapResult {
-  provider: "anthropic" | "openai" | "ollama" | "compatible";
-  model: string;
-  apiKeyId: string;
-  validated: boolean;
-}
-
-const SUPPORTED_PROVIDERS = [
+const SUPPORTED_PROVIDERS: AiProvider[] = [
   {
     id: "anthropic",
     name: "Anthropic (Claude)",
     models: ["claude-opus-4-5", "claude-sonnet-4-5", "claude-haiku-4-5"],
   },
-  { id: "openai", name: "OpenAI (GPT)", models: ["gpt-4o", "gpt-4o-mini"] },
-  { id: "ollama", name: "Ollama (local)", models: ["llama3.1", "mistral", "qwen2.5"] },
+  {
+    id: "openai",
+    name: "OpenAI (GPT)",
+    models: ["gpt-4o", "gpt-4o-mini"],
+  },
+  {
+    id: "ollama",
+    name: "Ollama (local)",
+    models: ["llama3.1", "mistral", "qwen2.5"],
+  },
+  {
+    id: "openai-compatible",
+    name: "OpenAI compatible (LM Studio, vLLM...)",
+    models: ["local-model"],
+  },
 ];
 
-async function storeKeySecurely(provider: string, key: string): Promise<string> {
-  const keyId = `laia-arch-${provider}-api-key`;
+async function storeKeySecurely(providerId: string, key: string): Promise<string> {
+  const keyId = `laia-arch-${providerId}-api-key`;
   const platform = os.platform();
 
   try {
     if (platform === "linux") {
-      const proc = spawn("secret-tool", [
-        "store",
-        "--label",
-        keyId,
-        "service",
-        "laia-arch",
-        "key",
-        keyId,
-      ]);
-      proc.stdin.write(key);
-      proc.stdin.end();
-      await new Promise((resolve, reject) => {
-        proc.on("close", (code) =>
-          code === 0 ? resolve(null) : reject(new Error(`secret-tool falló con código ${code}`)),
-        );
+      await new Promise<void>((resolve, reject) => {
+        const proc = spawn("secret-tool", [
+          "store",
+          "--label",
+          `Laia Arch API key (${providerId})`,
+          "service",
+          "laia-arch",
+          "key",
+          keyId,
+        ]);
+        proc.stdin.write(key);
+        proc.stdin.end();
+        proc.on("close", (code) => {
+          if (code === 0) {
+            resolve();
+          } else {
+            reject(new Error(`secret-tool failed with code ${code}`));
+          }
+        });
+        proc.on("error", reject);
       });
     } else if (platform === "darwin") {
       execSync(`security add-generic-password -a laia-arch -s ${keyId} -w`, {
@@ -50,20 +63,17 @@ async function storeKeySecurely(provider: string, key: string): Promise<string> 
         stdio: ["pipe", "ignore", "ignore"],
       });
     } else {
-      const configDir = `${os.homedir()}/.laia-arch`;
-      fs.mkdirSync(configDir, { recursive: true });
-      const keyFile = `${configDir}/.${keyId}`;
-      fs.writeFileSync(keyFile, key, { mode: 0o600 });
-      console.warn("⚠ Keychain no disponible. La key se guardó en archivo protegido.");
+      throw new Error("unsupported platform");
     }
   } catch {
+    // Fallback: file with 600 permissions
     const configDir = `${os.homedir()}/.laia-arch`;
     fs.mkdirSync(configDir, { recursive: true });
     const keyFile = `${configDir}/.${keyId}`;
     fs.writeFileSync(keyFile, key, { mode: 0o600 });
+    console.warn("  Aviso: keychain no disponible. La key se guardó en archivo protegido (600).");
   }
 
-  key = key.replace(/./g, "0");
   return keyId;
 }
 
@@ -88,15 +98,26 @@ export function retrieveKey(keyId: string): string {
       return fs.readFileSync(keyFile, "utf8").trim();
     }
   } catch {
-    throw new Error(
-      `No se pudo recuperar la credencial: ${keyId}. Ejecuta laia-arch install de nuevo.`,
-    );
+    // Try file fallback regardless of platform
+    try {
+      const keyFile = `${os.homedir()}/.laia-arch/.${keyId}`;
+      return fs.readFileSync(keyFile, "utf8").trim();
+    } catch {
+      throw new Error(
+        `No se pudo recuperar la credencial: ${keyId}. Ejecuta laia-arch install de nuevo.`,
+      );
+    }
   }
 }
 
-async function validateApiKey(provider: string, key: string, model: string): Promise<boolean> {
+async function validateApiKey(
+  providerId: string,
+  key: string,
+  model: string,
+  baseUrl?: string,
+): Promise<boolean> {
   try {
-    if (provider === "anthropic") {
+    if (providerId === "anthropic") {
       const response = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
         headers: {
@@ -111,7 +132,7 @@ async function validateApiKey(provider: string, key: string, model: string): Pro
         }),
       });
       return response.ok;
-    } else if (provider === "openai") {
+    } else if (providerId === "openai") {
       const response = await fetch("https://api.openai.com/v1/chat/completions", {
         method: "POST",
         headers: {
@@ -125,8 +146,25 @@ async function validateApiKey(provider: string, key: string, model: string): Pro
         }),
       });
       return response.ok;
-    } else if (provider === "ollama") {
-      const response = await fetch("http://localhost:11434/api/tags");
+    } else if (providerId === "openai-compatible") {
+      const url = `${baseUrl ?? "http://localhost:1234"}/v1/chat/completions`;
+      const response = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${key || "none"}`,
+        },
+        body: JSON.stringify({
+          model,
+          max_tokens: 10,
+          messages: [{ role: "user", content: "Responde solo con: OK" }],
+        }),
+      });
+      return response.ok;
+    } else if (providerId === "ollama") {
+      const response = await fetch("http://localhost:11434/api/tags", {
+        signal: AbortSignal.timeout(5000),
+      });
       return response.ok;
     }
     return false;
@@ -142,16 +180,21 @@ function ask(rl: readline.Interface, question: string): Promise<string> {
 function askSecret(question: string): Promise<string> {
   return new Promise((resolve) => {
     process.stdout.write(question);
-    const stdin = process.openStdin();
-    process.stdin.setRawMode(true);
+    const wasRaw = process.stdin.isRaw ?? false;
     let key = "";
-    process.stdin.on("data", (char) => {
+
+    const onData = (char: Buffer) => {
       const c = char.toString();
       if (c === "\r" || c === "\n") {
-        process.stdin.setRawMode(false);
+        process.stdin.setRawMode(wasRaw);
+        process.stdin.removeListener("data", onData);
+        process.stdin.pause();
         process.stdout.write("\n");
-        stdin.pause();
         resolve(key);
+      } else if (c === "\u0003") {
+        // Ctrl-C
+        process.stdout.write("\n");
+        process.exit(1);
       } else if (c === "\u0008" || c === "\u007f") {
         if (key.length > 0) {
           key = key.slice(0, -1);
@@ -161,7 +204,11 @@ function askSecret(question: string): Promise<string> {
         key += c;
         process.stdout.write("*");
       }
-    });
+    };
+
+    process.stdin.setRawMode(true);
+    process.stdin.resume();
+    process.stdin.on("data", onData);
   });
 }
 
@@ -181,12 +228,12 @@ export async function runBootstrap(): Promise<BootstrapResult> {
   });
   console.log();
 
-  const providerChoice = await ask(rl, "Elige el proveedor (1-3): ");
-  const providerIndex = parseInt(providerChoice) - 1;
+  const providerChoice = await ask(rl, `Elige el proveedor (1-${SUPPORTED_PROVIDERS.length}): `);
+  const providerIndex = parseInt(providerChoice, 10) - 1;
 
   if (providerIndex < 0 || providerIndex >= SUPPORTED_PROVIDERS.length) {
     rl.close();
-    throw new Error("Opción no válida. Ejecuta laia-arch install de nuevo.");
+    throw new Error("Opcion no valida. Ejecuta laia-arch install de nuevo.");
   }
 
   const selectedProvider = SUPPORTED_PROVIDERS[providerIndex];
@@ -198,55 +245,64 @@ export async function runBootstrap(): Promise<BootstrapResult> {
   console.log();
 
   const modelChoice = await ask(rl, `Elige el modelo (1-${selectedProvider.models.length}): `);
-  const modelIndex = parseInt(modelChoice) - 1;
+  const modelIndex = parseInt(modelChoice, 10) - 1;
 
   if (modelIndex < 0 || modelIndex >= selectedProvider.models.length) {
     rl.close();
-    throw new Error("Modelo no válido.");
+    throw new Error("Modelo no valido.");
   }
 
   const selectedModel = selectedProvider.models[modelIndex];
+
+  let baseUrl: string | undefined;
+  if (selectedProvider.id === "openai-compatible") {
+    baseUrl = await ask(rl, "URL base del servidor (ej: http://localhost:1234): ");
+    baseUrl = baseUrl.trim().replace(/\/$/, "") || "http://localhost:1234";
+  }
+
   rl.close();
 
   let apiKey = "";
   if (selectedProvider.id !== "ollama") {
     apiKey = await askSecret(`\nIntroduce tu API key de ${selectedProvider.name}: `);
 
-    if (!apiKey || apiKey.length < 10) {
+    if (!apiKey || apiKey.length < 8) {
       throw new Error("API key demasiado corta. Verifica que la has copiado correctamente.");
     }
 
-    console.log("\n→ Validando la API key...");
-    const valid = await validateApiKey(selectedProvider.id, apiKey, selectedModel);
+    console.log("\n  Validando la API key...");
+    const valid = await validateApiKey(selectedProvider.id, apiKey, selectedModel, baseUrl);
 
     if (!valid) {
       throw new Error(
-        "La API key no es válida o no hay conexión a internet. Verifica la key e inténtalo de nuevo.",
+        "La API key no es valida o no hay conexion a internet. Verifica la key e intentalo de nuevo.",
       );
     }
 
-    console.log("✓ API key válida\n");
+    console.log("  API key valida\n");
   } else {
-    console.log("\n→ Verificando servidor Ollama local...");
+    console.log("\n  Verificando servidor Ollama local...");
     const valid = await validateApiKey("ollama", "", selectedModel);
     if (!valid) {
       throw new Error(
-        "No se puede conectar con Ollama en localhost:11434. Asegúrate de que Ollama está instalado y corriendo.",
+        "No se puede conectar con Ollama en localhost:11434. Asegurate de que Ollama esta instalado y corriendo.",
       );
     }
-    console.log("✓ Ollama disponible\n");
+    console.log("  Ollama disponible\n");
   }
 
-  console.log("→ Almacenando credenciales en el keychain del sistema...");
-  const keyId = await storeKeySecurely(selectedProvider.id, apiKey);
+  console.log("  Almacenando credenciales en el keychain del sistema...");
+  const credentialId = await storeKeySecurely(selectedProvider.id, apiKey);
+  // Destroy key from memory immediately
+  apiKey = apiKey.replace(/./g, "\0");
   apiKey = "";
-  console.log("✓ Credenciales almacenadas de forma segura");
-  console.log("  (La key nunca aparecerá en logs ni en el contexto de la IA)\n");
+  console.log("  Credenciales almacenadas de forma segura.");
+  console.log("  (La key nunca aparecera en logs ni en el contexto de la IA)\n");
 
   return {
-    provider: selectedProvider.id as BootstrapResult["provider"],
+    providerId: selectedProvider.id,
     model: selectedModel,
-    apiKeyId: keyId,
-    validated: true,
+    credentialId,
+    baseUrl,
   };
 }

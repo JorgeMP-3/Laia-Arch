@@ -1,44 +1,43 @@
-// scanner.ts — Fase 1: Escáner de sistema y red
+// scanner.ts — Fase 1: Escaneo del sistema y la red
 
-import { execSync } from "child_process";
+import { exec } from "node:child_process";
+import { promisify } from "node:util";
 import type { SystemScan, NetworkDevice } from "./types.js";
 
-function runCommand(cmd: string): string {
+const execAsync = promisify(exec);
+
+async function run(cmd: string, timeoutMs = 10000): Promise<string> {
   try {
-    return execSync(cmd, {
-      stdio: ["ignore", "pipe", "ignore"],
-      timeout: 10000,
-    })
-      .toString()
-      .trim();
+    const { stdout } = await execAsync(cmd, { timeout: timeoutMs });
+    return stdout.trim();
   } catch {
     return "";
   }
 }
 
-function parseArch(): string {
-  const arch = runCommand("uname -m");
-  if (arch.includes("aarch64") || arch.includes("arm64")) {
+function parseArch(raw: string): string {
+  if (raw.includes("aarch64") || raw.includes("arm64")) {
     return "ARM64";
   }
-  if (arch.includes("x86_64")) {
+  if (raw.includes("x86_64")) {
     return "x86_64";
   }
-  return arch || "unknown";
+  return raw || "unknown";
 }
 
-function parseRamGb(): number {
-  const output = runCommand("free -m");
-  const match = output.match(/Mem:\s+(\d+)/);
-  return match ? Math.round((parseInt(match[1]) / 1024) * 10) / 10 : 0;
+function parseRamGb(freeOutput: string): number {
+  const match = freeOutput.match(/Mem:\s+(\d+)/);
+  if (!match) {
+    return 0;
+  }
+  return Math.round((parseInt(match[1], 10) / 1024) * 10) / 10;
 }
 
-function parseDisk(): { free: number; total: number } {
-  const output = runCommand("df -h /");
-  const lines = output.split("\n");
-  const dataLine = lines[1] || "";
+function parseDiskGb(dfOutput: string): { free: number; total: number } {
+  const lines = dfOutput.split("\n");
+  const dataLine = lines[1] ?? "";
   const parts = dataLine.split(/\s+/);
-  const parseGb = (s: string) => {
+  const parseGb = (s: string): number => {
     if (!s) {
       return 0;
     }
@@ -55,198 +54,195 @@ function parseDisk(): { free: number; total: number } {
     return n;
   };
   return {
-    total: parseGb(parts[1] || "0"),
-    free: parseGb(parts[3] || "0"),
+    total: parseGb(parts[1] ?? "0"),
+    free: parseGb(parts[3] ?? "0"),
   };
 }
 
-function parseNetworkDevices(): NetworkDevice[] {
-  let output = runCommand(
-    "sudo arp-scan --localnet 2>/dev/null || arp-scan --localnet 2>/dev/null",
-  );
-  if (!output) {
-    output = runCommand("arp -a");
-  }
-
+function parseNetworkDevices(arpOutput: string): NetworkDevice[] {
   const devices: NetworkDevice[] = [];
-  const lines = output.split("\n");
-
-  for (const line of lines) {
-    const arpScanMatch = line.match(/(\d+\.\d+\.\d+\.\d+)\s+([\da-f:]{17})\s*(.*)/i);
-    if (arpScanMatch) {
+  for (const line of arpOutput.split("\n")) {
+    // arp-scan format: IP  MAC  Vendor
+    const arpScan = line.match(/^(\d+\.\d+\.\d+\.\d+)\s+([\da-f:]{17})\s*(.*)/i);
+    if (arpScan) {
       devices.push({
-        ip: arpScanMatch[1],
-        mac: arpScanMatch[2],
-        vendor: arpScanMatch[3]?.trim() || undefined,
+        ip: arpScan[1],
+        mac: arpScan[2],
+        vendor: arpScan[3]?.trim() || undefined,
       });
       continue;
     }
-    const arpMatch = line.match(/\((\d+\.\d+\.\d+\.\d+)\)\s+at\s+([\da-f:]{17})/i);
-    if (arpMatch) {
-      devices.push({ ip: arpMatch[1], mac: arpMatch[2] });
+    // arp -a format: hostname (IP) at MAC
+    const arpA = line.match(/\((\d+\.\d+\.\d+\.\d+)\)\s+at\s+([\da-f:]{17})/i);
+    if (arpA) {
+      devices.push({ ip: arpA[1], mac: arpA[2] });
     }
   }
-
   return devices;
 }
 
-function detectWarnings(scan: Partial<SystemScan>): string[] {
+function detectWarnings(scan: Omit<SystemScan, "warnings">): string[] {
   const warnings: string[] = [];
 
-  if (scan.hardware && scan.hardware.disk_free_gb < 5) {
-    warnings.push(`disk_low_${Math.round(scan.hardware.disk_free_gb)}gb_free`);
+  if (scan.hardware.diskFreeGb < 5) {
+    warnings.push(`Espacio en disco bajo: solo ${scan.hardware.diskFreeGb.toFixed(1)} GB libres`);
   }
-  if (scan.hardware && scan.hardware.ram_gb < 2) {
-    warnings.push("ram_low_under_2gb");
+  if (scan.hardware.ramGb < 2) {
+    warnings.push(`RAM insuficiente: ${scan.hardware.ramGb} GB (minimo recomendado: 2 GB)`);
   }
-  if (scan.services_active && scan.services_active.includes("apache2")) {
-    warnings.push("apache2_running_may_conflict_with_nginx");
+  if (scan.services.includes("apache2")) {
+    warnings.push("Apache2 en ejecucion: puede entrar en conflicto con Nginx");
   }
-  if (scan.ports_open && scan.ports_open.includes(389)) {
-    warnings.push("ldap_port_already_open");
+  if (scan.ports.includes(389)) {
+    warnings.push("Puerto 389 (LDAP) ya en uso: revisa si hay un servidor LDAP existente");
   }
-  if (scan.ports_open && scan.ports_open.includes(445)) {
-    warnings.push("samba_port_already_open");
+  if (scan.ports.includes(445)) {
+    warnings.push("Puerto 445 (SMB/Samba) ya en uso: puede haber conflictos con Samba");
   }
-  if (!scan.network?.has_internet) {
-    warnings.push("no_internet_connection");
+  if (!scan.network.hasInternet) {
+    warnings.push("Sin conexion a internet: algunas instalaciones requieren descarga de paquetes");
   }
 
   return warnings;
 }
 
 export async function runScanner(): Promise<SystemScan> {
-  console.log("→ Escaneando el sistema y la red...");
-  console.log("  (Esto tarda entre 30 y 60 segundos)\n");
+  console.log("  Escaneando el sistema y la red...");
+  console.log("  (Esto puede tardar entre 30 y 60 segundos)\n");
 
+  // Launch all commands in parallel
   const [
-    cpuCores,
+    archRaw,
+    cpuCoresRaw,
+    freeRaw,
+    dfRaw,
     distroRaw,
     kernelRaw,
     hostnameRaw,
     servicesRaw,
     portsRaw,
-    nodeVersion,
-    dockerVersion,
-    pythonVersion,
-    gitVersion,
+    nodeVersionRaw,
+    dockerVersionRaw,
+    python3VersionRaw,
+    gitVersionRaw,
     localIpRaw,
     gatewayRaw,
     dnsRaw,
+    subnetRaw,
+    internetRaw,
+    arpScanRaw,
   ] = await Promise.all([
-    Promise.resolve(parseInt(runCommand("nproc")) || 1),
-    Promise.resolve(
-      runCommand(
-        "lsb_release -d 2>/dev/null | cut -f2 || grep PRETTY_NAME /etc/os-release | cut -d= -f2 | tr -d '\"'",
-      ) || "Linux",
+    run("uname -m"),
+    run("nproc"),
+    run("free -m"),
+    run("df -h /"),
+    run(
+      "lsb_release -d 2>/dev/null | cut -f2 || grep PRETTY_NAME /etc/os-release | cut -d= -f2 | tr -d '\"'",
     ),
-    Promise.resolve(runCommand("uname -r")),
-    Promise.resolve(runCommand("hostname")),
-    Promise.resolve(
-      runCommand(
-        "systemctl list-units --type=service --state=active --no-pager --no-legend 2>/dev/null | awk '{print $1}' | sed 's/.service$//'",
-      ),
+    run("uname -r"),
+    run("hostname"),
+    run(
+      "systemctl list-units --type=service --state=active --no-pager --no-legend 2>/dev/null | awk '{print $1}' | sed 's/.service$//'",
     ),
-    Promise.resolve(
-      runCommand(
-        "ss -tlnp 2>/dev/null | awk 'NR>1 {print $4}' | grep -oP ':\\K\\d+' | sort -n | uniq",
-      ),
+    run("ss -tlnp 2>/dev/null | awk 'NR>1 {print $4}' | grep -oP ':\\K\\d+' | sort -n | uniq"),
+    run("node --version 2>/dev/null"),
+    run("docker --version 2>/dev/null | awk '{print $3}' | tr -d ','"),
+    run("python3 --version 2>/dev/null | awk '{print $2}'"),
+    run("git --version 2>/dev/null | awk '{print $3}'"),
+    run('ip route get 1.1.1.1 2>/dev/null | grep -oP "src \\K\\S+" | head -1'),
+    run("ip route | grep default | awk '{print $3}' | head -1"),
+    run(
+      "resolvectl status 2>/dev/null | grep 'DNS Servers' | awk '{print $3}' | head -1 || grep nameserver /etc/resolv.conf | awk '{print $2}' | head -1",
     ),
-    Promise.resolve(runCommand("node --version 2>/dev/null")),
-    Promise.resolve(runCommand("docker --version 2>/dev/null | awk '{print $3}' | tr -d ','")),
-    Promise.resolve(runCommand("python3 --version 2>/dev/null | awk '{print $2}'")),
-    Promise.resolve(runCommand("git --version 2>/dev/null | awk '{print $3}'")),
-    Promise.resolve(
-      runCommand('ip route get 1.1.1.1 2>/dev/null | grep -oP "src \\K\\S+" | head -1'),
-    ),
-    Promise.resolve(runCommand("ip route | grep default | awk '{print $3}' | head -1")),
-    Promise.resolve(
-      runCommand(
-        "resolvectl status 2>/dev/null | grep 'DNS Servers' | awk '{print $3}' | head -1 || grep nameserver /etc/resolv.conf | awk '{print $2}' | head -1",
-      ),
-    ),
+    run("ip route | grep -v default | grep -v '169.254' | head -1 | awk '{print $1}'"),
+    run("curl -s --max-time 5 https://1.1.1.1 > /dev/null && echo ok", 8000),
+    run("arp-scan --localnet 2>/dev/null || arp -a 2>/dev/null", 20000),
   ]);
 
-  const hasInternet =
-    runCommand("curl -s --max-time 5 https://1.1.1.1 > /dev/null && echo ok") === "ok";
-
-  console.log("  → Escaneando dispositivos en la red local...");
-  const networkDevices = parseNetworkDevices();
-
-  const servicesActive = servicesRaw
+  const disk = parseDiskGb(dfRaw);
+  const services = servicesRaw
     .split("\n")
     .map((s) => s.trim())
     .filter((s) => s.length > 0);
-
-  const portsOpen = portsRaw
+  const ports = portsRaw
     .split("\n")
-    .map((p) => parseInt(p.trim()))
+    .map((p) => parseInt(p.trim(), 10))
     .filter((p) => !isNaN(p));
 
-  const subnetRaw = runCommand(
-    "ip route | grep -v default | grep -v '169.254' | head -1 | awk '{print $1}'",
-  );
   const subnetMatch = subnetRaw.match(/\/(\d+)$/);
   const subnet = subnetMatch ? `/${subnetMatch[1]}` : "/24";
 
-  const disk = parseDisk();
+  const networkDevices = parseNetworkDevices(arpScanRaw);
 
-  const partialScan: Partial<SystemScan> = {
+  const base: Omit<SystemScan, "warnings"> = {
     hardware: {
-      arch: parseArch(),
-      cpu_cores: cpuCores,
-      ram_gb: parseRamGb(),
-      disk_free_gb: disk.free,
-      disk_total_gb: disk.total,
+      arch: parseArch(archRaw),
+      cores: parseInt(cpuCoresRaw, 10) || 1,
+      ramGb: parseRamGb(freeRaw),
+      diskFreeGb: disk.free,
+      diskTotalGb: disk.total,
     },
     os: {
-      distro: distroRaw.replace(/"/g, "").trim(),
-      version: distroRaw.replace(/"/g, "").trim(),
+      distribution: distroRaw.replace(/"/g, "").trim() || "Linux",
+      version: distroRaw.replace(/"/g, "").trim() || "Linux",
       kernel: kernelRaw,
       hostname: hostnameRaw,
     },
     network: {
-      local_ip: localIpRaw || "192.168.1.x",
+      localIp: localIpRaw || "192.168.1.x",
       subnet,
       gateway: gatewayRaw || "desconocido",
-      dns_current: dnsRaw || "desconocido",
-      has_internet: hasInternet,
-      devices_detected: networkDevices,
+      dns: dnsRaw || "desconocido",
+      hasInternet: internetRaw === "ok",
+      devices: networkDevices,
     },
-    services_active: servicesActive,
-    ports_open: portsOpen,
+    services,
+    ports,
     software: {
-      node: nodeVersion || undefined,
-      docker: dockerVersion || undefined,
-      python: pythonVersion || undefined,
-      git: gitVersion || undefined,
+      node: nodeVersionRaw || undefined,
+      docker: dockerVersionRaw || undefined,
+      python3: python3VersionRaw || undefined,
+      git: gitVersionRaw || undefined,
     },
   };
 
-  partialScan.warnings = detectWarnings(partialScan);
+  const scan: SystemScan = {
+    ...base,
+    warnings: detectWarnings(base),
+  };
 
-  const scan = partialScan as SystemScan;
-
-  console.log("\n╔══════════════════════════════════════════════════════════╗");
+  // Display readable summary
+  console.log("╔══════════════════════════════════════════════════════════╗");
   console.log("║                  RESULTADO DEL ESCANEO                  ║");
   console.log("╚══════════════════════════════════════════════════════════╝");
   console.log(
-    `\n  Hardware: ${scan.hardware.arch}, ${scan.hardware.cpu_cores} cores, ${scan.hardware.ram_gb}GB RAM`,
+    `\n  Hardware: ${scan.hardware.arch}, ${scan.hardware.cores} cores, ${scan.hardware.ramGb} GB RAM`,
   );
   console.log(
-    `  Disco: ${scan.hardware.disk_free_gb}GB libres de ${scan.hardware.disk_total_gb}GB`,
+    `  Disco:    ${scan.hardware.diskFreeGb.toFixed(1)} GB libres de ${scan.hardware.diskTotalGb.toFixed(1)} GB`,
   );
-  console.log(`  Sistema: ${scan.os.distro}`);
+  console.log(`  Sistema:  ${scan.os.distribution}`);
+  console.log(`  Kernel:   ${scan.os.kernel}`);
   console.log(`  Hostname: ${scan.os.hostname}`);
-  console.log(`  IP local: ${scan.network.local_ip}${scan.network.subnet}`);
-  console.log(`  Gateway: ${scan.network.gateway}`);
-  console.log(`  Internet: ${scan.network.has_internet ? "✓ Disponible" : "✗ Sin conexión"}`);
-  console.log(`  Dispositivos en red: ${scan.network.devices_detected.length} detectados`);
-  console.log(`  Servicios activos: ${scan.services_active.length}`);
+  console.log(`  IP local: ${scan.network.localIp}${scan.network.subnet}`);
+  console.log(`  Gateway:  ${scan.network.gateway}`);
+  console.log(`  DNS:      ${scan.network.dns}`);
+  console.log(`  Internet: ${scan.network.hasInternet ? "Disponible" : "Sin conexion"}`);
+  console.log(`  Dispositivos en red: ${scan.network.devices.length} detectados`);
+  console.log(`  Servicios activos:   ${scan.services.length}`);
+  console.log(`  Puertos abiertos:    ${scan.ports.length}`);
+
+  const sw = Object.entries(scan.software)
+    .filter(([, v]) => v)
+    .map(([k, v]) => `${k}=${v}`)
+    .join(", ");
+  if (sw) {
+    console.log(`  Software:  ${sw}`);
+  }
 
   if (scan.warnings.length > 0) {
-    console.log("\n  ⚠ Advertencias detectadas:");
-    scan.warnings.forEach((w) => console.log(`    - ${w.replace(/_/g, " ")}`));
+    console.log("\n  Advertencias detectadas:");
+    scan.warnings.forEach((w) => console.log(`    - ${w}`));
   }
 
   console.log();

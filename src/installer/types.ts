@@ -1,69 +1,64 @@
 // types.ts — Tipos compartidos del instalador de Laia Arch
 
+export interface NetworkDevice {
+  ip: string;
+  mac?: string;
+  vendor?: string;
+}
+
 export interface SystemScan {
   hardware: {
     arch: string;
-    cpu_cores: number;
-    ram_gb: number;
-    disk_free_gb: number;
-    disk_total_gb: number;
+    cores: number;
+    ramGb: number;
+    diskFreeGb: number;
+    diskTotalGb: number;
   };
   os: {
-    distro: string;
+    distribution: string;
     version: string;
     kernel: string;
     hostname: string;
   };
   network: {
-    local_ip: string;
+    localIp: string;
     subnet: string;
     gateway: string;
-    dns_current: string;
-    has_internet: boolean;
-    devices_detected: NetworkDevice[];
+    dns: string;
+    hasInternet: boolean;
+    devices: NetworkDevice[];
   };
-  services_active: string[];
-  ports_open: number[];
+  services: string[];
+  ports: number[];
   software: {
     node?: string;
     docker?: string;
-    python?: string;
+    python3?: string;
     git?: string;
   };
   warnings: string[];
 }
 
-export interface NetworkDevice {
-  ip: string;
-  mac: string;
-  vendor?: string;
-}
-
-export interface InstallerConfig {
-  provider: "anthropic" | "openai" | "ollama" | "compatible";
-  model: string;
-  company: CompanyProfile;
-  access: AccessModel;
-  services: ServiceSelection;
-  security: SecurityPolicy;
-  compliance: DataCompliance;
-}
-
 export interface CompanyProfile {
   name: string;
   sector: string;
-  team_size: number;
+  teamSize: number;
   language: string;
   timezone: string;
 }
 
+export interface Role {
+  name: string;
+  count: number;
+}
+
 export interface AccessModel {
-  total_users: number;
-  roles: { name: string; count: number }[];
-  remote_users: number;
+  totalUsers: number;
+  roles: Role[];
+  remoteUsers: number;
   devices: string[];
-  vpn_required: boolean;
-  mfa_required: boolean;
+  needsVpn: boolean;
+  needsMfa: boolean;
 }
 
 export interface ServiceSelection {
@@ -78,24 +73,17 @@ export interface ServiceSelection {
 }
 
 export interface SecurityPolicy {
-  password_complexity: "low" | "medium" | "high";
-  encrypt_disk: boolean;
-  expose_to_internet: boolean;
-  ssh_key_only: boolean;
+  passwordComplexity: "basic" | "medium" | "high";
+  diskEncryption: boolean;
+  internetExposed: boolean;
+  sshKeyOnly: boolean;
 }
 
 export interface DataCompliance {
   gdpr: boolean;
-  backup_retention_days: number;
-  data_types: string[];
+  backupRetentionDays: number;
+  dataTypes: string[];
   jurisdiction: string;
-}
-
-export interface InstallPlan {
-  steps: InstallStep[];
-  estimated_minutes: number;
-  warnings: string[];
-  credentials_needed: string[];
 }
 
 export interface InstallStep {
@@ -103,15 +91,44 @@ export interface InstallStep {
   phase: number;
   description: string;
   commands: string[];
-  requires_approval: boolean;
-  rollback?: string[];
+  requiresApproval: boolean;
+  rollback?: string;
 }
+
+export interface InstallPlan {
+  steps: InstallStep[];
+  estimatedMinutes: number;
+  warnings: string[];
+  requiredCredentials: string[];
+}
+
+export interface InstallerConfig {
+  company: CompanyProfile;
+  access: AccessModel;
+  services: ServiceSelection;
+  security: SecurityPolicy;
+  compliance: DataCompliance;
+}
+
+export type ApprovalResult = "approved" | "rejected" | "timeout";
 
 export interface ApprovalRequest {
   id: string;
   step: InstallStep;
   timestamp: Date;
-  timeout_seconds: number;
+  timeoutSeconds: number;
 }
 
-export type ApprovalResult = "approved" | "rejected" | "timeout";
+export interface AiProvider {
+  id: "anthropic" | "openai" | "ollama" | "openai-compatible";
+  name: string;
+  models: string[];
+  baseUrl?: string;
+}
+
+export interface BootstrapResult {
+  providerId: string;
+  model: string;
+  credentialId: string;
+  baseUrl?: string;
+}
