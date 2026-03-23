@@ -220,27 +220,41 @@ function askSecret(question: string): Promise<string> {
     process.stdout.write(question);
     const wasRaw = process.stdin.isRaw ?? false;
     let key = "";
+    // visibleChars tracks asterisks actually printed — stays in sync
+    // even when the user pastes (buffer arrives as one chunk)
+    let visibleChars = 0;
 
-    const onData = (char: Buffer) => {
-      const c = char.toString();
-      if (c === "\r" || c === "\n") {
-        process.stdin.setRawMode(wasRaw);
-        process.stdin.removeListener("data", onData);
-        process.stdin.pause();
-        process.stdout.write("\n");
-        resolve(key);
-      } else if (c === "\u0003") {
-        // Ctrl-C
-        process.stdout.write("\n");
-        process.exit(1);
-      } else if (c === "\u0008" || c === "\u007f") {
-        if (key.length > 0) {
-          key = key.slice(0, -1);
-          process.stdout.write("\b \b");
+    const onData = (chunk: Buffer) => {
+      // Iterate byte-by-byte so paste (multi-char buffer) is handled
+      // identically to individual keystrokes
+      for (let i = 0; i < chunk.length; i++) {
+        const byte = chunk[i];
+        const c = String.fromCharCode(byte);
+
+        if (c === "\r" || c === "\n") {
+          process.stdin.setRawMode(wasRaw);
+          process.stdin.removeListener("data", onData);
+          process.stdin.pause();
+          process.stdout.write("\n");
+          resolve(key);
+          return;
+        } else if (c === "\u0003") {
+          // Ctrl-C
+          process.stdout.write("\n");
+          process.exit(1);
+        } else if (c === "\u0008" || c === "\u007f") {
+          // Backspace: only go back if there are visible asterisks to erase
+          if (visibleChars > 0) {
+            key = key.slice(0, -1);
+            visibleChars--;
+            process.stdout.write("\b \b");
+          }
+        } else if (byte >= 0x20) {
+          // Printable ASCII only — ignores escape sequences (arrow keys, etc.)
+          key += c;
+          visibleChars++;
+          process.stdout.write("*");
         }
-      } else {
-        key += c;
-        process.stdout.write("*");
       }
     };
 
@@ -320,61 +334,6 @@ async function exchangeOAuthCode(code: string): Promise<string> {
   return data.access_token;
 }
 
-async function handleOAuthCodex(
-  rl: readline.Interface,
-  model: string,
-): Promise<{ credentialId: string; callbackUrl?: string }> {
-  console.log(
-    "\n" +
-      t.label("OAuth Codex") +
-      " — usa tu suscripción de OpenAI en lugar de pagar por API.\n",
-  );
-
-  const state = crypto.randomBytes(16).toString("hex");
-  const authUrl =
-    `${OPENAI_AUTH_URL}?client_id=${OPENAI_OAUTH_CLIENT_ID}` +
-    `&redirect_uri=${encodeURIComponent(OPENAI_OAUTH_REDIRECT_URI)}` +
-    `&response_type=code&scope=openid%20profile%20email&state=${state}`;
-
-  console.log(t.label("Abre esta URL en tu navegador para autenticarte:"));
-  console.log("\n  " + t.brand(authUrl) + "\n");
-  console.log(
-    t.dim(
-      "Cuando completes el login, copia la URL completa a la que te redirige\n" +
-        "(empezará por http://127.0.0.1:1455/auth/callback?...)\n" +
-        "y pégala aquí:",
-    ),
-  );
-
-  const callbackUrl = await ask(rl, "\nURL de callback: ");
-
-  let code: string;
-  try {
-    const url = new URL(callbackUrl.trim());
-    const codeParam = url.searchParams.get("code");
-    if (!codeParam) throw new Error("no code param");
-    const stateParam = url.searchParams.get("state");
-    if (stateParam !== state) throw new Error("state mismatch — posible ataque CSRF");
-    code = codeParam;
-  } catch (err) {
-    throw new Error(`URL de callback inválida: ${(err as Error).message}`);
-  }
-
-  console.log("\n" + t.step("Intercambiando código por token de acceso..."));
-  const accessToken = await exchangeOAuthCode(code);
-  console.log("  " + t.good("Token obtenido\n"));
-
-  console.log(t.step("Validando el token con OpenAI..."));
-  const valid = await validateApiKey("openai", accessToken, model);
-  if (!valid) throw new Error("El token OAuth obtenido no es válido para la API de OpenAI.");
-  console.log("  " + t.good("Token válido\n"));
-
-  const credentialId = "laia-arch-openai-oauth-token";
-  console.log(t.step("Almacenando credenciales en el keychain del sistema..."));
-  await storeCredential(credentialId, accessToken);
-
-  return { credentialId };
-}
 
 // ─── Flujo principal ──────────────────────────────────────────────────────────
 
