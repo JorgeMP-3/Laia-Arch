@@ -86,6 +86,21 @@ export interface DataCompliance {
   jurisdiction: string;
 }
 
+export interface NetworkConfig {
+  serverIp: string;
+  subnet: string;
+  gateway: string;
+  internalDomain: string;
+  vpnRange: string;
+  dhcpRange: string;
+}
+
+export interface UserConfig {
+  username: string;
+  role: "creativos" | "cuentas" | "comerciales";
+  remote: boolean;
+}
+
 export interface InstallStep {
   id: string;
   phase: number;
@@ -108,6 +123,8 @@ export interface InstallerConfig {
   services: ServiceSelection;
   security: SecurityPolicy;
   compliance: DataCompliance;
+  network?: NetworkConfig;
+  users?: UserConfig[];
 }
 
 export type ApprovalResult = "approved" | "rejected" | "timeout";
@@ -122,7 +139,7 @@ export interface ApprovalRequest {
 export type AuthMethod = "api-key" | "setup-token" | "oauth";
 
 export interface AiProvider {
-  id: "anthropic" | "openai" | "ollama" | "openai-compatible" | "openrouter";
+  id: "anthropic" | "deepseek" | "openai" | "ollama" | "openai-compatible" | "openrouter";
   name: string;
   models: string[];
   baseUrl?: string;
@@ -138,4 +155,7 @@ export interface BootstrapResult {
   /** Tipo de credencial almacenada — indica cómo leer el valor al recuperarla */
   authType: "api_key" | "token" | "oauth";
   baseUrl?: string;
+  /** true si el modelo soporta reasoning extendido (chain-of-thought, extended thinking).
+   *  Lo rellena bootstrap.ts; conversation.ts lo usa para ajustar parámetros de la llamada. */
+  supportsReasoning?: boolean;
 }

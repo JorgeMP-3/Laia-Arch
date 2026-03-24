@@ -17,6 +17,36 @@ export async function generatePlan(config: InstallerConfig): Promise<InstallPlan
   const steps: InstallStep[] = [];
   let estimatedMinutes = 0;
 
+  // ── Fase 0: Configuración inicial del sistema ──────────────────────────
+  const hostname = config.network?.internalDomain?.split(".")[0] ?? "servidor";
+  const fqdn = config.network?.internalDomain ?? `${hostname}.local`;
+
+  steps.push({
+    id: "init-01",
+    phase: 0,
+    description: `Configurar hostname (${fqdn}) y entradas base de /etc/hosts`,
+    commands: [
+      `hostnamectl set-hostname ${hostname}`,
+      `echo "127.0.1.1 ${fqdn} ${hostname}" >> /etc/hosts`,
+    ],
+    requiresApproval: true,
+    rollback: undefined,
+  });
+
+  steps.push({
+    id: "init-02",
+    phase: 0,
+    description: "Instalar utilidades base y configurar firewall UFW",
+    commands: [
+      "apt-get update -qq",
+      "DEBIAN_FRONTEND=noninteractive apt-get upgrade -y",
+      "apt-get install -y curl wget git ufw gnupg2 ca-certificates lsb-release apt-transport-https",
+    ],
+    requiresApproval: true,
+    rollback: undefined,
+  });
+  estimatedMinutes += 5;
+
   // ── Fase 1: Preparación del sistema ─────────────────────────────────────
   steps.push({
     id: "prep-01",
@@ -34,12 +64,17 @@ export async function generatePlan(config: InstallerConfig): Promise<InstallPlan
 
   // ── Fase 2: DNS interno (BIND9) ──────────────────────────────────────────
   if (config.services.dns) {
+    const dnsDomain = config.network?.internalDomain ?? `${hostname}.local`;
+    const dnsServerIp = config.network?.serverIp ?? "127.0.0.1";
+
     steps.push({
       id: "dns-01",
       phase: 2,
-      description: "Instalar BIND9 como servidor DNS interno",
+      description: `Instalar BIND9 y configurar zona DNS para ${dnsDomain}`,
       commands: [
         "apt-get install -y bind9 bind9utils bind9-doc",
+        `echo 'zone "${dnsDomain}" { type master; file "/etc/bind/db.${dnsDomain}"; };' >> /etc/bind/named.conf.local`,
+        `printf '@\tIN SOA\tns1.${dnsDomain}. admin.${dnsDomain}. (1 604800 86400 2419200 604800)\n@\tIN NS\tns1.${dnsDomain}.\nns1\tIN A\t${dnsServerIp}\n' > /etc/bind/db.${dnsDomain}`,
         "systemctl enable named",
         "systemctl start named",
       ],
@@ -51,10 +86,11 @@ export async function generatePlan(config: InstallerConfig): Promise<InstallPlan
 
   // ── Fase 3: Directorio de identidad (OpenLDAP) ───────────────────────────
   if (config.services.ldap) {
-    const domain = config.company.name
-      .toLowerCase()
-      .replace(/\s+/g, "-")
-      .replace(/[^a-z0-9-]/g, "");
+    const ldapDomain = config.network?.internalDomain ?? `${hostname}.local`;
+    const ldapDc = ldapDomain
+      .split(".")
+      .map((p) => `dc=${p}`)
+      .join(",");
 
     steps.push({
       id: "ldap-01",
@@ -72,14 +108,46 @@ export async function generatePlan(config: InstallerConfig): Promise<InstallPlan
     steps.push({
       id: "ldap-02",
       phase: 3,
-      description: `Crear estructura de directorio LDAP para ${domain}.local`,
+      description: `Crear estructura LDAP para ${ldapDomain} con grupos creativos, cuentas, comerciales`,
       commands: [
         `mkdir -p /tmp/laia-arch-ldap`,
-        // Generar LDIF base con la estructura de la empresa
-        `printf 'dn: ou=users,dc=${domain},dc=local\\nobjectClass: organizationalUnit\\nou: users\\n\\ndn: ou=groups,dc=${domain},dc=local\\nobjectClass: organizationalUnit\\nou: groups\\n' > /tmp/laia-arch-ldap/base.ldif`,
+        // OUs + tres grupos fijos del ecosistema LAIA
+        `printf 'dn: ou=users,${ldapDc}\nobjectClass: organizationalUnit\nou: users\n\ndn: ou=groups,${ldapDc}\nobjectClass: organizationalUnit\nou: groups\n\ndn: cn=creativos,ou=groups,${ldapDc}\nobjectClass: groupOfNames\ncn: creativos\nmember: uid=admin,ou=users,${ldapDc}\n\ndn: cn=cuentas,ou=groups,${ldapDc}\nobjectClass: groupOfNames\ncn: cuentas\nmember: uid=admin,ou=users,${ldapDc}\n\ndn: cn=comerciales,ou=groups,${ldapDc}\nobjectClass: groupOfNames\ncn: comerciales\nmember: uid=admin,ou=users,${ldapDc}\n' > /tmp/laia-arch-ldap/base.ldif`,
       ],
       requiresApproval: true,
     });
+
+    // Generar entradas LDIF por cada usuario configurado en la conversación
+    if (config.users && config.users.length > 0) {
+      const userLdif = config.users
+        .map((u) => {
+          const parts = u.username.split(".");
+          const givenName = parts[0] ?? u.username;
+          const sn = parts[1] ?? givenName;
+          return [
+            `dn: uid=${u.username},ou=users,${ldapDc}`,
+            `objectClass: inetOrgPerson`,
+            `uid: ${u.username}`,
+            `cn: ${givenName} ${sn}`,
+            `sn: ${sn}`,
+            `givenName: ${givenName}`,
+          ].join("\\n");
+        })
+        .join("\\n\\n");
+
+      steps.push({
+        id: "ldap-03",
+        phase: 3,
+        description: `Crear ${config.users.length} usuario(s) en LDAP: ${config.users.map((u) => u.username).join(", ")}`,
+        commands: [
+          `printf '${userLdif}\\n' > /tmp/laia-arch-ldap/users.ldif`,
+          `ldapadd -x -D "cn=admin,${ldapDc}" -W -f /tmp/laia-arch-ldap/users.ldif`,
+        ],
+        requiresApproval: true,
+      });
+      estimatedMinutes += 5;
+    }
+
     estimatedMinutes += 15;
   }
 
@@ -101,11 +169,13 @@ export async function generatePlan(config: InstallerConfig): Promise<InstallPlan
     steps.push({
       id: "smb-02",
       phase: 4,
-      description: "Crear directorio compartido base y ajustar permisos",
+      description: "Crear carpetas compartidas por rol (campanas, creativos, cuentas, comerciales, docs)",
       commands: [
-        "mkdir -p /srv/samba/compartido",
-        "chown -R root:sambashare /srv/samba/compartido",
-        "chmod 2770 /srv/samba/compartido",
+        "groupadd sambashare 2>/dev/null || true",
+        "mkdir -p /srv/samba/campanas /srv/samba/creativos /srv/samba/cuentas /srv/samba/comerciales /srv/samba/docs",
+        "chown -R root:sambashare /srv/samba/creativos /srv/samba/cuentas /srv/samba/comerciales",
+        "chmod 2770 /srv/samba/creativos /srv/samba/cuentas /srv/samba/comerciales",
+        "chmod 2775 /srv/samba/campanas /srv/samba/docs",
       ],
       requiresApproval: true,
     });
@@ -114,18 +184,24 @@ export async function generatePlan(config: InstallerConfig): Promise<InstallPlan
 
   // ── Fase 5: VPN (WireGuard) ──────────────────────────────────────────────
   if (config.services.wireguard) {
+    const vpnRange = config.network?.vpnRange ?? "10.10.10.0/24";
+    const vpnServerIp = vpnRange.split(".").slice(0, 3).join(".") + ".1";
+    const remoteUsers = config.users?.filter((u) => u.remote) ?? [];
+
     steps.push({
       id: "vpn-01",
       phase: 5,
-      description: "Instalar WireGuard VPN para acceso remoto seguro",
+      description: `Instalar WireGuard VPN (rango: ${vpnRange})`,
       commands: [
         "apt-get install -y wireguard wireguard-tools",
         "wg genkey | tee /etc/wireguard/server_private.key | wg pubkey > /etc/wireguard/server_public.key",
         "chmod 600 /etc/wireguard/server_private.key",
+        `printf '[Interface]\nAddress = ${vpnServerIp}/24\nListenPort = 51820\nPrivateKey = $(cat /etc/wireguard/server_private.key)\n' > /etc/wireguard/wg0.conf`,
+        "chmod 600 /etc/wireguard/wg0.conf",
       ],
       requiresApproval: true,
       rollback:
-        "apt-get remove -y --purge wireguard wireguard-tools && rm -f /etc/wireguard/server_*.key",
+        "apt-get remove -y --purge wireguard wireguard-tools && rm -f /etc/wireguard/server_*.key /etc/wireguard/wg0.conf",
     });
 
     steps.push({
@@ -135,6 +211,20 @@ export async function generatePlan(config: InstallerConfig): Promise<InstallPlan
       commands: ["echo 'net.ipv4.ip_forward=1' >> /etc/sysctl.conf", "sysctl -p /etc/sysctl.conf"],
       requiresApproval: true,
     });
+
+    if (remoteUsers.length > 0) {
+      steps.push({
+        id: "vpn-03",
+        phase: 5,
+        description: `Generar claves WireGuard para ${remoteUsers.length} usuario(s) remoto(s): ${remoteUsers.map((u) => u.username).join(", ")}`,
+        commands: remoteUsers.map(
+          (u) =>
+            `wg genkey | tee /etc/wireguard/peer_${u.username}_private.key | wg pubkey > /etc/wireguard/peer_${u.username}_public.key && chmod 600 /etc/wireguard/peer_${u.username}_private.key`,
+        ),
+        requiresApproval: true,
+      });
+    }
+
     estimatedMinutes += 15;
   }
 

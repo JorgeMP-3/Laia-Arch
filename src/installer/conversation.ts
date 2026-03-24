@@ -14,9 +14,11 @@ import type {
   CompanyProfile,
   DataCompliance,
   InstallerConfig,
+  NetworkConfig,
   SecurityPolicy,
   ServiceSelection,
   SystemScan,
+  UserConfig,
 } from "./types.js";
 
 // Los prompts están en install-prompts/ en la raíz del repo.
@@ -34,6 +36,46 @@ interface Message {
   content: string;
 }
 
+// ── Detección de capacidades del modelo ───────────────────────────────────
+
+/** Devuelve true si el modelo soporta reasoning extendido o pensamiento en cadena. */
+function isReasoningModel(model: string): boolean {
+  const reasoningModels = new Set([
+    "deepseek-reasoner",
+    "claude-opus-4-5",
+    "o1",
+    "o1-mini",
+    "o3",
+    "o3-mini",
+  ]);
+  if (reasoningModels.has(model)) return true;
+  const lower = model.toLowerCase();
+  return lower.includes("reasoner") || lower.includes("thinking");
+}
+
+const REASONING_SUFFIX =
+  "\n\nRazona internamente sobre la configuración óptima antes de responder. Sé conciso en las respuestas al usuario.";
+
+// Prompts compactos para modelos de reasoning (reemplazan archivos largos para ahorrar tokens)
+const COMPACT_PROMPTS = {
+  company:
+    "Eres Laia Arch. Recoge en conversación: nombre de la agencia, número de empleados, idioma principal. " +
+    "Confirma con resumen de una línea antes de avanzar. Menos de 3 intercambios.",
+  access:
+    "Eres Laia Arch. El ecosistema LAIA usa tres roles fijos: creativos, cuentas, comerciales. " +
+    "Pregunta cuántas personas hay en cada rol y si alguno trabaja en remoto (activa WireGuard). " +
+    "Si mencionan nombres, recuérdalos para sugerir usuario en formato nombre.apellido.",
+  security:
+    "Eres Laia Arch. Tres preguntas concretas: " +
+    "1) ¿IP pública o solo red local? " +
+    "2) ¿Contraseñas automáticas generadas por Laia? " +
+    "3) ¿Solo SSH por clave sin contraseña? Explica cada opción en una frase.",
+  compliance:
+    "Eres Laia Arch. Una pregunta: ¿la agencia maneja datos de clientes? " +
+    "Si sí, informa que GDPR aplica y el ecosistema LAIA cumple por diseño. " +
+    "Pregunta cuántos días conservar backups (sugerir 30). Confirma y avanza.",
+};
+
 // ── Cliente IA unificado ──────────────────────────────────────────────────
 
 /** Envía un turno al proveedor de IA y devuelve el texto de la respuesta. */
@@ -46,6 +88,9 @@ async function callAI(
     bootstrap.providerId !== "ollama"
       ? extractCredentialValue(retrieveProfileCredential(bootstrap.profileId))
       : "";
+
+  // supportsReasoning de bootstrap tiene prioridad; si no está, detectamos por nombre
+  const useReasoning = bootstrap.supportsReasoning ?? isReasoningModel(bootstrap.model);
 
   if (bootstrap.providerId === "anthropic") {
     // setup-token es OAuth: usa Authorization: Bearer en lugar de x-api-key
@@ -61,15 +106,21 @@ async function callAI(
             "x-api-key": key,
             "anthropic-version": "2023-06-01",
           };
+    const anthropicBody: Record<string, unknown> = {
+      model: bootstrap.model,
+      max_tokens: useReasoning ? 8000 : 2048,
+      system: systemPrompt,
+      messages,
+    };
+    if (useReasoning) {
+      // extended thinking requiere temperature: 1 y el bloque thinking
+      anthropicBody.temperature = 1;
+      anthropicBody.thinking = { type: "enabled", budget_tokens: 5000 };
+    }
     const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: anthropicHeaders,
-      body: JSON.stringify({
-        model: bootstrap.model,
-        max_tokens: 2048,
-        system: systemPrompt,
-        messages,
-      }),
+      body: JSON.stringify(anthropicBody),
     });
     if (!response.ok) {
       const body = await response.text().catch(() => "");
@@ -78,6 +129,7 @@ async function callAI(
     const data = (await response.json()) as {
       content: Array<{ type: string; text: string }>;
     };
+    // Filtramos bloques thinking; solo queremos el texto visible
     return data.content.find((b) => b.type === "text")?.text ?? "";
   }
 
@@ -94,17 +146,22 @@ async function callAI(
         : bootstrap.providerId === "deepseek"
           ? "https://api.deepseek.com/v1"
           : "https://api.openai.com/v1");
+    const openaiBody: Record<string, unknown> = {
+      model: bootstrap.model,
+      max_tokens: useReasoning ? 8000 : 2048,
+      messages: [{ role: "system", content: systemPrompt }, ...messages],
+    };
+    if (!useReasoning) {
+      // temperature: 0.3 solo para modelos estándar; o1/o3 no lo aceptan
+      openaiBody.temperature = 0.3;
+    }
     const response = await fetch(`${baseUrl}/chat/completions`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${key || "none"}`,
       },
-      body: JSON.stringify({
-        model: bootstrap.model,
-        max_tokens: 2048,
-        messages: [{ role: "system", content: systemPrompt }, ...messages],
-      }),
+      body: JSON.stringify(openaiBody),
     });
     if (!response.ok) {
       const body = await response.text().catch(() => "");
@@ -124,6 +181,7 @@ async function callAI(
         model: bootstrap.model,
         stream: false,
         messages: [{ role: "system", content: systemPrompt }, ...messages],
+        options: { temperature: 0.3 },
       }),
     });
     if (!response.ok) {
@@ -305,6 +363,7 @@ const STAGE_LABELS = [
   "Perfil de la empresa",
   "Modelo de acceso",
   "Servicios a instalar",
+  "Configuración de red",
   "Política de seguridad",
   "Cumplimiento normativo",
 ];
@@ -382,11 +441,22 @@ export async function runConversation(
     dataTypes: ["documentos de trabajo"],
     jurisdiction: "ES",
   };
+  let network: NetworkConfig = {
+    serverIp: scan.network.localIp,
+    subnet: scan.network.subnet,
+    gateway: scan.network.gateway,
+    internalDomain: `${scan.os.hostname}.local`,
+    vpnRange: "10.10.10.0/24",
+    dhcpRange: scan.network.localIp.split(".").slice(0, 3).join(".") + ".100-200",
+  };
+  let users: UserConfig[] = [];
+
+  const useReasoning = bootstrap.supportsReasoning ?? isReasoningModel(bootstrap.model);
 
   let stageIndex = 0;
 
   try {
-    while (stageIndex < 6) {
+    while (stageIndex < 7) {
       console.log(t.step(`Etapa ${stageIndex}/5: ${STAGE_LABELS[stageIndex]}\n`));
 
       // Construir el prompt del sistema según la etapa actual
@@ -394,57 +464,107 @@ export async function runConversation(
       let trigger: string;
 
       switch (stageIndex) {
-        case 0:
-          systemPrompt = loadPrompt("00-system-context.md") + "\n\n" + scanContext;
+        case 0: {
+          const p0 = loadPrompt("00-system-context.md");
+          systemPrompt = p0 + "\n\n" + scanContext;
+          if (useReasoning) systemPrompt += REASONING_SUFFIX;
           trigger =
             "Por favor, presenta el estado actual del servidor de forma clara y no técnica, " +
             "señalando las advertencias importantes. Al terminar, pregunta si podemos continuar.";
           break;
-        case 1:
-          systemPrompt = loadPrompt("01-company-profile.md") + "\n\n" + scanContext;
+        }
+        case 1: {
+          const p1 = useReasoning
+            ? COMPACT_PROMPTS.company
+            : loadPrompt("01-company-profile.md");
+          systemPrompt = p1 + "\n\n" + scanContext;
+          if (useReasoning) systemPrompt += REASONING_SUFFIX;
           trigger =
             "Comienza recopilando el perfil de la empresa. " +
             `El hostname actual es "${scan.os.hostname}".`;
           break;
-        case 2:
-          systemPrompt =
-            loadPrompt("02-access-model.md") +
-            "\n\nEmpresa: " +
-            JSON.stringify(company) +
-            "\n\n" +
-            scanContext;
+        }
+        case 2: {
+          const p2 = useReasoning
+            ? COMPACT_PROMPTS.access
+            : loadPrompt("02-access-model.md");
+          systemPrompt = p2 + "\n\nEmpresa: " + JSON.stringify(company) + "\n\n" + scanContext;
+          if (useReasoning) systemPrompt += REASONING_SUFFIX;
           trigger =
             "Ahora necesitamos definir quién tendrá acceso al servidor: " +
             "usuarios, roles, acceso remoto y dispositivos.";
           break;
-        case 3:
+        }
+        case 3: {
+          const p3 = loadPrompt("03-services-selection.md");
           systemPrompt =
-            loadPrompt("03-services-selection.md") +
+            p3 +
             "\n\nEmpresa: " +
             JSON.stringify(company) +
             "\nAcceso: " +
             JSON.stringify(access) +
             "\n\n" +
             scanContext;
+          if (useReasoning) systemPrompt += REASONING_SUFFIX;
           trigger =
             "Basándote en el perfil del equipo, sugiere qué servicios instalar " +
             "explicando cada uno en términos sencillos.";
           break;
-        case 4:
+        }
+        case 4: {
+          // Etapa nueva: confirmar configuración de red con el administrador
+          const suggestedDomain = company.name
+            .toLowerCase()
+            .replace(/\s+/g, "-")
+            .replace(/[^a-z0-9-]/g, "");
+          systemPrompt = [
+            "Eres Laia Arch, agente de configuración del ecosistema LAIA.",
+            "Confirma la configuración de red del servidor con el administrador.",
+            "",
+            `1. Confirma que la IP del servidor es ${scan.network.localIp} y el gateway ${scan.network.gateway}.`,
+            `2. Propón el dominio interno: ${suggestedDomain}.local — pregunta si prefieren otro nombre.`,
+            services.wireguard
+              ? "3. Para WireGuard, propón el rango VPN: 10.10.10.0/24 — pregunta si prefieren otro."
+              : "",
+            "",
+            `Empresa: ${JSON.stringify(company)}`,
+            `Servicios seleccionados: ${JSON.stringify(services)}`,
+            "",
+            scanContext,
+          ]
+            .filter(Boolean)
+            .join("\n");
+          if (useReasoning) systemPrompt += REASONING_SUFFIX;
+          trigger = `La IP detectada del servidor es ${scan.network.localIp}. Confirma con el administrador la configuración de red.`;
+          break;
+        }
+        case 5: {
+          // Seguridad (era etapa 4)
+          const p5 = useReasoning
+            ? COMPACT_PROMPTS.security
+            : loadPrompt("04-security-policy.md");
           systemPrompt =
-            loadPrompt("04-security-policy.md") +
+            p5 +
             "\n\nServicios seleccionados: " +
             JSON.stringify(services) +
             "\n\n" +
             scanContext;
+          if (useReasoning) systemPrompt += REASONING_SUFFIX;
           trigger =
             "Define la política de seguridad del servidor: contraseñas, exposición a internet y SSH.";
           break;
-        default: // 5
-          systemPrompt = loadPrompt("05-data-compliance.md") + "\n\n" + scanContext;
+        }
+        default: {
+          // 6 — Cumplimiento (era etapa 5)
+          const p6 = useReasoning
+            ? COMPACT_PROMPTS.compliance
+            : loadPrompt("05-data-compliance.md");
+          systemPrompt = p6 + "\n\n" + scanContext;
+          if (useReasoning) systemPrompt += REASONING_SUFFIX;
           trigger =
             "Por último, revisemos los requisitos de protección de datos y cumplimiento normativo.";
           break;
+        }
       }
 
       const outcome = await runStage(rl, bootstrap, systemPrompt, trigger);
@@ -491,6 +611,21 @@ export async function runConversation(
 }`,
             access,
           );
+          // Extraer usuarios si el administrador mencionó nombres de personas
+          users = await extractJson<UserConfig[]>(
+            bootstrap,
+            outcome.messages,
+            `Si en la conversación se mencionaron nombres de personas, extrae la lista de usuarios.
+Devuelve un array JSON. Si no se mencionaron nombres concretos, devuelve []:
+[
+  {
+    "username": "<nombre.apellido en minúsculas, ej: ana.garcia>",
+    "role": "<creativos|cuentas|comerciales>",
+    "remote": <true si trabaja en remoto habitualmente, false si no>
+  }
+]`,
+            users,
+          );
           break;
         case 3:
           services = await extractJson<ServiceSelection>(
@@ -510,7 +645,29 @@ export async function runConversation(
             services,
           );
           break;
-        case 4:
+        case 4: {
+          // Extraer configuración de red confirmada en la conversación
+          const suggestedDomain = company.name
+            .toLowerCase()
+            .replace(/\s+/g, "-")
+            .replace(/[^a-z0-9-]/g, "");
+          network = await extractJson<NetworkConfig>(
+            bootstrap,
+            outcome.messages,
+            `Extrae la configuración de red confirmada en la conversación y devuelve este JSON:
+{
+  "serverIp": "<IP del servidor confirmada, por defecto: ${scan.network.localIp}>",
+  "subnet": "<máscara de subred, por defecto: ${scan.network.subnet}>",
+  "gateway": "<gateway, por defecto: ${scan.network.gateway}>",
+  "internalDomain": "<dominio interno elegido, ej: ${suggestedDomain}.local>",
+  "vpnRange": "<rango VPN para WireGuard, ej: 10.10.10.0/24>",
+  "dhcpRange": "<rango DHCP, ej: ${network.dhcpRange}>"
+}`,
+            network,
+          );
+          break;
+        }
+        case 5:
           security = await extractJson<SecurityPolicy>(
             bootstrap,
             outcome.messages,
@@ -524,7 +681,7 @@ export async function runConversation(
             security,
           );
           break;
-        case 5:
+        case 6:
           compliance = await extractJson<DataCompliance>(
             bootstrap,
             outcome.messages,
@@ -545,7 +702,7 @@ export async function runConversation(
 
     rl.close();
 
-    const config: InstallerConfig = { company, access, services, security, compliance };
+    const config: InstallerConfig = { company, access, services, security, compliance, network, users };
 
     // Guardar la configuración en ~/.laia-arch/
     const configDir = path.join(os.homedir(), ".laia-arch");
