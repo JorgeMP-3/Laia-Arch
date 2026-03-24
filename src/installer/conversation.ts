@@ -22,7 +22,7 @@ import type {
   SystemScan,
   UserConfig,
 } from "./types.js";
-import { TOOL_DEFINITIONS, TOOL_HANDLERS } from "./tools/index.js";
+import { TOOL_DEFINITIONS_ANTHROPIC, TOOL_DEFINITIONS_OPENAI, TOOL_HANDLERS } from "./tools/index.js";
 
 // Los prompts están en install-prompts/ en la raíz del repo.
 // En dist/ estaremos en dist/installer/, así que subimos dos niveles.
@@ -81,10 +81,69 @@ const COMPACT_PROMPTS = {
 
 // ── Modos de instalación ──────────────────────────────────────────────────
 
+/** Construye el system prompt completo para el modo guided con arquitectura y estado real del servidor. */
+function buildGuidedPrompt(scan: SystemScan): string {
+  const relevantServices = [
+    "bind9",
+    "slapd",
+    "smbd",
+    "docker",
+    "nginx",
+    "wg-quick@wg0",
+    "cockpit",
+  ].filter((s) => scan.services.includes(s));
+  const conflictPorts = scan.ports.filter((p) =>
+    [53, 389, 636, 445, 51820, 80, 9090].includes(p),
+  );
+  const toolList = TOOL_DEFINITIONS_ANTHROPIC.map(
+    (tool) => `- ${tool.name}: ${tool.description}`,
+  ).join("\n");
+
+  return [
+    "Eres Laia Arch, el agente fundador del ecosistema LAIA.",
+    "Piensas en infraestructura, seguridad y capas de aislamiento.",
+    "Cada decisión tiene consecuencias reales en el servidor.",
+    "Antes de ejecutar cualquier cosa, verifica el estado actual con las tools disponibles.",
+    "",
+    "ECOSISTEMA LAIA — TRES AGENTES:",
+    "- Laia Arch (tú): configura infraestructura, máximo privilegio, solo accesible desde el host físico",
+    "- Laia Agora: operaciones diarias, Docker puerto 18789, accesible desde red local 192.168.x.x y VPN",
+    "- Laia Nemo: acceso externo, Docker con NemoClaw, WhatsApp/Telegram/Slack, mínimo privilegio",
+    "",
+    "SERVICIOS QUE INSTALARÁS:",
+    "- BIND9: DNS interno, zona DOMINIO.local",
+    "- OpenLDAP: directorio usuarios, grupos creativos/cuentas/comerciales",
+    "- Samba: /srv/samba/{campanas,creativos,cuentas,comerciales,docs}",
+    "- WireGuard: VPN 10.10.10.0/24, puerto UDP 51820",
+    "- Docker: contenedores Laia Agora y Laia Nemo",
+    "- Nginx: proxy inverso, puerto 80",
+    "- Cockpit: panel admin, puerto 9090",
+    "- rsync: backups diarios 02:00 en /backup/",
+    "",
+    "SERVIDOR ACTUAL:",
+    `IP: ${scan.network.localIp} | Gateway: ${scan.network.gateway}`,
+    `Hardware: ${scan.hardware.arch}, ${scan.hardware.cores} cores, ${scan.hardware.ramGb} GB RAM, ${scan.hardware.diskFreeGb} GB libres`,
+    `OS: ${scan.os.distribution} ${scan.os.version} — ${scan.os.hostname}`,
+    `Internet: ${scan.network.hasInternet ? "disponible" : "SIN INTERNET"}`,
+    relevantServices.length > 0
+      ? `Servicios activos relevantes: ${relevantServices.join(", ")}`
+      : "",
+    conflictPorts.length > 0
+      ? `Puertos con posible conflicto: ${conflictPorts.join(", ")}`
+      : "",
+    scan.warnings.length > 0 ? `Advertencias: ${scan.warnings.join("; ")}` : "",
+    "",
+    "TOOLS DISPONIBLES:",
+    toolList,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
 /**
  * Devuelve la configuración del modo de instalación seleccionado.
- * - tool-driven: la IA ejecuta herramientas directamente (solo Anthropic)
- * - guided: la IA explica pasos; el administrador ejecuta
+ * - tool-driven: la IA ejecuta herramientas directamente, sin explicaciones
+ * - guided: la IA conoce la arquitectura completa y usa tools + contexto real
  * - full-ai: conversación pura para recopilar configuración (por defecto)
  */
 export function getModeConfig(mode: InstallMode, scan: SystemScan): ModeConfig {
@@ -92,58 +151,33 @@ export function getModeConfig(mode: InstallMode, scan: SystemScan): ModeConfig {
     case "tool-driven":
       return {
         mode,
-        systemPrompt: [
-          "Eres Laia Arch en modo agente autónomo. Configuras el servidor del ecosistema LAIA",
-          "utilizando las herramientas disponibles. Ejecuta las herramientas de forma secuencial,",
-          "verificando cada paso antes de continuar.",
-          "",
-          "Reglas:",
-          "- Usa get_system_info al principio para conocer el estado actual.",
-          "- Llama a verify_service_chain al finalizar para confirmar que todo funciona.",
-          "- Ante cualquier fallo retryable, reintenta una vez antes de informar al usuario.",
-          "- Nunca reveles contraseñas; usa generate_and_store_password y pasa el ID.",
-          "- Informa al administrador antes de cada acción irreversible importante.",
-          "",
-          `Estado del servidor:\n${[
-            `IP: ${scan.network.localIp} | Gateway: ${scan.network.gateway}`,
-            `SO: ${scan.os.distribution} ${scan.os.version}`,
-            `Hardware: ${scan.hardware.cores} cores, ${scan.hardware.ramGb} GB RAM, ${scan.hardware.diskFreeGb} GB libres`,
-            scan.warnings.length > 0 ? `Advertencias: ${scan.warnings.join("; ")}` : "",
-          ]
-            .filter(Boolean)
-            .join("\n")}`,
-        ].join("\n"),
+        systemPrompt:
+          "Eres Laia Arch. Tienes herramientas disponibles. " +
+          "Úsalas en orden para instalar el ecosistema LAIA. Para cada paso: llama la tool correcta, " +
+          "verifica el resultado, continúa. " +
+          "Si una tool falla y retryable es true, inténtalo una vez más. " +
+          "Si retryable es false, informa al administrador del error exacto. " +
+          "No expliques lo que vas a hacer — hazlo directamente con tools.",
         useTools: true,
-        contextLevel: "full",
-        maxTokensPerCall: 4096,
+        contextLevel: "minimal",
+        maxTokensPerCall: 1024,
       };
 
     case "guided":
       return {
         mode,
-        systemPrompt: [
-          "Eres Laia Arch en modo guiado. Ayudas al administrador a configurar el servidor",
-          "explicando claramente cada paso: qué comando ejecutar, por qué, y qué esperar.",
-          "No ejecutas comandos directamente — explicas y el administrador actúa.",
-          "",
-          "Sé conciso. Un paso a la vez. Confirma antes de avanzar.",
-          "",
-          `Estado del servidor:\n${[
-            `IP: ${scan.network.localIp} | SO: ${scan.os.distribution} ${scan.os.version}`,
-            scan.warnings.length > 0 ? `Advertencias: ${scan.warnings.join("; ")}` : "",
-          ]
-            .filter(Boolean)
-            .join("\n")}`,
-        ].join("\n"),
-        useTools: false,
+        systemPrompt: buildGuidedPrompt(scan),
+        useTools: true,
         contextLevel: "full",
-        maxTokensPerCall: 2048,
+        maxTokensPerCall: 4096,
       };
 
     default: // full-ai
       return {
         mode: "full-ai",
-        systemPrompt: "Eres Laia Arch, agente de configuración del ecosistema LAIA.",
+        systemPrompt:
+          "Eres Laia Arch. Para cada paso genera el comando exacto, " +
+          "explica en una línea qué hace, y espera aprobación.",
         useTools: false,
         contextLevel: "none",
         maxTokensPerCall: 2048,
@@ -198,7 +232,7 @@ async function callAI(
           max_tokens: maxTokens,
           system: systemPrompt,
           messages: apiMessages,
-          tools: TOOL_DEFINITIONS,
+          tools: TOOL_DEFINITIONS_ANTHROPIC,
         };
         const response = await fetch("https://api.anthropic.com/v1/messages", {
           method: "POST",
@@ -292,6 +326,92 @@ async function callAI(
         : bootstrap.providerId === "deepseek"
           ? "https://api.deepseek.com/v1"
           : "https://api.openai.com/v1");
+
+    const openaiHeaders = {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${key || "none"}`,
+    };
+
+    // Tool use solo para proveedores compatibles con function calling (no deepseek)
+    const useToolsOpenAI =
+      modeConfig?.useTools === true &&
+      !useReasoning &&
+      bootstrap.providerId !== "deepseek";
+
+    if (useToolsOpenAI) {
+      // Bucle de tool use: formato OpenAI (tool_calls / role:tool)
+      type OpenAIMsg = Record<string, unknown>;
+      const apiMessages: OpenAIMsg[] = [
+        { role: "system", content: systemPrompt },
+        ...messages.map((m) => ({ role: m.role, content: m.content })),
+      ];
+
+      while (true) {
+        const body: Record<string, unknown> = {
+          model: bootstrap.model,
+          max_tokens: maxTokens,
+          messages: apiMessages,
+          tools: TOOL_DEFINITIONS_OPENAI,
+          tool_choice: "auto",
+        };
+        const response = await fetch(`${baseUrl}/chat/completions`, {
+          method: "POST",
+          headers: openaiHeaders,
+          body: JSON.stringify(body),
+        });
+        if (!response.ok) {
+          const errBody = await response.text().catch(() => "");
+          throw new Error(`OpenAI API ${response.status}: ${errBody.slice(0, 200)}`);
+        }
+        const data = (await response.json()) as {
+          choices: Array<{
+            finish_reason: string;
+            message: {
+              role: string;
+              content: string | null;
+              tool_calls?: Array<{
+                id: string;
+                type: string;
+                function: { name: string; arguments: string };
+              }>;
+            };
+          }>;
+        };
+
+        const choice = data.choices[0];
+        if (!choice) throw new Error("OpenAI API: respuesta vacía");
+
+        if (choice.finish_reason !== "tool_calls" || !choice.message.tool_calls?.length) {
+          return choice.message.content ?? "";
+        }
+
+        // Añadir turno del asistente con las tool_calls al historial
+        apiMessages.push({ ...choice.message });
+
+        // Ejecutar cada herramienta y añadir sus resultados
+        for (const tc of choice.message.tool_calls) {
+          const handler = TOOL_HANDLERS[tc.function.name];
+          let resultContent: string;
+          try {
+            const input = JSON.parse(tc.function.arguments) as Record<string, unknown>;
+            const toolResult = handler
+              ? await handler(input)
+              : { error: `Herramienta desconocida: ${tc.function.name}` };
+            resultContent = JSON.stringify(toolResult);
+          } catch (err) {
+            resultContent = JSON.stringify({
+              error: err instanceof Error ? err.message : String(err),
+            });
+          }
+          apiMessages.push({
+            role: "tool",
+            tool_call_id: tc.id,
+            content: resultContent,
+          });
+        }
+      }
+    }
+
     const openaiBody: Record<string, unknown> = {
       model: bootstrap.model,
       max_tokens: maxTokens,
@@ -303,10 +423,7 @@ async function callAI(
     }
     const response = await fetch(`${baseUrl}/chat/completions`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${key || "none"}`,
-      },
+      headers: openaiHeaders,
       body: JSON.stringify(openaiBody),
     });
     if (!response.ok) {

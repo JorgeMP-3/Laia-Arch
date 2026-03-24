@@ -9,12 +9,20 @@ import {
   configureWireguardPeer,
 } from "./network-tools.js";
 import { createSambaShare, registerSambaUser, verifySambaShare } from "./samba-tools.js";
-import { configureUfw, enableService, installPackage } from "./service-tools.js";
 import {
+  addAptRepository,
+  configureUfw,
+  configureSysctl,
+  enableService,
+  installPackage,
+} from "./service-tools.js";
+import {
+  checkInternet,
   checkPortAvailable,
   checkServiceStatus,
   getSystemInfo,
   readFile,
+  writeFile,
 } from "./system-tools.js";
 import { runBackupTest, verifyDnsResolution, verifyServiceChain } from "./verify-tools.js";
 
@@ -32,7 +40,7 @@ export interface ToolDefinition {
 
 // ── Definiciones ──────────────────────────────────────────────────────────
 
-export const TOOL_DEFINITIONS: ToolDefinition[] = [
+export const TOOL_DEFINITIONS_ANTHROPIC: ToolDefinition[] = [
   {
     name: "get_system_info",
     description:
@@ -314,7 +322,107 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     description: "Ejecuta el script de backup y devuelve el tamaño del directorio de backups.",
     input_schema: { type: "object", properties: {}, required: [] },
   },
+  {
+    name: "check_internet",
+    description: "Verifica si el servidor tiene conectividad a internet y mide la latencia.",
+    input_schema: { type: "object", properties: {}, required: [] },
+  },
+  {
+    name: "write_file",
+    description:
+      "Escribe o sobreescribe un archivo de configuración en el servidor. Solo permite rutas en /etc/, /srv/ y /home/laia-arch/.",
+    input_schema: {
+      type: "object",
+      properties: {
+        path: {
+          type: "string",
+          description:
+            "Ruta absoluta del archivo (debe comenzar por /etc/, /srv/ o /home/laia-arch/)",
+        },
+        content: { type: "string", description: "Contenido a escribir en el archivo" },
+        append: {
+          type: "boolean",
+          description: "Si true, añade al final en lugar de sobreescribir",
+        },
+      },
+      required: ["path", "content"],
+    },
+  },
+  {
+    name: "configure_sysctl",
+    description:
+      "Aplica un parámetro del kernel via sysctl y lo hace persistente en /etc/sysctl.conf.",
+    input_schema: {
+      type: "object",
+      properties: {
+        key: {
+          type: "string",
+          description: "Clave del parámetro (ej: net.ipv4.ip_forward)",
+        },
+        value: { type: "string", description: "Valor a aplicar (ej: 1)" },
+        persistent: {
+          type: "boolean",
+          description: "Si true, escribe la línea en /etc/sysctl.conf",
+        },
+      },
+      required: ["key", "value"],
+    },
+  },
+  {
+    name: "add_apt_repository",
+    description:
+      "Añade un repositorio externo apt con su clave GPG. Necesario antes de instalar Docker u otros paquetes externos.",
+    input_schema: {
+      type: "object",
+      properties: {
+        repoUrl: {
+          type: "string",
+          description:
+            "URL base del repositorio (ej: https://download.docker.com/linux/ubuntu)",
+        },
+        gpgKeyUrl: {
+          type: "string",
+          description: "URL de la clave GPG del repositorio",
+        },
+        listFileName: {
+          type: "string",
+          description: "Nombre del archivo en sources.list.d (ej: docker.list)",
+        },
+        distribution: {
+          type: "string",
+          description: "Nombre de la distribución Ubuntu (ej: jammy)",
+        },
+      },
+      required: ["repoUrl", "gpgKeyUrl", "listFileName"],
+    },
+  },
 ];
+
+// ── Formato OpenAI (para OpenAI, OpenRouter, openai-compatible) ──────────
+
+export interface ToolDefinitionOpenAI {
+  type: "function";
+  function: {
+    name: string;
+    description: string;
+    parameters: {
+      type: "object";
+      properties: Record<string, unknown>;
+      required?: string[];
+    };
+  };
+}
+
+export const TOOL_DEFINITIONS_OPENAI: ToolDefinitionOpenAI[] = TOOL_DEFINITIONS_ANTHROPIC.map(
+  (t) => ({
+    type: "function" as const,
+    function: {
+      name: t.name,
+      description: t.description,
+      parameters: t.input_schema,
+    },
+  }),
+);
 
 // ── Handlers ──────────────────────────────────────────────────────────────
 
@@ -401,4 +509,28 @@ export const TOOL_HANDLERS: Record<string, ToolHandler> = {
   verify_service_chain: async () => verifyServiceChain(),
 
   run_backup_test: async () => runBackupTest(),
+
+  check_internet: async () => checkInternet(),
+
+  write_file: async (input) =>
+    writeFile({
+      path: input.path as string,
+      content: input.content as string,
+      append: input.append as boolean | undefined,
+    }),
+
+  configure_sysctl: async (input) =>
+    configureSysctl({
+      key: input.key as string,
+      value: input.value as string,
+      persistent: input.persistent as boolean | undefined,
+    }),
+
+  add_apt_repository: async (input) =>
+    addAptRepository({
+      repoUrl: input.repoUrl as string,
+      gpgKeyUrl: input.gpgKeyUrl as string,
+      listFileName: input.listFileName as string,
+      distribution: input.distribution as string | undefined,
+    }),
 };

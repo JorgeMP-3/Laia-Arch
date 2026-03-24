@@ -5,7 +5,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import * as readline from "node:readline";
-import { select } from "@clack/prompts";
+import { isCancel, select } from "@clack/prompts";
 import { laiaTheme as t } from "../cli/laia-arch-theme.js";
 import { runBootstrap } from "./bootstrap.js";
 import { runConversation } from "./conversation.js";
@@ -75,33 +75,41 @@ export async function runInstaller(): Promise<void> {
   // ── Selección de modo ─────────────────────────────────────────────────────
   let installMode: InstallMode = "full-ai";
   try {
-    const selected = await select({
-      message: "¿Cómo quieres que Laia Arch configure el servidor?",
+    const modeChoice = await select({
+      message: "¿Cómo quieres instalar el ecosistema LAIA?",
       options: [
         {
-          value: "full-ai",
-          label: "Conversacional",
-          hint: "La IA te pregunta y genera el plan de instalación",
+          value: "tool-driven",
+          label: "Automático",
+          hint: "La IA ejecuta herramientas. Rápido y eficiente.",
         },
         {
           value: "guided",
-          label: "Guiado",
-          hint: "La IA explica cada paso; tú ejecutas los comandos",
+          label: "Asistido",
+          hint: "La IA conoce la arquitectura completa y se adapta.",
         },
         {
-          value: "tool-driven",
-          label: "Autónomo (solo Anthropic)",
-          hint: "La IA ejecuta los pasos directamente con herramientas",
+          value: "full-ai",
+          label: "Conversacional",
+          hint: "La IA genera todo el proceso. Máxima flexibilidad.",
         },
       ],
     });
-    if (typeof selected === "symbol") {
-      console.log("\n  Instalación cancelada.");
+    if (isCancel(modeChoice)) {
+      console.log("\n  " + t.warn("Instalación cancelada."));
       process.exit(0);
     }
-    installMode = selected as InstallMode;
-  } catch {
-    // Fallback silencioso al modo conversacional por defecto
+    installMode = modeChoice as InstallMode;
+  } catch (err) {
+    console.log(
+      "\n  " +
+        t.warn(
+          "No se pudo mostrar el selector de modo. " +
+            "Usando modo conversacional por defecto.",
+        ),
+    );
+    if (err instanceof Error) console.log("  " + t.muted(err.message));
+    // installMode ya es "full-ai" por defecto
   }
 
   // ── Fase 2: Conversación con la IA ───────────────────────────────────────
