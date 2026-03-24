@@ -1,14 +1,14 @@
 // laia-arch-theme.ts — Paleta visual oficial de Laia Arch
 // Importa este módulo en el instalador y cualquier CLI output de Laia Arch.
 
-import chalk from "chalk";
+import chalk, { Chalk } from "chalk";
 
 const hasForceColor =
   typeof process.env.FORCE_COLOR === "string" &&
   process.env.FORCE_COLOR.trim().length > 0 &&
   process.env.FORCE_COLOR.trim() !== "0";
 
-const c = process.env.NO_COLOR && !hasForceColor ? new chalk.Instance({ level: 0 }) : chalk;
+const c = process.env.NO_COLOR && !hasForceColor ? new Chalk({ level: 0 }) : chalk;
 
 // Paleta oficial de Laia Arch — tema oscuro dorado
 export const laiaTheme = {

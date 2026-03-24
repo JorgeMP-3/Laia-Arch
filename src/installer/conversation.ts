@@ -633,7 +633,7 @@ const STAGE_LABELS = [
 ];
 
 /**
- * Ejecuta la Fase 2 completa: 6 etapas conversacionales con la IA.
+ * Ejecuta la configuración conversacional completa: 7 etapas con la IA.
  * Navega hacia adelante con 'continuar'/'siguiente' y hacia atrás con 'atrás'/'volver'.
  * La única forma de salir es Ctrl+C.
  * Devuelve InstallerConfig con todos los datos recopilados.
@@ -643,7 +643,7 @@ export async function runConversation(
   scan: SystemScan,
   mode: InstallMode = "full-ai",
 ): Promise<InstallerConfig> {
-  console.log(t.section("FASE 2 — CONVERSACIÓN CON LA IA"));
+  console.log(t.section("CONFIGURACIÓN CON LAIA ARCH"));
   console.log(t.dim(
     '\n  Cuando hayas confirmado esta etapa escribe "continuar".' +
     '\n  Para volver a la etapa anterior escribe "atrás".' +
@@ -723,7 +723,7 @@ export async function runConversation(
 
   try {
     while (stageIndex < 7) {
-      console.log(t.step(`Etapa ${stageIndex}/5: ${STAGE_LABELS[stageIndex]}\n`));
+      console.log(t.step(`Etapa ${stageIndex + 1}/${STAGE_LABELS.length}: ${STAGE_LABELS[stageIndex]}\n`));
 
       // Construir el prompt del sistema según la etapa actual
       let systemPrompt: string;
