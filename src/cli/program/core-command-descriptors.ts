@@ -11,6 +11,11 @@ export const CORE_CLI_COMMAND_DESCRIPTORS = [
     hasSubcommands: false,
   },
   {
+    name: "update",
+    description: "Actualizar Laia Arch o mejorar el ecosistema instalado",
+    hasSubcommands: false,
+  },
+  {
     name: "setup",
     description: "Initialize local config and agent workspace",
     hasSubcommands: false,
@@ -53,7 +58,7 @@ export const CORE_CLI_COMMAND_DESCRIPTORS = [
   },
   {
     name: "uninstall",
-    description: "Uninstall the gateway service + local data (CLI remains)",
+    description: "Desinstalar el ecosistema LAIA del servidor",
     hasSubcommands: false,
   },
   {

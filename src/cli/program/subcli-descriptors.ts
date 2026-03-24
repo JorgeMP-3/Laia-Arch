@@ -124,11 +124,6 @@ export const SUB_CLI_DESCRIPTORS = [
     hasSubcommands: true,
   },
   {
-    name: "update",
-    description: "Update OpenClaw and inspect update channel status",
-    hasSubcommands: true,
-  },
-  {
     name: "completion",
     description: "Generate shell completion script",
     hasSubcommands: false,

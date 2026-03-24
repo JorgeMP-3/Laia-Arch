@@ -56,6 +56,32 @@ const coreEntries: CoreCliEntry[] = [
   {
     commands: [
       {
+        name: "update",
+        description: "Actualizar Laia Arch o mejorar el ecosistema instalado",
+        hasSubcommands: false,
+      },
+    ],
+    register: async ({ program }) => {
+      const mod = await import("./register.update.js");
+      mod.registerUpdateCommand(program);
+    },
+  },
+  {
+    commands: [
+      {
+        name: "uninstall",
+        description: "Desinstalar el ecosistema LAIA del servidor",
+        hasSubcommands: false,
+      },
+    ],
+    register: async ({ program }) => {
+      const mod = await import("./register.laia-uninstall.js");
+      mod.registerUninstallCommand(program);
+    },
+  },
+  {
+    commands: [
+      {
         name: "setup",
         description: "Initialize local config and agent workspace",
         hasSubcommands: false,
@@ -135,11 +161,6 @@ const coreEntries: CoreCliEntry[] = [
       {
         name: "reset",
         description: "Reset local config/state (keeps the CLI installed)",
-        hasSubcommands: false,
-      },
-      {
-        name: "uninstall",
-        description: "Uninstall the gateway service + local data (CLI remains)",
         hasSubcommands: false,
       },
     ],
