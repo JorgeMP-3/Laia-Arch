@@ -82,33 +82,6 @@ const COMPACT_PROMPTS = {
 
 // ── Modos de instalación ──────────────────────────────────────────────────
 
-/** Formatea el resumen del escaneo para incluir en system prompts. */
-function formatScan(scan: SystemScan): string {
-  const relevantServices = [
-    "bind9",
-    "slapd",
-    "smbd",
-    "docker",
-    "nginx",
-    "wg-quick@wg0",
-    "cockpit",
-  ].filter((s) => scan.services.includes(s));
-  const conflictPorts = scan.ports.filter((p) => [53, 389, 636, 445, 51820, 80, 9090].includes(p));
-  return [
-    `IP: ${scan.network.localIp} | Gateway: ${scan.network.gateway}`,
-    `Hardware: ${scan.hardware.arch}, ${scan.hardware.cores} cores, ${scan.hardware.ramGb} GB RAM, ${scan.hardware.diskFreeGb} GB libres`,
-    `OS: ${scan.os.distribution} ${scan.os.version} — ${scan.os.hostname}`,
-    `Internet: ${scan.network.hasInternet ? "disponible" : "SIN INTERNET"}`,
-    relevantServices.length > 0
-      ? `Servicios activos relevantes: ${relevantServices.join(", ")}`
-      : "",
-    conflictPorts.length > 0 ? `Puertos con posible conflicto: ${conflictPorts.join(", ")}` : "",
-    scan.warnings.length > 0 ? `Advertencias: ${scan.warnings.join("; ")}` : "",
-  ]
-    .filter(Boolean)
-    .join("\n");
-}
-
 /** Construye el system prompt para el modo Asistido (guided): orden fijo de pasos. */
 function buildGuidedPrompt(scan: SystemScan): string {
   const toolList = TOOL_DEFINITIONS_ANTHROPIC.map(
