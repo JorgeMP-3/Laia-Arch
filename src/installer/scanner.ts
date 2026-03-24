@@ -111,58 +111,52 @@ function parseNetworkDevices(rawOutput: string): NetworkDevice[] {
   return mergeNetworkDevices(devices);
 }
 
-function parseNmapNetworkDevices(rawOutput: string): NetworkDevice[] {
-  const devicesByIp = new Map<string, NetworkDevice>();
-  let currentIp: string | undefined;
-
-  for (const line of rawOutput.split("\n")) {
-    const report = line.match(/^Nmap scan report for (?:.+\s\()?(\d+\.\d+\.\d+\.\d+)\)?$/);
-    if (report) {
-      currentIp = report[1];
-      devicesByIp.set(currentIp, {
-        ip: currentIp,
-      });
-      continue;
-    }
-
-    const macLine = line.match(/^MAC Address:\s+([\da-f:]{17})(?:\s+\((.*)\))?$/i);
-    if (macLine && currentIp) {
-      devicesByIp.set(currentIp, {
-        ip: currentIp,
-        mac: macLine[1],
-        vendor: macLine[2]?.trim() || undefined,
-      });
-    }
-  }
-
-  return mergeNetworkDevices([...devicesByIp.values()]);
-}
-
-function resolveNetworkScanRange(params: {
-  subnetRaw: string;
-  localIp: string;
-  subnet: string;
-}): string {
-  const subnetRaw = params.subnetRaw.trim();
-  if (/^\d+\.\d+\.\d+\.\d+\/\d+$/.test(subnetRaw)) {
-    return subnetRaw;
+function resolvePingSweepTargets(params: { gateway: string; localIp: string }): string[] {
+  const targets = new Set<string>();
+  const gateway = params.gateway.trim();
+  if (/^\d+\.\d+\.\d+\.\d+$/.test(gateway)) {
+    targets.add(gateway);
   }
 
   const localIp = params.localIp.trim();
   const octets = localIp.split(".");
   if (octets.length === 4 && octets.every((part) => /^\d+$/.test(part))) {
-    return `${octets[0]}.${octets[1]}.${octets[2]}.0${params.subnet}`;
+    const prefix = `${octets[0]}.${octets[1]}.${octets[2]}`;
+    for (let host = 1; host <= 10; host += 1) {
+      const candidate = `${prefix}.${host}`;
+      if (candidate !== localIp) {
+        targets.add(candidate);
+      }
+    }
   }
 
-  return `192.168.1.0${params.subnet}`;
+  return [...targets];
 }
 
-async function discoverNetworkDevices(networkRange: string): Promise<{
+async function runPingSweep(params: { gateway: string; localIp: string }): Promise<NetworkDevice[]> {
+  const targets = resolvePingSweepTargets(params);
+  if (targets.length === 0) {
+    return [];
+  }
+
+  await Promise.all(
+    targets.map((target) =>
+      run(`ping -c 1 -W 1 ${target} >/dev/null 2>&1 || true`, 2500),
+    ),
+  );
+
+  return parseNetworkDevices(await run("ip neigh show 2>/dev/null", 10000));
+}
+
+async function discoverNetworkDevices(params: {
+  gateway: string;
+  localIp: string;
+}): Promise<{
   devices: NetworkDevice[];
   note?: string;
 }> {
   const arpScanRaw = await run(
-    "command -v arp-scan >/dev/null 2>&1 && arp-scan --localnet 2>/dev/null",
+    "command -v arp-scan >/dev/null 2>&1 && (sudo -n arp-scan --localnet 2>/dev/null || arp-scan --localnet 2>/dev/null)",
     20000,
   );
   const arpScanDevices = parseNetworkDevices(arpScanRaw);
@@ -176,13 +170,12 @@ async function discoverNetworkDevices(networkRange: string): Promise<{
     return { devices: ipNeighDevices };
   }
 
-  const nmapRaw = await run(
-    `command -v nmap >/dev/null 2>&1 && nmap -sn ${networkRange} 2>/dev/null`,
-    30000,
-  );
-  const nmapDevices = parseNmapNetworkDevices(nmapRaw);
-  if (nmapDevices.length > 0) {
-    return { devices: nmapDevices };
+  const pingSweepDevices = await runPingSweep({
+    gateway: params.gateway,
+    localIp: params.localIp,
+  });
+  if (pingSweepDevices.length > 0) {
+    return { devices: pingSweepDevices };
   }
 
   return {
@@ -285,13 +278,11 @@ export async function runScanner(): Promise<SystemScan> {
 
   const subnetMatch = subnetRaw.match(/\/(\d+)$/);
   const subnet = subnetMatch ? `/${subnetMatch[1]}` : "/24";
-  const networkRange = resolveNetworkScanRange({
-    subnetRaw,
-    localIp: localIpRaw || "192.168.1.10",
-    subnet,
-  });
   const { devices: networkDevices, note: networkDetectionNote } =
-    await discoverNetworkDevices(networkRange);
+    await discoverNetworkDevices({
+      gateway: gatewayRaw || "",
+      localIp: localIpRaw || "",
+    });
 
   const base: Omit<SystemScan, "warnings"> = {
     hardware: {
@@ -392,9 +383,7 @@ export async function runScanner(): Promise<SystemScan> {
     .filter((port) => conflictPorts[port])
     .map((port) => `${port} (${conflictPorts[port]})`);
   if (conflicts.length > 0) {
-    console.log(
-      "  " + t.warn(`Puertos ya en uso: ${conflicts.join(", ")} — puede haber conflicto con la instalación`),
-    );
+    console.log("  " + t.warn(`Puertos en conflicto: ${conflicts.join(", ")}`));
   }
 
   const relevantServices = [
@@ -418,9 +407,9 @@ export async function runScanner(): Promise<SystemScan> {
     relevantServices.some((relevant) => service.includes(relevant)),
   );
   if (foundRelevant.length > 0) {
-    console.log(`  ${t.label("Servicios relevantes: ")}${t.muted(foundRelevant.join(", "))}`);
+    console.log(`  ${t.label("Servicios LAIA detectados: ")}${t.muted(foundRelevant.join(", "))}`);
   } else {
-    console.log("  " + t.muted("Servicios relevantes: ninguno detectado (servidor limpio)"));
+    console.log("  " + t.muted("Servicios LAIA: ninguno (servidor limpio ✓)"));
   }
 
   const humanWarnings = scan.warnings.filter((warning) => !warning.startsWith("node_version_old"));

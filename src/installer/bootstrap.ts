@@ -7,6 +7,31 @@ import { validateAnthropicSetupToken } from "../plugins/provider-auth-token.js";
 import { storeApiKey, storeSetupToken } from "./credential-manager.js";
 import type { AiProvider, AuthMethod, BootstrapResult } from "./types.js";
 
+const REASONING_MODEL_IDS = new Set([
+  "claude-opus-4-5",
+  "deepseek-reasoner",
+  "o1",
+  "o1-mini",
+  "o3",
+  "o3-mini",
+  "openai/o3-mini",
+  "google/gemini-2.5-pro",
+  "deepseek/deepseek-reasoner",
+]);
+
+function supportsReasoningModel(model: string): boolean {
+  const normalized = model.trim().toLowerCase();
+  return (
+    REASONING_MODEL_IDS.has(normalized) ||
+    normalized.includes("reasoner") ||
+    normalized.includes("thinking")
+  );
+}
+
+function formatModelLabel(model: string): string {
+  return supportsReasoningModel(model) ? `${model} ⚡ (reasoning)` : model;
+}
+
 const SUPPORTED_PROVIDERS: AiProvider[] = [
   {
     id: "anthropic",
@@ -15,15 +40,28 @@ const SUPPORTED_PROVIDERS: AiProvider[] = [
     authMethods: ["API key", "Setup-token de Claude Code"],
   },
   {
+    id: "deepseek",
+    name: "DeepSeek",
+    models: ["deepseek-chat", "deepseek-reasoner"],
+    baseUrl: "https://api.deepseek.com/v1",
+  },
+  {
     id: "openai",
     name: "OpenAI (GPT)",
-    models: ["gpt-4o", "gpt-4o-mini"],
+    models: ["gpt-4o", "gpt-4o-mini", "o3-mini", "o1"],
     authMethods: ["API key", "OAuth Codex (suscripción)"],
   },
   {
     id: "openrouter",
     name: "OpenRouter (multi-modelo)",
-    models: ["claude-sonnet-4-5", "gpt-4o", "gemini-2.0-flash", "mistral-large", "llama-3.3-70b"],
+    models: [
+      "claude-opus-4-5",
+      "deepseek/deepseek-reasoner",
+      "openai/o3-mini",
+      "google/gemini-2.5-pro",
+      "anthropic/claude-sonnet-4-5",
+      "meta-llama/llama-3.3-70b-instruct",
+    ],
     baseUrl: "https://openrouter.ai/api/v1",
   },
   {
@@ -106,6 +144,21 @@ async function validateApiKey(
           Authorization: `Bearer ${key}`,
           "HTTP-Referer": "https://laia-arch.local",
           "X-Title": "Laia Arch",
+        },
+        body: JSON.stringify({
+          model,
+          max_tokens: 10,
+          messages: [{ role: "user", content: "Responde solo con: OK" }],
+        }),
+      });
+      return response.ok;
+    } else if (providerId === "deepseek") {
+      const url = `${baseUrl ?? "https://api.deepseek.com/v1"}/chat/completions`;
+      const response = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${key}`,
         },
         body: JSON.stringify({
           model,
@@ -346,6 +399,15 @@ export async function runBootstrap(): Promise<BootstrapResult> {
         t.brand("https://openrouter.ai/keys") +
         "\n",
     );
+  } else if (selectedProvider.id === "deepseek") {
+    console.log(
+      "\n" +
+        t.label("DeepSeek") +
+        " ofrece una API compatible con OpenAI para chat y razonamiento.\n" +
+        t.dim("Obtén tu API key en: ") +
+        t.brand("https://platform.deepseek.com/api_keys") +
+        "\n",
+    );
   }
 
   // 4. Seleccionar modelo
@@ -360,7 +422,7 @@ export async function runBootstrap(): Promise<BootstrapResult> {
   } else if (selectedProvider.id === "ollama") {
     console.log(`\nModelos conocidos de ${selectedProvider.name}:\n`);
     selectedProvider.models.forEach((m, i) => {
-      console.log(`  ${i + 1}. ${m}`);
+      console.log(`  ${i + 1}. ${formatModelLabel(m)}`);
     });
     console.log(`  ${selectedProvider.models.length + 1}. Otro (introducir nombre)`);
     console.log();
@@ -385,7 +447,7 @@ export async function runBootstrap(): Promise<BootstrapResult> {
   } else {
     console.log(`\nModelos disponibles para ${selectedProvider.name}:\n`);
     selectedProvider.models.forEach((m, i) => {
-      console.log(`  ${i + 1}. ${m}`);
+      console.log(`  ${i + 1}. ${formatModelLabel(m)}`);
     });
     console.log();
 
@@ -537,5 +599,6 @@ export async function runBootstrap(): Promise<BootstrapResult> {
     authMethod,
     authType,
     baseUrl,
-  };
+    supportsReasoning: supportsReasoningModel(selectedModel),
+  } as BootstrapResult & { supportsReasoning: boolean };
 }
