@@ -6,6 +6,8 @@ import { laiaTheme as t } from "../cli/laia-arch-theme.js";
 import type { NetworkDevice, SystemScan } from "./types.js";
 
 const execAsync = promisify(exec);
+const NETWORK_DETECTION_NOTE =
+  "No se detectaron dispositivos (instala arp-scan para mejor detección: sudo apt install arp-scan)";
 
 async function run(cmd: string, timeoutMs = 10000): Promise<string> {
   try {
@@ -60,9 +62,25 @@ function parseDiskGb(dfOutput: string): { free: number; total: number } {
   };
 }
 
-function parseNetworkDevices(arpOutput: string): NetworkDevice[] {
+function mergeNetworkDevices(devices: NetworkDevice[]): NetworkDevice[] {
+  const merged = new Map<string, NetworkDevice>();
+  for (const device of devices) {
+    if (!device.ip) {
+      continue;
+    }
+    const existing = merged.get(device.ip);
+    merged.set(device.ip, {
+      ip: device.ip,
+      mac: device.mac ?? existing?.mac,
+      vendor: device.vendor ?? existing?.vendor,
+    });
+  }
+  return [...merged.values()];
+}
+
+function parseNetworkDevices(rawOutput: string): NetworkDevice[] {
   const devices: NetworkDevice[] = [];
-  for (const line of arpOutput.split("\n")) {
+  for (const line of rawOutput.split("\n")) {
     // arp-scan format: IP  MAC  Vendor
     const arpScan = line.match(/^(\d+\.\d+\.\d+\.\d+)\s+([\da-f:]{17})\s*(.*)/i);
     if (arpScan) {
@@ -77,9 +95,100 @@ function parseNetworkDevices(arpOutput: string): NetworkDevice[] {
     const arpA = line.match(/\((\d+\.\d+\.\d+\.\d+)\)\s+at\s+([\da-f:]{17})/i);
     if (arpA) {
       devices.push({ ip: arpA[1], mac: arpA[2] });
+      continue;
+    }
+    // ip neigh show format: IP dev eth0 lladdr aa:bb:cc:dd:ee:ff REACHABLE
+    const ipNeigh = line.match(
+      /^(\d+\.\d+\.\d+\.\d+)\s+dev\s+\S+(?:\s+lladdr\s+([\da-f:]{17}))?(?:\s+\S+)*$/i,
+    );
+    if (ipNeigh) {
+      devices.push({
+        ip: ipNeigh[1],
+        mac: ipNeigh[2] || undefined,
+      });
     }
   }
-  return devices;
+  return mergeNetworkDevices(devices);
+}
+
+function parseNmapNetworkDevices(rawOutput: string): NetworkDevice[] {
+  const devicesByIp = new Map<string, NetworkDevice>();
+  let currentIp: string | undefined;
+
+  for (const line of rawOutput.split("\n")) {
+    const report = line.match(/^Nmap scan report for (?:.+\s\()?(\d+\.\d+\.\d+\.\d+)\)?$/);
+    if (report) {
+      currentIp = report[1];
+      devicesByIp.set(currentIp, {
+        ip: currentIp,
+      });
+      continue;
+    }
+
+    const macLine = line.match(/^MAC Address:\s+([\da-f:]{17})(?:\s+\((.*)\))?$/i);
+    if (macLine && currentIp) {
+      devicesByIp.set(currentIp, {
+        ip: currentIp,
+        mac: macLine[1],
+        vendor: macLine[2]?.trim() || undefined,
+      });
+    }
+  }
+
+  return mergeNetworkDevices([...devicesByIp.values()]);
+}
+
+function resolveNetworkScanRange(params: {
+  subnetRaw: string;
+  localIp: string;
+  subnet: string;
+}): string {
+  const subnetRaw = params.subnetRaw.trim();
+  if (/^\d+\.\d+\.\d+\.\d+\/\d+$/.test(subnetRaw)) {
+    return subnetRaw;
+  }
+
+  const localIp = params.localIp.trim();
+  const octets = localIp.split(".");
+  if (octets.length === 4 && octets.every((part) => /^\d+$/.test(part))) {
+    return `${octets[0]}.${octets[1]}.${octets[2]}.0${params.subnet}`;
+  }
+
+  return `192.168.1.0${params.subnet}`;
+}
+
+async function discoverNetworkDevices(networkRange: string): Promise<{
+  devices: NetworkDevice[];
+  note?: string;
+}> {
+  const arpScanRaw = await run(
+    "command -v arp-scan >/dev/null 2>&1 && arp-scan --localnet 2>/dev/null",
+    20000,
+  );
+  const arpScanDevices = parseNetworkDevices(arpScanRaw);
+  if (arpScanDevices.length > 0) {
+    return { devices: arpScanDevices };
+  }
+
+  const ipNeighRaw = await run("ip neigh show 2>/dev/null", 10000);
+  const ipNeighDevices = parseNetworkDevices(ipNeighRaw);
+  if (ipNeighDevices.length > 0) {
+    return { devices: ipNeighDevices };
+  }
+
+  const nmapRaw = await run(
+    `command -v nmap >/dev/null 2>&1 && nmap -sn ${networkRange} 2>/dev/null`,
+    30000,
+  );
+  const nmapDevices = parseNmapNetworkDevices(nmapRaw);
+  if (nmapDevices.length > 0) {
+    return { devices: nmapDevices };
+  }
+
+  return {
+    devices: [],
+    note: NETWORK_DETECTION_NOTE,
+  };
 }
 
 function detectWarnings(scan: Omit<SystemScan, "warnings">): string[] {
@@ -102,6 +211,12 @@ function detectWarnings(scan: Omit<SystemScan, "warnings">): string[] {
   }
   if (!scan.network.hasInternet) {
     warnings.push("Sin conexion a internet: algunas instalaciones requieren descarga de paquetes");
+  }
+  if (scan.software?.node) {
+    const nodeVersion = parseInt(scan.software.node.replace("v", ""), 10);
+    if (nodeVersion < 22) {
+      warnings.push(`node_version_old_${scan.software.node}_requires_v22`);
+    }
   }
 
   return warnings;
@@ -131,7 +246,6 @@ export async function runScanner(): Promise<SystemScan> {
     dnsRaw,
     subnetRaw,
     internetRaw,
-    arpScanRaw,
   ] = await Promise.all([
     run("uname -m"),
     run("nproc"),
@@ -157,7 +271,6 @@ export async function runScanner(): Promise<SystemScan> {
     ),
     run("ip route | grep -v default | grep -v '169.254' | head -1 | awk '{print $1}'"),
     run("curl -s --max-time 5 https://1.1.1.1 > /dev/null && echo ok", 8000),
-    run("arp-scan --localnet 2>/dev/null || arp -a 2>/dev/null", 20000),
   ]);
 
   const disk = parseDiskGb(dfRaw);
@@ -172,8 +285,13 @@ export async function runScanner(): Promise<SystemScan> {
 
   const subnetMatch = subnetRaw.match(/\/(\d+)$/);
   const subnet = subnetMatch ? `/${subnetMatch[1]}` : "/24";
-
-  const networkDevices = parseNetworkDevices(arpScanRaw);
+  const networkRange = resolveNetworkScanRange({
+    subnetRaw,
+    localIp: localIpRaw || "192.168.1.10",
+    subnet,
+  });
+  const { devices: networkDevices, note: networkDetectionNote } =
+    await discoverNetworkDevices(networkRange);
 
   const base: Omit<SystemScan, "warnings"> = {
     hardware: {
@@ -216,6 +334,8 @@ export async function runScanner(): Promise<SystemScan> {
   console.log(t.section("RESULTADO DEL ESCANEO"));
   const row = (label: string, value: string) =>
     console.log(`  ${t.label(label.padEnd(10))} ${t.value(value)}`);
+  const portsOpen = scan.ports;
+  const servicesActive = scan.services;
 
   row(
     "Hardware:",
@@ -233,8 +353,8 @@ export async function runScanner(): Promise<SystemScan> {
   row("DNS:", scan.network.dns);
   row("Internet:", scan.network.hasInternet ? t.success("Disponible") : t.error("Sin conexión"));
   row("Red:", `${scan.network.devices.length} dispositivos detectados`);
-  row("Servicios:", `${scan.services.length} activos`);
-  row("Puertos:", `${scan.ports.length} abiertos`);
+  row("Servicios:", `${servicesActive.length} activos`);
+  row("Puertos:", `${portsOpen.length} abiertos`);
 
   const sw = Object.entries(scan.software)
     .filter(([, v]) => v)
@@ -244,9 +364,69 @@ export async function runScanner(): Promise<SystemScan> {
     row("Software:", sw);
   }
 
-  if (scan.warnings.length > 0) {
+  if (networkDetectionNote) {
+    console.log("  " + t.warn(networkDetectionNote));
+  }
+
+  if (scan.warnings.some((w) => w.startsWith("node_version_old"))) {
+    console.log(
+      "  " +
+        t.warn(
+          `Node.js ${scan.software.node} detectado. El proyecto requiere v22+. Ejecuta: nvm install 22 && nvm use 22`,
+        ),
+    );
+  }
+
+  if (portsOpen.length > 0) {
+    console.log(`  ${t.label("Puertos abiertos: ")}${t.muted(portsOpen.join(", "))}`);
+  }
+
+  const conflictPorts: Record<number, string> = {
+    53: "DNS/BIND9",
+    80: "Nginx",
+    389: "OpenLDAP",
+    445: "Samba",
+    51820: "WireGuard",
+  };
+  const conflicts = portsOpen
+    .filter((port) => conflictPorts[port])
+    .map((port) => `${port} (${conflictPorts[port]})`);
+  if (conflicts.length > 0) {
+    console.log(
+      "  " + t.warn(`Puertos ya en uso: ${conflicts.join(", ")} — puede haber conflicto con la instalación`),
+    );
+  }
+
+  const relevantServices = [
+    "bind9",
+    "named",
+    "slapd",
+    "smbd",
+    "nmbd",
+    "wg-quick@wg0",
+    "wireguard",
+    "docker",
+    "nginx",
+    "cockpit",
+    "apache2",
+    "mysql",
+    "postgresql",
+    "ssh",
+    "sshd",
+  ];
+  const foundRelevant = servicesActive.filter((service) =>
+    relevantServices.some((relevant) => service.includes(relevant)),
+  );
+  if (foundRelevant.length > 0) {
+    console.log(`  ${t.label("Servicios relevantes: ")}${t.muted(foundRelevant.join(", "))}`);
+  } else {
+    console.log("  " + t.muted("Servicios relevantes: ninguno detectado (servidor limpio)"));
+  }
+
+  const humanWarnings = scan.warnings.filter((warning) => !warning.startsWith("node_version_old"));
+  if (humanWarnings.length > 0) {
     console.log();
-    scan.warnings.forEach((w) => console.log("  " + t.warn(w)));
+    humanWarnings.forEach((warning) => console.log("  " + t.warn(warning)));
   }
 
   console.log();
