@@ -23,7 +23,7 @@ import type {
 // En dist/ estaremos en dist/installer/, así que subimos dos niveles.
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const PROMPTS_DIR = path.resolve(__dirname, "../../install-prompts");
+const PROMPTS_DIR = path.resolve(__dirname, "../install-prompts");
 
 export type ConversationState = "idle" | "active" | "complete";
 
@@ -83,6 +83,7 @@ async function callAI(
 
   if (
     bootstrap.providerId === "openai" ||
+    bootstrap.providerId === "deepseek" ||
     bootstrap.providerId === "openai-compatible" ||
     bootstrap.providerId === "openrouter"
   ) {
@@ -90,7 +91,9 @@ async function callAI(
       bootstrap.baseUrl ??
       (bootstrap.providerId === "openrouter"
         ? "https://openrouter.ai/api/v1"
-        : "https://api.openai.com/v1");
+        : bootstrap.providerId === "deepseek"
+          ? "https://api.deepseek.com/v1"
+          : "https://api.openai.com/v1");
     const response = await fetch(`${baseUrl}/chat/completions`, {
       method: "POST",
       headers: {
@@ -317,9 +320,11 @@ export async function runConversation(
   scan: SystemScan,
 ): Promise<InstallerConfig> {
   console.log(t.section("FASE 2 — CONVERSACIÓN CON LA IA"));
-  console.log(t.dim("\n  Escribe 'continuar' o 'siguiente' para avanzar de etapa."));
-  console.log(t.dim("  Escribe 'atrás' o 'volver' para retroceder."));
-  console.log(t.dim("  Usa Ctrl+C para cancelar la instalación.\n"));
+  console.log(t.dim(
+    '\n  Cuando hayas confirmado esta etapa escribe "continuar".' +
+    '\n  Para volver a la etapa anterior escribe "atrás".' +
+    '\n  Ctrl+C para cancelar en cualquier momento.\n',
+  ));
 
   const rl = readline.createInterface({
     input: process.stdin,
