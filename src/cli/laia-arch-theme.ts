@@ -42,23 +42,51 @@ export const laiaTheme = {
     return `\n${border}\n  ${c.hex("#FFC45A").bold(title)}\n${border}`;
   },
 
-  // Banner principal del instalador
+  // Banner principal del instalador — red neuronal de tres agentes
   banner: () => {
-    const top = c.hex("#FFC45A")("╔" + "═".repeat(58) + "╗");
-    const mid = (text: string) => {
-      const padded = text.padEnd(58);
-      return c.hex("#FFC45A")("║") + c.hex("#FFFFFF")(padded) + c.hex("#FFC45A")("║");
-    };
-    const bot = c.hex("#FFC45A")("╚" + "═".repeat(58) + "╝");
-    return [
+    const gold   = (s: string) => c.hex("#FFC45A").bold(s);
+    const dim    = (s: string) => c.hex("#E0A830")(s);
+    const grey   = (s: string) => c.hex("#A0A0A0")(s);
+    const white  = (s: string) => c.hex("#FFFFFF")(s);
+    const blue   = (s: string) => c.hex("#3B82F6")(s);
+    const green  = (s: string) => c.hex("#22C55E")(s);
+
+    // nodos y conexiones:
+    //
+    //   ┌──────────┐
+    //   │ LAIA ARCH│  ← tú (host-only)
+    //   └────┬─────┘
+    //        │  ╲
+    //        │   ╲
+    //   ┌────▼───┐ ┌▼──────────┐
+    //   │  AGORA │ │   NEMO    │
+    //   │(docker)│ │(externo)  │
+    //   └────────┘ └───────────┘
+
+    const lines = [
       "",
-      top,
-      mid(""),
-      mid("       ⚡ LAIA ARCH — Instalador conversacional"),
-      mid("       El arquitecto que construye tu servidor"),
-      mid(""),
-      bot,
+      grey  ("  ╔══════════════════════════════════════════════════════════╗"),
+      grey  ("  ║") + "                                                          " + grey("║"),
+      grey  ("  ║") + "           " + gold("⚡ L A I A   A R C H") + "                        " + grey("║"),
+      grey  ("  ║") + "       " + grey("El arquitecto que construye tu servidor") + "       " + grey("║"),
+      grey  ("  ║") + "                                                          " + grey("║"),
+      grey  ("  ╠══════════════════════════════════════════════════════════╣"),
+      grey  ("  ║") + "                                                          " + grey("║"),
+      grey  ("  ║") + "         " + gold("┌─────────────────────────────┐") + "             " + grey("║"),
+      grey  ("  ║") + "         " + gold("│") + "  " + gold("◈") + " " + white("Laia Arch") + dim("  [host-only]") + "       " + gold("│") + "             " + grey("║"),
+      grey  ("  ║") + "         " + gold("└──────────────┬──────────────┘") + "             " + grey("║"),
+      grey  ("  ║") + "                        " + dim("│") + "                              " + grey("║"),
+      grey  ("  ║") + "               " + dim("╔═════════╩══════════╗") + "                  " + grey("║"),
+      grey  ("  ║") + "               " + dim("║") + "                    " + dim("║") + "                  " + grey("║"),
+      grey  ("  ║") + "    " + blue("┌──────────────┐") + "     " + green("┌───────────────┐") + "      " + grey("║"),
+      grey  ("  ║") + "    " + blue("│") + " " + blue("◈") + " " + white("Laia Agora") + "    " + blue("│") + "     " + green("│") + " " + green("◈") + " " + white("Laia Nemo") + "     " + green("│") + "      " + grey("║"),
+      grey  ("  ║") + "    " + blue("│") + grey(" docker:18789  ") + blue("│") + "     " + green("│") + grey(" WA · TG · Slack ") + green("│") + "      " + grey("║"),
+      grey  ("  ║") + "    " + blue("└──────────────┘") + "     " + green("└───────────────┘") + "      " + grey("║"),
+      grey  ("  ║") + "                                                          " + grey("║"),
+      grey  ("  ╚══════════════════════════════════════════════════════════╝"),
       "",
-    ].join("\n");
+    ];
+
+    return lines.join("\n");
   },
 };
