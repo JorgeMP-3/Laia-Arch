@@ -11,7 +11,8 @@ node scripts/runtime-postbuild.mjs
 echo "-> Generando metadatos de CLI..."
 node --import tsx scripts/write-build-info.ts
 node --import tsx scripts/write-cli-startup-metadata.ts
-node --import tsx scripts/write-cli-compat.ts
+# write-cli-compat.ts busca el bundle del daemon de OpenClaw — no necesario en Laia Arch (servidor)
+# node --import tsx scripts/write-cli-compat.ts
 
 echo "-> Copiando metadatos de hooks..."
 node --import tsx scripts/copy-hook-metadata.ts
