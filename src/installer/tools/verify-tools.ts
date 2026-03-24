@@ -60,10 +60,15 @@ export function verifyServiceChain():
       success: true;
       dns: boolean;
       ldap: boolean;
+      ldap_responds: boolean;
       samba: boolean;
+      samba_shares: number;
       docker: boolean;
+      docker_operational: boolean;
       nginx: boolean;
       wireguard: boolean;
+      cockpit: boolean;
+      backup_script: boolean;
     }
   | ToolFailure {
   const params = {};
@@ -72,21 +77,85 @@ export function verifyServiceChain():
         success: true;
         dns: boolean;
         ldap: boolean;
+        ldap_responds: boolean;
         samba: boolean;
+        samba_shares: number;
         docker: boolean;
+        docker_operational: boolean;
         nginx: boolean;
         wireguard: boolean;
+        cockpit: boolean;
+        backup_script: boolean;
       }
     | ToolFailure;
   try {
+    let ldapResponds = false;
+    try {
+      execSync('ldapsearch -x -H ldap://localhost -b "" -s base', {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+        shell: true,
+      });
+      ldapResponds = true;
+    } catch {
+      ldapResponds = false;
+    }
+
+    let sambaShares = 0;
+    try {
+      const smbList = execSync("smbclient -L localhost -N 2>/dev/null", {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+        shell: true,
+      });
+      sambaShares = smbList
+        .split("\n")
+        .map((line) => line.trim())
+        .filter((line) => line && !line.startsWith("Sharename") && !line.startsWith("Server") && !line.startsWith("Workgroup"))
+        .filter((line) => /\s+Disk(\s|$)/.test(line))
+        .length;
+    } catch {
+      sambaShares = 0;
+    }
+
+    let dockerOperational = false;
+    try {
+      execSync("docker info 2>/dev/null", {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+        shell: true,
+      });
+      dockerOperational = true;
+    } catch {
+      dockerOperational = false;
+    }
+
+    let backupScript = false;
+    try {
+      fs.accessSync("/usr/local/bin/backup-laia.sh", fs.constants.X_OK);
+      backupScript = true;
+    } catch {
+      try {
+        fs.accessSync("/usr/local/bin/laia-arch-backup", fs.constants.X_OK);
+        backupScript = true;
+      } catch {
+        backupScript = false;
+      }
+    }
+
     result = {
       success: true,
       dns: serviceActive("bind9") || serviceActive("named"),
       ldap: serviceActive("slapd"),
+      ldap_responds: ldapResponds,
       samba: serviceActive("smbd") && serviceActive("nmbd"),
+      samba_shares: sambaShares,
       docker: serviceActive("docker"),
+      docker_operational: dockerOperational,
       nginx: serviceActive("nginx"),
       wireguard: serviceActive("wg-quick@wg0"),
+      cockpit: serviceActive("cockpit") || serviceActive("cockpit.socket"),
+      backup_script: backupScript,
     };
   } catch (error) {
     result = fail(`no se pudo verificar la cadena de servicios: ${summarizeExecError(error)}`, true);

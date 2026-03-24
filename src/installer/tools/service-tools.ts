@@ -1,4 +1,6 @@
 import { execSync } from "node:child_process";
+import fs from "node:fs";
+import path from "node:path";
 import { requestApproval, waitForApproval } from "../hitl-controller.js";
 import type { InstallStep } from "../types.js";
 import { logToolCall } from "./logger.js";
@@ -22,6 +24,25 @@ function isSafePackageName(value: string): boolean {
 
 function isSafeServiceName(value: string): boolean {
   return /^[A-Za-z0-9@_.:-]+$/.test(value);
+}
+
+function isSafeSysctlKey(value: string): boolean {
+  return [
+    "net.ipv4.ip_forward",
+    "net.ipv6.conf.all.forwarding",
+    "net.ipv4.conf.all.rp_filter",
+    "net.core.rmem_max",
+    "net.core.wmem_max",
+    "vm.swappiness",
+  ].includes(value);
+}
+
+function isSafeRepositoryFileName(value: string): boolean {
+  return /^[A-Za-z0-9._-]+$/.test(value);
+}
+
+function isSafeRepositoryUrl(value: string): boolean {
+  return /^https:\/\/[A-Za-z0-9./:_-]+$/.test(value);
 }
 
 function classifyCommandFailure(message: string): ToolFailure {
@@ -139,5 +160,148 @@ export function configureUfw(
   }
 
   logToolCall("configure_ufw", params, result);
+  return result;
+}
+
+export function configureSysctl(params: {
+  key: string;
+  value: string;
+  persistent?: boolean;
+}): { success: true; retryable: boolean } | ToolFailure {
+  const safeParams = {
+    key: params.key,
+    value: params.value,
+    persistent: params.persistent ?? false,
+  };
+  let result: { success: true; retryable: boolean } | ToolFailure;
+
+  if (!isSafeSysctlKey(params.key)) {
+    result = fail("parámetro sysctl no permitido", false);
+    logToolCall("configure_sysctl", safeParams, result);
+    return result;
+  }
+
+  try {
+    execSync(`sudo sysctl -w ${JSON.stringify(params.key)}=${JSON.stringify(params.value)}`, {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+      shell: true,
+    });
+
+    if (params.persistent) {
+      const sysctlPath = "/etc/sysctl.conf";
+      const desiredLine = `${params.key}=${params.value}`;
+      const current = fs.existsSync(sysctlPath) ? fs.readFileSync(sysctlPath, "utf8") : "";
+      const lines = current
+        .split("\n")
+        .filter((line) => !line.trim().startsWith(`${params.key}=`) && line.trim() !== desiredLine);
+      lines.push(desiredLine);
+      const content = `${lines.filter(Boolean).join("\n")}\n`;
+      const tempPath = path.join("/tmp", `laia-arch-sysctl-${Date.now()}.conf`);
+      fs.writeFileSync(tempPath, content, "utf8");
+      execSync(`sudo install -m 644 ${JSON.stringify(tempPath)} ${JSON.stringify(sysctlPath)}`, {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+        shell: true,
+      });
+      fs.rmSync(tempPath, { force: true });
+    }
+
+    const verify = execSync(`sysctl ${JSON.stringify(params.key)}`, {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+      shell: true,
+    }).trim();
+
+    if (!verify.endsWith(`= ${params.value}`) && !verify.endsWith(`= ${Number(params.value)}`)) {
+      result = fail(`el valor de sysctl no coincide tras aplicar: ${verify}`, true);
+    } else {
+      result = { success: true, retryable: false };
+    }
+  } catch (error) {
+    result = classifyCommandFailure(summarizeExecError(error));
+  }
+
+  logToolCall("configure_sysctl", safeParams, result);
+  return result;
+}
+
+export function addAptRepository(params: {
+  repoUrl: string;
+  gpgKeyUrl: string;
+  listFileName: string;
+  distribution?: string;
+}): { success: true; retryable: boolean } | ToolFailure {
+  const safeParams = {
+    repoUrl: params.repoUrl,
+    gpgKeyUrl: params.gpgKeyUrl,
+    listFileName: params.listFileName,
+    distribution: params.distribution,
+  };
+  let result: { success: true; retryable: boolean } | ToolFailure;
+
+  if (!isSafeRepositoryUrl(params.repoUrl) || !isSafeRepositoryUrl(params.gpgKeyUrl)) {
+    result = fail("URL de repositorio o clave no permitida", false);
+    logToolCall("add_apt_repository", safeParams, result);
+    return result;
+  }
+  if (!isSafeRepositoryFileName(params.listFileName)) {
+    result = fail("nombre de archivo de repositorio no permitido", false);
+    logToolCall("add_apt_repository", safeParams, result);
+    return result;
+  }
+
+  const baseName = params.listFileName.replace(/\.[^.]+$/, "");
+  const keyringPath = `/usr/share/keyrings/${baseName}.gpg`;
+  const listPath = `/etc/apt/sources.list.d/${params.listFileName}`;
+
+  try {
+    const distribution =
+      params.distribution?.trim() ||
+      execSync(". /etc/os-release && printf '%s' \"$VERSION_CODENAME\"", {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+        shell: true,
+      }).trim();
+
+    execSync(
+      `curl -fsSL ${JSON.stringify(params.gpgKeyUrl)} | sudo gpg --dearmor -o ${JSON.stringify(keyringPath)}`,
+      {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+        shell: true,
+      },
+    );
+
+    const repoLine =
+      `deb [arch=$(dpkg --print-architecture) signed-by=${keyringPath}] ` +
+      `${params.repoUrl} ${distribution} stable`;
+    execSync(`printf '%s\\n' ${JSON.stringify(repoLine)} | sudo tee ${JSON.stringify(listPath)} > /dev/null`, {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+      shell: true,
+    });
+
+    execSync("sudo apt-get update", {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+      shell: true,
+    });
+
+    result = { success: true, retryable: false };
+  } catch (error) {
+    try {
+      execSync(`sudo rm -f ${JSON.stringify(keyringPath)} ${JSON.stringify(listPath)}`, {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+        shell: true,
+      });
+    } catch {
+      // Best effort rollback only.
+    }
+    result = fail(`no se pudo añadir el repositorio apt: ${summarizeExecError(error)}`, true);
+  }
+
+  logToolCall("add_apt_repository", safeParams, result);
   return result;
 }

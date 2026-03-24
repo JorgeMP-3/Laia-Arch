@@ -30,6 +30,10 @@ function isAllowedReadPath(candidatePath: string): boolean {
   );
 }
 
+function isAllowedWritePath(candidatePath: string): boolean {
+  return isAllowedReadPath(candidatePath);
+}
+
 export function getSystemInfo():
   | { success: true; scan: SystemScan }
   | ToolFailure {
@@ -153,5 +157,67 @@ export function readFile(filePath: string):
   }
 
   logToolCall("read_file", params, result);
+  return result;
+}
+
+export function writeFile(params: {
+  path: string;
+  content: string;
+  append?: boolean;
+}): { success: true; retryable: boolean } | ToolFailure {
+  const safeParams = { path: params.path, append: params.append ?? false };
+  let result: { success: true; retryable: boolean } | ToolFailure;
+  if (!isAllowedWritePath(params.path)) {
+    result = fail("ruta no permitida", false);
+    logToolCall("write_file", safeParams, result);
+    return result;
+  }
+
+  try {
+    const resolved = path.resolve(params.path);
+    fs.mkdirSync(path.dirname(resolved), { recursive: true });
+    if (params.append) {
+      fs.appendFileSync(resolved, params.content, "utf8");
+    } else {
+      fs.writeFileSync(resolved, params.content, "utf8");
+    }
+    result = { success: true, retryable: false };
+  } catch (error) {
+    const message = summarizeExecError(error);
+    result = fail(`no se pudo escribir el archivo: ${message}`, false);
+  }
+
+  logToolCall("write_file", safeParams, result);
+  return result;
+}
+
+export function checkInternet():
+  | { success: true; available: boolean; latency_ms?: number; error?: string }
+  | ToolFailure {
+  const params = {};
+  let result:
+    | { success: true; available: boolean; latency_ms?: number; error?: string }
+    | ToolFailure;
+
+  try {
+    const output = execSync('curl -s --max-time 5 -o /dev/null -w "%{time_total}" https://1.1.1.1', {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    }).trim();
+    const latency = Number.parseFloat(output);
+    result = {
+      success: true,
+      available: true,
+      ...(Number.isFinite(latency) ? { latency_ms: Math.round(latency * 1000) } : {}),
+    };
+  } catch {
+    result = {
+      success: true,
+      available: false,
+      error: "sin conectividad",
+    };
+  }
+
+  logToolCall("check_internet", params, result);
   return result;
 }
