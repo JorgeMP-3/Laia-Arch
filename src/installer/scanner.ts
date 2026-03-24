@@ -1,6 +1,6 @@
 // scanner.ts — Fase 1: Escaneo del sistema y la red
 
-import { exec } from "node:child_process";
+import { exec, execSync } from "node:child_process";
 import { promisify } from "node:util";
 import { laiaTheme as t } from "../cli/laia-arch-theme.js";
 import type { NetworkDevice, SystemScan } from "./types.js";
@@ -111,6 +111,10 @@ function parseNetworkDevices(rawOutput: string): NetworkDevice[] {
   return mergeNetworkDevices(devices);
 }
 
+function findDeviceByIp(rawOutput: string, ip: string): NetworkDevice | undefined {
+  return parseNetworkDevices(rawOutput).find((device) => device.ip === ip);
+}
+
 function resolvePingSweepTargets(params: { gateway: string; localIp: string }): string[] {
   const targets = new Set<string>();
   const gateway = params.gateway.trim();
@@ -133,25 +137,23 @@ function resolvePingSweepTargets(params: { gateway: string; localIp: string }): 
   return [...targets];
 }
 
-async function runPingSweep(params: { gateway: string; localIp: string }): Promise<NetworkDevice[]> {
+async function runPingSweep(params: {
+  gateway: string;
+  localIp: string;
+}): Promise<NetworkDevice[]> {
   const targets = resolvePingSweepTargets(params);
   if (targets.length === 0) {
     return [];
   }
 
   await Promise.all(
-    targets.map((target) =>
-      run(`ping -c 1 -W 1 ${target} >/dev/null 2>&1 || true`, 2500),
-    ),
+    targets.map((target) => run(`ping -c 1 -W 1 ${target} >/dev/null 2>&1 || true`, 2500)),
   );
 
   return parseNetworkDevices(await run("ip neigh show 2>/dev/null", 10000));
 }
 
-async function discoverNetworkDevices(params: {
-  gateway: string;
-  localIp: string;
-}): Promise<{
+async function discoverNetworkDevices(params: { gateway: string; localIp: string }): Promise<{
   devices: NetworkDevice[];
   note?: string;
 }> {
@@ -176,6 +178,48 @@ async function discoverNetworkDevices(params: {
   });
   if (pingSweepDevices.length > 0) {
     return { devices: pingSweepDevices };
+  }
+
+  const gateway = params.gateway.trim();
+  if (/^\d+\.\d+\.\d+\.\d+$/.test(gateway)) {
+    await run(`ping -c 1 -W 2 ${gateway} 2>/dev/null`, 4000);
+    try {
+      execSync("sleep 0.5");
+    } catch {
+      // Ignoramos errores de sleep porque es solo una ayuda para refrescar ARP.
+    }
+
+    const neighAfterPing = await run("ip neigh show 2>/dev/null", 10000);
+    const gatewayDevice = findDeviceByIp(neighAfterPing, gateway);
+    if (gatewayDevice) {
+      return {
+        devices: [
+          {
+            ip: gateway,
+            mac: gatewayDevice.mac ?? "desconocida",
+            vendor: "Gateway/Router",
+          },
+        ],
+        note:
+          `No se detectaron dispositivos en la red local. ` +
+          `Si estás en una VM con red NAT esto es normal. ` +
+          `El gateway ${gateway} está accesible.`,
+      };
+    }
+
+    return {
+      devices: [
+        {
+          ip: gateway,
+          mac: "n/a",
+          vendor: "Gateway (sin ARP — posible entorno NAT)",
+        },
+      ],
+      note:
+        `No se detectaron dispositivos en la red local. ` +
+        `Si estás en una VM con red NAT esto es normal. ` +
+        `El gateway ${gateway} está accesible.`,
+    };
   }
 
   return {
@@ -278,11 +322,10 @@ export async function runScanner(): Promise<SystemScan> {
 
   const subnetMatch = subnetRaw.match(/\/(\d+)$/);
   const subnet = subnetMatch ? `/${subnetMatch[1]}` : "/24";
-  const { devices: networkDevices, note: networkDetectionNote } =
-    await discoverNetworkDevices({
-      gateway: gatewayRaw || "",
-      localIp: localIpRaw || "",
-    });
+  const { devices: networkDevices, note: networkDetectionNote } = await discoverNetworkDevices({
+    gateway: gatewayRaw || "",
+    localIp: localIpRaw || "",
+  });
 
   const base: Omit<SystemScan, "warnings"> = {
     hardware: {
