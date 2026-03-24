@@ -52,7 +52,9 @@ function isReasoningModel(model: string): boolean {
     "o3",
     "o3-mini",
   ]);
-  if (reasoningModels.has(model)) return true;
+  if (reasoningModels.has(model)) {
+    return true;
+  }
   const lower = model.toLowerCase();
   return lower.includes("reasoner") || lower.includes("thinking");
 }
@@ -60,154 +62,158 @@ function isReasoningModel(model: string): boolean {
 const REASONING_SUFFIX =
   "\n\nRazona internamente sobre la configuración óptima antes de responder. Sé conciso en las respuestas al usuario.";
 
-// Prompts compactos para modelos de reasoning (reemplazan archivos largos para ahorrar tokens)
-const COMPACT_PROMPTS = {
-  company:
-    "Eres Laia Arch. Recoge en conversación: nombre de la agencia, número de empleados, idioma principal. " +
-    "Confirma con resumen de una línea antes de avanzar. Menos de 3 intercambios.",
-  access:
-    "Eres Laia Arch. El ecosistema LAIA usa tres roles fijos: creativos, cuentas, comerciales. " +
-    "Pregunta cuántas personas hay en cada rol y si alguno trabaja en remoto (activa WireGuard). " +
-    "Si mencionan nombres, recuérdalos para sugerir usuario en formato nombre.apellido.",
-  security:
-    "Eres Laia Arch. Tres preguntas concretas: " +
-    "1) ¿IP pública o solo red local? " +
-    "2) ¿Contraseñas automáticas generadas por Laia? " +
-    "3) ¿Solo SSH por clave sin contraseña? Explica cada opción en una frase.",
-  compliance:
-    "Eres Laia Arch. Una pregunta: ¿la agencia maneja datos de clientes? " +
-    "Si sí, informa que GDPR aplica y el ecosistema LAIA cumple por diseño. " +
-    "Pregunta cuántos días conservar backups (sugerir 30). Confirma y avanza.",
-};
-
 // ── Modos de instalación ──────────────────────────────────────────────────
 
 /** Construye el system prompt para el modo Asistido (guided): orden fijo de pasos. */
 function buildGuidedPrompt(scan: SystemScan): string {
-  const toolList = TOOL_DEFINITIONS_ANTHROPIC.map(
-    (tool) => `- ${tool.name}: ${tool.description}`,
-  ).join("\n");
+  return `Eres Laia Arch, el agente fundador del ecosistema LAIA.
 
-  return [
-    "Eres Laia Arch. Sigue este orden de preguntas exacto.",
-    "No te saltes ninguna. No cambies el orden.",
-    "",
-    "ORDEN FIJO DE CONFIGURACIÓN:",
-    "",
-    "PASO 1 — Confirmar servidor:",
-    "Presenta el resumen del escaneo y pregunta si es el servidor correcto.",
-    "No avances hasta recibir confirmación.",
-    "",
-    "PASO 2 — Perfil de la organización:",
-    "Pregunta: nombre de la empresa, sector o actividad, número de personas, idioma principal.",
-    "Confirma con resumen antes de avanzar.",
-    "",
-    "PASO 3 — Roles y usuarios:",
-    "Pregunta: qué roles o departamentos tiene la organización, cuántas personas en cada rol,",
-    "si hay personas remotas, nombres si los quieren proporcionar.",
-    "No sugieras nombres de roles — deja que los definan ellos.",
-    "Confirma con resumen antes de avanzar.",
-    "",
-    "PASO 4 — Servicios:",
-    "Presenta la lista de servicios disponibles y pregunta cuáles instalar.",
-    "Siempre recomienda el conjunto base (DNS, LDAP, Docker, backups).",
-    "Omite WireGuard si en el paso 3 confirmaron que nadie trabaja en remoto.",
-    "Confirma con resumen antes de avanzar.",
-    "",
-    "PASO 5 — Seguridad:",
-    "Pregunta: ¿IP pública o solo red local? ¿Contraseñas automáticas? ¿SSH solo por clave?",
-    "Confirma con resumen antes de avanzar.",
-    "",
-    "PASO 6 — GDPR:",
-    "Pregunta si manejan datos personales de clientes.",
-    "Si sí, confirmar retención de backups (sugerir 30 días).",
-    "",
-    "PASO 7 — Plan final:",
-    "Genera el plan completo con los datos recopilados y espera aprobación explícita.",
-    "Cuando se apruebe, usa las tools disponibles para ejecutar CADA paso.",
-    "No generes texto describiendo lo que harías — llama a las tools reales.",
-    "",
-    "SERVIDOR ACTUAL:",
-    formatScan(scan),
-    "",
-    "ECOSISTEMA LAIA:",
-    "- Laia Arch (tú): configura infraestructura, máximo privilegio, solo accesible desde el host físico",
-    "- Laia Agora: operaciones diarias, Docker puerto 18789, accesible desde red local y VPN",
-    "- Laia Nemo: interfaz externa, Docker con OpenClaw, WhatsApp/Telegram/Slack, mínimo privilegio",
-    "",
-    "ROLES: Los define la organización durante la conversación.",
-    "No asumas creativos/cuentas/comerciales ni ningún otro rol específico.",
-    "Los grupos LDAP se crean según lo que diga la organización.",
-    "",
-    "TOOLS DISPONIBLES:",
-    toolList,
-  ]
-    .filter(Boolean)
-    .join("\n");
+ECOSISTEMA LAIA — LO QUE ESTÁS CONSTRUYENDO:
+Este servidor alojará tres agentes IA:
+- Laia Arch (tú): configura la infraestructura, máximo privilegio,
+  solo accesible desde el host físico. Se auto-desactiva al terminar.
+- Laia Agora: agente de operaciones diarias, corre en Docker en
+  puerto 18789, accesible desde la red local y VPN
+- Laia Nemo: interfaz externa, corre en Docker con OpenClaw,
+  accesible desde WhatsApp, Telegram, Slack y web pública
+
+SERVIDOR ACTUAL:
+${formatScan(scan)}
+
+TU MISIÓN EN ESTE MODO:
+Seguir el orden de etapas definido en cada prompt de etapa.
+Nunca saltarte una etapa. Nunca cambiar el orden.
+
+PRIORIDAD ABSOLUTA — ENTENDER AL ADMINISTRADOR:
+Antes de avanzar a la siguiente etapa debes estar al 100% seguro
+de haber entendido lo que el administrador quiere decir.
+
+Si una respuesta es ambigua:
+- Repite lo que entendiste con tus propias palabras
+- Pregunta "¿Es esto lo que quieres decir?"
+- Espera confirmación antes de continuar
+
+Si una respuesta es incompleta:
+- Identifica exactamente qué falta
+- Pregunta solo por eso, no repitas todo
+
+Si el administrador cambia de tema:
+- Recoge la información nueva
+- Vuelve a la etapa actual con lo que ya tienes
+- "Apunto eso. Volviendo a [etapa actual]: ¿...?"
+
+Si el administrador dice algo contradictorio:
+- Señala la contradicción con calma
+- "Antes dijiste X, ahora dices Y. ¿Cuál es correcto?"
+
+Si el administrador da más información de la que pediste:
+- Recógela toda sin interrumpir
+- Confirma que la has entendido antes de avanzar
+
+TONO:
+Profesional pero cercano. Claro y directo. Sin tecnicismos
+innecesarios. Si usas un término técnico, explícalo en una frase.
+
+NUNCA:
+- Asumir el sector de la empresa
+- Asumir roles predefinidos
+- Avanzar sin confirmación explícita
+- Ejecutar nada sin aprobación del plan completo`;
 }
 
 /** Construye el system prompt para el modo Adaptativo: sin orden fijo, camino personalizado. */
 function buildAdaptivePrompt(scan: SystemScan): string {
-  const toolList = TOOL_DEFINITIONS_ANTHROPIC.map(
-    (tool) => `- ${tool.name}: ${tool.description}`,
-  ).join("\n");
+  return `Eres Laia Arch, el agente fundador del ecosistema LAIA.
 
-  return [
-    "Eres Laia Arch. Tu objetivo es configurar este servidor para el ecosistema LAIA.",
-    "El camino para llegar ahí depende de lo que te diga el administrador.",
-    "",
-    "INFORMACIÓN QUE NECESITAS OBTENER (en cualquier orden):",
-    "□ Confirmación de que es el servidor correcto",
-    "□ Nombre y tipo de empresa u organización",
-    "□ Roles o departamentos y cuántas personas en cada uno",
-    "□ Si hay personas que trabajan en remoto",
-    "□ Qué servicios necesitan (adapta según el perfil)",
-    "□ Política de seguridad básica",
-    "□ Si manejan datos personales (GDPR)",
-    "",
-    "REGLAS DE ADAPTACIÓN:",
-    "- Si el administrador da información de varios pasos a la vez, recógela toda sin interrumpir.",
-    "- Si dice 'somos solo 2 personas', simplifica la configuración.",
-    "- Si dice 'hay 50 personas en varios países', propón más servicios.",
-    "- Si dice 'nadie trabaja en remoto', omite WireGuard sin preguntar.",
-    "- Si dice 'todos son técnicos', puedes ser más específico.",
-    "- Si algo no queda claro, pregunta. Si queda claro, no preguntes.",
-    "- Cuando tengas suficiente información, propón el plan.",
-    "- El administrador puede modificar el plan antes de aprobarlo.",
-    "",
-    "NO ASUMAS:",
-    "- No asumas el sector de la empresa",
-    "- No asumas los roles (no digas creativos/cuentas/comerciales)",
-    "- No asumas que necesitan todos los servicios",
-    "- No asumas nada que no te hayan dicho",
-    "",
-    "SERVIDOR ACTUAL:",
-    formatScan(scan),
-    "",
-    "ECOSISTEMA LAIA:",
-    "- Laia Arch (tú): configura infraestructura, máximo privilegio, solo accesible desde el host físico",
-    "- Laia Agora: operaciones diarias, corre en Docker puerto 18789, accesible desde red local y VPN",
-    "- Laia Nemo: interfaz externa, corre en Docker con OpenClaw, WhatsApp/Telegram/Slack/web pública",
-    "",
-    "SERVICIOS DISPONIBLES:",
-    "- DNS interno (BIND9): resolución de nombres en red local",
-    "- OpenLDAP: directorio central de usuarios por roles",
-    "- Samba: carpetas compartidas en red por departamento",
-    "- WireGuard: VPN para acceso remoto seguro",
-    "- Docker: necesario para Laia Agora y Laia Nemo",
-    "- Nginx: proxy inverso y panel web",
-    "- Cockpit: panel de administración visual",
-    "- rsync: copias de seguridad automáticas nocturnas",
-    "",
-    "CUANDO EL ADMINISTRADOR APRUEBE EL PLAN:",
-    "Usa las tools disponibles para ejecutar CADA paso.",
-    "No generes texto describiendo lo que harías — llama a las tools reales.",
-    "",
-    "TOOLS DISPONIBLES:",
-    toolList,
-  ]
-    .filter(Boolean)
-    .join("\n");
+ECOSISTEMA LAIA — LO QUE ESTÁS CONSTRUYENDO:
+Este servidor alojará tres agentes IA:
+- Laia Arch (tú): configura la infraestructura, máximo privilegio,
+  solo accesible desde el host físico. Se auto-desactiva al terminar.
+- Laia Agora: agente de operaciones diarias, corre en Docker en
+  puerto 18789, accesible desde la red local y VPN
+- Laia Nemo: interfaz externa, corre en Docker con OpenClaw,
+  accesible desde WhatsApp, Telegram, Slack y web pública
+
+SERVIDOR ACTUAL:
+${formatScan(scan)}
+
+TU MISIÓN EN ESTE MODO:
+Construir el mapa de instalación óptimo para ESTA organización
+específica. No hay orden fijo. El camino lo determina lo que
+te diga el administrador.
+
+INFORMACIÓN QUE NECESITAS OBTENER (en cualquier orden):
+□ Confirmación del servidor
+□ Nombre y tipo de organización
+□ Roles, departamentos y número de personas
+□ Si hay personas remotas (activa WireGuard automáticamente)
+□ Qué servicios necesitan
+□ Política de seguridad básica
+□ Si manejan datos personales (GDPR)
+
+PRIORIDAD ABSOLUTA — ENTENDER AL ADMINISTRADOR:
+Tu objetivo no es hacer preguntas. Es entender qué necesita
+esta organización y configurar el servidor de forma óptima.
+
+REGLAS DE ADAPTACIÓN:
+
+Si dan mucha información a la vez:
+  Recógela toda. Confirma que la entendiste. Sigue con lo que falta.
+  "Entendido: [resumen de lo que dijeron]. Me falta saber: [X]."
+
+Si dan poca información:
+  Haz una sola pregunta a la vez. La más importante primero.
+  No hagas listas de preguntas. Una pregunta, espera respuesta.
+
+Si dicen algo ambiguo:
+  "Cuando dices [X], ¿te refieres a [interpretación A] o [B]?"
+  Espera antes de asumir nada.
+
+Si se contradicen:
+  "Antes mencionaste [X]. Ahora dices [Y]. ¿Cuál aplicamos?"
+
+ADAPTACIÓN AUTOMÁTICA SEGÚN EL PERFIL:
+
+Organización pequeña (menos de 5 personas):
+  - Simplifica: menos grupos LDAP, configuración básica
+  - Pregunta si realmente necesitan todos los servicios
+  - WireGuard solo si hay remotos confirmados
+
+Organización mediana (5-20 personas):
+  - Configuración estándar completa
+  - Recomienda todos los servicios base
+  - Cockpit recomendado para administración visual
+
+Organización grande (más de 20 personas):
+  - Pregunta por subgrupos dentro de roles
+  - Recomienda LDAPS (LDAP cifrado)
+  - Pregunta si necesitan alta disponibilidad
+
+Sector técnico (IT, desarrollo, ingeniería):
+  - Puedes usar términos técnicos sin explicarlos
+  - Pregunta si quieren configuración avanzada
+  - SSH por clave por defecto sin preguntar
+
+Sector no técnico (legal, salud, educación, administración):
+  - Evita tecnicismos completamente
+  - Usa analogías: "como una llave en lugar de contraseña"
+  - Recomienda contraseñas automáticas sin dudar
+
+SERVICIOS DISPONIBLES Y CUÁNDO RECOMENDARLOS:
+- DNS (BIND9): siempre, es la base
+- OpenLDAP: siempre, es la base
+- Docker: siempre, necesario para Laia Agora y Nemo
+- Backups rsync: siempre, esencial
+- Samba: si comparten archivos entre equipos
+- WireGuard: SOLO si hay remotos — añadir sin preguntar si ya lo confirmaron
+- Nginx: si quieren acceder por nombre en lugar de IP
+- Cockpit: si quieren gestión visual sin terminal
+
+NUNCA:
+- Asumir el sector ni los roles de la organización
+- Avanzar sin entender completamente lo que quieren
+- Simular acciones — solo ejecutar tools reales
+- Generar el plan sin tener toda la información necesaria`;
 }
 
 /**
@@ -221,21 +227,27 @@ export function getModeConfig(mode: InstallMode, scan: SystemScan): ModeConfig {
     case "tool-driven":
       return {
         mode,
-        systemPrompt: [
-          "Eres Laia Arch. Configura este servidor para el ecosistema LAIA usando las herramientas disponibles.",
-          "",
-          "Haz SOLO estas preguntas mínimas antes de ejecutar:",
-          "1. Nombre de la empresa",
-          "2. Número total de personas",
-          "3. Qué roles o departamentos tienen (pide que los listen)",
-          "4. ¿Hay personas que trabajen en remoto? (sí/no)",
-          "5. ¿Manejan datos personales de clientes? (sí/no)",
-          "",
-          "Con esas 5 respuestas genera el plan y ejecuta.",
-          "No hagas más preguntas. No expliques lo que haces.",
-          "Usa las tools directamente para cada paso.",
-          "Si algo falla, informa del error exacto.",
-        ].join("\n"),
+        systemPrompt: `Eres Laia Arch. Configura este servidor para el
+ecosistema LAIA usando las herramientas disponibles.
+
+HAZ EXACTAMENTE ESTAS 5 PREGUNTAS EN ESTE ORDEN:
+1. "¿Cuál es el nombre de la organización?"
+2. "¿Cuántas personas usarán el sistema?"
+3. "¿Qué roles o departamentos tienen? (lista todos)"
+4. "¿Hay personas que trabajen en remoto? (sí/no — si sí, cuántas)"
+5. "¿Manejan datos personales de clientes? (sí/no)"
+
+Con esas 5 respuestas genera el plan y ejecuta sin más preguntas.
+
+REGLAS ESTRICTAS:
+- No hagas ninguna pregunta adicional
+- No expliques lo que vas a hacer antes de hacerlo
+- Usa las tools directamente para cada paso
+- Si algo falla, informa del error exacto y para
+- Si una respuesta es ambigua, elige la opción más segura
+  y continúa (más servicios mejor que menos)
+
+SERVIDOR: ${formatScan(scan)}`,
         useTools: true,
         contextLevel: "minimal",
         maxTokensPerCall: 1024,
@@ -341,7 +353,7 @@ async function callAI(
           let resultContent: string;
           try {
             const toolResult = handler
-              ? await handler((block.input ?? {}) as Record<string, unknown>)
+              ? await handler(block.input ?? {})
               : { error: `Herramienta desconocida: ${block.name}` };
             resultContent = JSON.stringify(toolResult);
           } catch (err) {
@@ -458,7 +470,9 @@ async function callAI(
         };
 
         const choice = data.choices[0];
-        if (!choice) throw new Error("OpenAI API: respuesta vacía");
+        if (!choice) {
+          throw new Error("OpenAI API: respuesta vacía");
+        }
 
         if (choice.finish_reason !== "tool_calls" || !choice.message.tool_calls?.length) {
           return choice.message.content ?? "";
@@ -628,6 +642,10 @@ async function runStage(
     const stageComplete =
       aiText.includes("[ETAPA_COMPLETA]") || aiText.includes("[SIGUIENTE_ETAPA]");
 
+    if (stageComplete) {
+      return { action: "advance", messages };
+    }
+
     // Leer respuesta del usuario
     const userInput = await new Promise<string>((resolve) => {
       rl.question("  " + t.brandDim("Tú:") + " ", resolve);
@@ -652,6 +670,36 @@ async function runStage(
     if (userWantsAdvance || stageComplete) {
       return { action: "advance", messages };
     }
+  }
+}
+
+async function runOpenConversation(
+  rl: readline.Interface,
+  bootstrap: BootstrapResult,
+  systemPrompt: string,
+  initialTrigger: string,
+  modeConfig?: ModeConfig,
+): Promise<Message[]> {
+  const messages: Message[] = [{ role: "user", content: initialTrigger }];
+
+  while (true) {
+    process.stdout.write("  (pensando...)\r");
+    const aiText = await callAI(bootstrap, systemPrompt, messages, modeConfig);
+    process.stdout.write("                \r");
+
+    printAiMessage(aiText);
+    messages.push({ role: "assistant", content: aiText });
+
+    const conversationComplete =
+      aiText.includes("[ETAPA_COMPLETA]") || aiText.includes("[SIGUIENTE_ETAPA]");
+    if (conversationComplete) {
+      return messages;
+    }
+
+    const userInput = await new Promise<string>((resolve) => {
+      rl.question("  " + t.brandDim("Tú:") + " ", resolve);
+    });
+    messages.push({ role: "user", content: userInput });
   }
 }
 
@@ -701,15 +749,233 @@ async function extractJson<T>(
 
 // ── Función principal ─────────────────────────────────────────────────────
 
-const STAGE_LABELS = [
-  "Revisión del sistema",
-  "Perfil de la empresa",
-  "Modelo de acceso",
+interface ConversationData {
+  company: CompanyProfile;
+  access: AccessModel;
+  services: ServiceSelection;
+  security: SecurityPolicy;
+  compliance: DataCompliance;
+  network: NetworkConfig;
+  users: UserConfig[];
+}
+
+const GUIDED_STAGE_LABELS = [
+  "Revisión del servidor",
+  "Perfil de la organización",
+  "Roles y usuarios",
   "Servicios a instalar",
-  "Configuración de red",
   "Política de seguridad",
-  "Cumplimiento normativo",
+  "Datos y cumplimiento",
+  "Plan final",
 ];
+
+const GUIDED_STAGE_FILES = [
+  "00-system-context.md",
+  "01-company-profile.md",
+  "02-access-model.md",
+  "03-services-selection.md",
+  "04-security-policy.md",
+  "05-data-compliance.md",
+  "06-plan-generation.md",
+];
+
+function createDefaultConversationData(scan: SystemScan): ConversationData {
+  return {
+    company: {
+      name: scan.os.hostname,
+      sector: "Organización",
+      teamSize: 10,
+      language: "es",
+      timezone: "Europe/Madrid",
+    },
+    access: {
+      totalUsers: 5,
+      roles: [{ name: "usuarios", count: 5 }],
+      remoteUsers: 0,
+      devices: ["linux", "windows"],
+      needsVpn: false,
+      needsMfa: false,
+    },
+    services: {
+      dns: true,
+      ldap: true,
+      samba: true,
+      wireguard: false,
+      docker: true,
+      nginx: false,
+      cockpit: true,
+      backups: true,
+    },
+    security: {
+      passwordComplexity: "medium",
+      diskEncryption: false,
+      internetExposed: false,
+      sshKeyOnly: false,
+    },
+    compliance: {
+      gdpr: false,
+      backupRetentionDays: 14,
+      dataTypes: [],
+      jurisdiction: "ES",
+    },
+    network: {
+      serverIp: scan.network.localIp,
+      subnet: scan.network.subnet,
+      gateway: scan.network.gateway,
+      internalDomain: `${scan.os.hostname}.local`,
+      vpnRange: "10.10.10.0/24",
+      dhcpRange: scan.network.localIp.split(".").slice(0, 3).join(".") + ".100-200",
+    },
+    users: [],
+  };
+}
+
+function cloneConversationData(data: ConversationData): ConversationData {
+  return JSON.parse(JSON.stringify(data)) as ConversationData;
+}
+
+function buildCollectedContext(data: ConversationData): string {
+  const roles =
+    data.access.roles.length > 0
+      ? data.access.roles.map((role) => `${role.name} (${role.count})`).join(", ")
+      : "por definir";
+  const selectedServices = Object.entries(data.services)
+    .filter(([, enabled]) => enabled)
+    .map(([service]) => service)
+    .join(", ");
+
+  return [
+    "CONTEXTO ACUMULADO HASTA AHORA:",
+    `Organización: ${data.company.name} | Sector: ${data.company.sector} | Personas: ${data.company.teamSize} | Idioma: ${data.company.language}`,
+    `Roles: ${roles}`,
+    `Usuarios con nombre: ${data.users.length > 0 ? data.users.map((user) => user.username).join(", ") : "por definir"}`,
+    `Acceso remoto: ${data.access.remoteUsers > 0 ? `${data.access.remoteUsers} persona(s)` : "ninguno"}`,
+    `Servicios seleccionados: ${selectedServices || "por definir"}`,
+    `Seguridad: ${data.security.internetExposed ? "IP pública" : "red local"} | Contraseñas ${data.security.passwordComplexity} | SSH ${data.security.sshKeyOnly ? "solo clave" : "por definir"}`,
+    `Backups: ${data.compliance.backupRetentionDays} días | GDPR: ${data.compliance.gdpr ? "sí" : "no"}`,
+    `Red: ${data.network.serverIp} | ${data.network.internalDomain} | VPN ${data.network.vpnRange}`,
+  ].join("\n");
+}
+
+async function extractConversationData(
+  bootstrap: BootstrapResult,
+  conversationMessages: Message[],
+  currentData: ConversationData,
+  scan: SystemScan,
+): Promise<ConversationData> {
+  const next = cloneConversationData(currentData);
+
+  next.company = await extractJson<CompanyProfile>(
+    bootstrap,
+    conversationMessages,
+    `Extrae de toda la conversación el perfil de la organización y devuelve este JSON:
+{
+  "name": "<nombre de la organización>",
+  "sector": "<actividad o sector>",
+  "teamSize": <número entero de personas>,
+  "language": "<código de idioma: es, en, ca, fr...>",
+  "timezone": "<zona horaria IANA, ej: Europe/Madrid>"
+}`,
+    next.company,
+  );
+
+  next.access = await extractJson<AccessModel>(
+    bootstrap,
+    conversationMessages,
+    `Extrae de toda la conversación el modelo de acceso y devuelve este JSON:
+{
+  "totalUsers": <número entero>,
+  "roles": [{"name": "<nombre exacto del rol o departamento>", "count": <número>}],
+  "remoteUsers": <número de usuarios que acceden en remoto>,
+  "devices": ["<tipo de dispositivo>"],
+  "needsVpn": <true|false>,
+  "needsMfa": <true|false>
+}`,
+    next.access,
+  );
+
+  next.users = await extractJson<UserConfig[]>(
+    bootstrap,
+    conversationMessages,
+    `Si en la conversación se mencionaron nombres de personas, extrae la lista de usuarios.
+Devuelve un array JSON. Si no se mencionaron nombres concretos, devuelve []:
+[
+  {
+    "username": "<nombre.apellido en minúsculas, ej: ana.garcia>",
+    "role": "<nombre exacto del rol o departamento>",
+    "remote": <true si trabaja en remoto habitualmente, false si no>
+  }
+]`,
+    next.users,
+  );
+
+  next.services = await extractJson<ServiceSelection>(
+    bootstrap,
+    conversationMessages,
+    `Extrae de la conversación los servicios seleccionados y devuelve este JSON:
+{
+  "dns": <true|false>,
+  "ldap": <true|false>,
+  "samba": <true|false>,
+  "wireguard": <true|false>,
+  "docker": <true|false>,
+  "nginx": <true|false>,
+  "cockpit": <true|false>,
+  "backups": <true|false>
+}`,
+    next.services,
+  );
+
+  const suggestedDomain = (next.company.name || scan.os.hostname)
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, "-")
+    .replace(/[^a-z0-9-]/g, "");
+
+  next.network = await extractJson<NetworkConfig>(
+    bootstrap,
+    conversationMessages,
+    `Extrae la configuración de red confirmada en la conversación y devuelve este JSON:
+{
+  "serverIp": "<IP del servidor confirmada, por defecto: ${scan.network.localIp}>",
+  "subnet": "<máscara de subred, por defecto: ${scan.network.subnet}>",
+  "gateway": "<gateway, por defecto: ${scan.network.gateway}>",
+  "internalDomain": "<dominio interno elegido, ej: ${suggestedDomain || scan.os.hostname}.local>",
+  "vpnRange": "<rango VPN para WireGuard, ej: 10.10.10.0/24>",
+  "dhcpRange": "<rango DHCP, ej: ${next.network.dhcpRange}>"
+}`,
+    next.network,
+  );
+
+  next.security = await extractJson<SecurityPolicy>(
+    bootstrap,
+    conversationMessages,
+    `Extrae de la conversación la política de seguridad y devuelve este JSON:
+{
+  "passwordComplexity": "<basic|medium|high>",
+  "diskEncryption": <true|false>,
+  "internetExposed": <true|false>,
+  "sshKeyOnly": <true|false>
+}`,
+    next.security,
+  );
+
+  next.compliance = await extractJson<DataCompliance>(
+    bootstrap,
+    conversationMessages,
+    `Extrae de la conversación los datos de cumplimiento normativo y devuelve este JSON:
+{
+  "gdpr": <true|false>,
+  "backupRetentionDays": <número de días>,
+  "dataTypes": ["<tipo de dato>"],
+  "jurisdiction": "<código de país ISO: ES, EU, US...>"
+}`,
+    next.compliance,
+  );
+
+  return next;
+}
 
 /**
  * Ejecuta la configuración conversacional completa: 7 etapas con la IA.
@@ -723,14 +989,6 @@ export async function runConversation(
   mode: InstallMode = "adaptive",
 ): Promise<InstallerConfig> {
   console.log(t.section("CONFIGURACIÓN CON LAIA ARCH"));
-  console.log(
-    t.dim(
-      '\n  Cuando hayas confirmado esta etapa escribe "continuar".' +
-        '\n  Para volver a la etapa anterior escribe "atrás".' +
-        "\n  Ctrl+C para cancelar en cualquier momento.\n",
-    ),
-  );
-
   const rl = readline.createInterface({
     input: process.stdin,
     output: process.stdout,
@@ -744,309 +1002,101 @@ export async function runConversation(
     process.exit(1);
   });
 
-  const scanContext = formatScan(scan);
-
-  // Datos extraídos de cada etapa (se actualizan al avanzar, se reutilizan al volver)
-  let company: CompanyProfile = {
-    name: scan.os.hostname,
-    sector: "Servicios",
-    teamSize: 10,
-    language: "es",
-    timezone: "Europe/Madrid",
-  };
-  let access: AccessModel = {
-    totalUsers: 5,
-    roles: [
-      { name: "administrador", count: 1 },
-      { name: "usuario", count: 4 },
-    ],
-    remoteUsers: 0,
-    devices: ["linux", "windows"],
-    needsVpn: false,
-    needsMfa: false,
-  };
-  let services: ServiceSelection = {
-    dns: true,
-    ldap: true,
-    samba: true,
-    wireguard: false,
-    docker: false,
-    nginx: true,
-    cockpit: true,
-    backups: true,
-  };
-  let security: SecurityPolicy = {
-    passwordComplexity: "medium",
-    diskEncryption: false,
-    internetExposed: false,
-    sshKeyOnly: true,
-  };
-  let compliance: DataCompliance = {
-    gdpr: true,
-    backupRetentionDays: 30,
-    dataTypes: ["documentos de trabajo"],
-    jurisdiction: "ES",
-  };
-  let network: NetworkConfig = {
-    serverIp: scan.network.localIp,
-    subnet: scan.network.subnet,
-    gateway: scan.network.gateway,
-    internalDomain: `${scan.os.hostname}.local`,
-    vpnRange: "10.10.10.0/24",
-    dhcpRange: scan.network.localIp.split(".").slice(0, 3).join(".") + ".100-200",
-  };
-  let users: UserConfig[] = [];
-
   const useReasoning = bootstrap.supportsReasoning ?? isReasoningModel(bootstrap.model);
   const modeConfig = getModeConfig(mode, scan);
-
-  let stageIndex = 0;
+  let data = createDefaultConversationData(scan);
+  const allMessages: Message[] = [];
 
   try {
-    while (stageIndex < 7) {
-      console.log(t.step(`Configurando: ${STAGE_LABELS[stageIndex]}\n`));
+    if (mode === "guided") {
+      console.log(
+        t.dim(
+          "\n  Modo Asistido: etapas fijas en orden estricto." +
+            "\n  Cuando una etapa quede clara, Laia avanzará sola." +
+            '\n  Para volver a la etapa anterior escribe "atrás".' +
+            "\n  Ctrl+C para cancelar en cualquier momento.\n",
+        ),
+      );
 
-      // Construir el prompt del sistema según la etapa actual
-      let systemPrompt: string;
-      let trigger: string;
+      const snapshots: ConversationData[] = [cloneConversationData(data)];
+      let stageIndex = 0;
 
-      switch (stageIndex) {
-        case 0: {
-          const p0 = loadPrompt("00-system-context.md");
-          systemPrompt = p0 + "\n\n" + scanContext;
-          if (useReasoning) systemPrompt += REASONING_SUFFIX;
-          trigger =
-            "Por favor, presenta el estado actual del servidor de forma clara y no técnica, " +
-            "señalando las advertencias importantes. Al terminar, pregunta si podemos continuar.";
-          break;
+      while (stageIndex < GUIDED_STAGE_FILES.length) {
+        console.log(t.step(`Configurando: ${GUIDED_STAGE_LABELS[stageIndex]}\n`));
+
+        let systemPrompt = [
+          modeConfig.systemPrompt,
+          `PROMPT DE ETAPA ACTUAL — ${GUIDED_STAGE_LABELS[stageIndex]}:`,
+          loadPrompt(GUIDED_STAGE_FILES[stageIndex]),
+          buildCollectedContext(data),
+        ].join("\n\n");
+        if (useReasoning) {
+          systemPrompt += REASONING_SUFFIX;
         }
-        case 1: {
-          const p1 = useReasoning ? COMPACT_PROMPTS.company : loadPrompt("01-company-profile.md");
-          systemPrompt = p1 + "\n\n" + scanContext;
-          if (useReasoning) systemPrompt += REASONING_SUFFIX;
-          trigger =
-            "Comienza recopilando el perfil de la empresa. " +
-            `El hostname actual es "${scan.os.hostname}".`;
-          break;
+
+        const trigger =
+          `Estamos en ${GUIDED_STAGE_LABELS[stageIndex]}. ` +
+          "Sigue exactamente el prompt de esta etapa. " +
+          "No avances hasta entender al 100% al administrador y recibir confirmación explícita. " +
+          "Cuando la etapa esté realmente cerrada, termina tu último mensaje con [ETAPA_COMPLETA].";
+
+        const outcome = await runStage(rl, bootstrap, systemPrompt, trigger, modeConfig);
+
+        if (outcome.action === "back") {
+          if (stageIndex > 0) {
+            stageIndex--;
+            data = cloneConversationData(snapshots[stageIndex] ?? data);
+            console.log(t.dim("  Volviendo a la etapa anterior...\n"));
+          } else {
+            console.log(t.dim("  Ya estás en la primera etapa.\n"));
+          }
+          continue;
         }
-        case 2: {
-          const p2 = useReasoning ? COMPACT_PROMPTS.access : loadPrompt("02-access-model.md");
-          systemPrompt = p2 + "\n\nEmpresa: " + JSON.stringify(company) + "\n\n" + scanContext;
-          if (useReasoning) systemPrompt += REASONING_SUFFIX;
-          trigger =
-            "Ahora necesitamos definir quién tendrá acceso al servidor: " +
-            "usuarios, roles, acceso remoto y dispositivos.";
-          break;
-        }
-        case 3: {
-          const p3 = loadPrompt("03-services-selection.md");
-          systemPrompt =
-            p3 +
-            "\n\nEmpresa: " +
-            JSON.stringify(company) +
-            "\nAcceso: " +
-            JSON.stringify(access) +
-            "\n\n" +
-            scanContext;
-          if (useReasoning) systemPrompt += REASONING_SUFFIX;
-          trigger =
-            "Basándote en el perfil del equipo, sugiere qué servicios instalar " +
-            "explicando cada uno en términos sencillos.";
-          break;
-        }
-        case 4: {
-          // Etapa nueva: confirmar configuración de red con el administrador
-          const suggestedDomain = company.name
-            .toLowerCase()
-            .replace(/\s+/g, "-")
-            .replace(/[^a-z0-9-]/g, "");
-          systemPrompt = [
-            "Eres Laia Arch, agente de configuración del ecosistema LAIA.",
-            "Confirma la configuración de red del servidor con el administrador.",
-            "",
-            `1. Confirma que la IP del servidor es ${scan.network.localIp} y el gateway ${scan.network.gateway}.`,
-            `2. Propón el dominio interno: ${suggestedDomain}.local — pregunta si prefieren otro nombre.`,
-            services.wireguard
-              ? "3. Para WireGuard, propón el rango VPN: 10.10.10.0/24 — pregunta si prefieren otro."
-              : "",
-            "",
-            `Empresa: ${JSON.stringify(company)}`,
-            `Servicios seleccionados: ${JSON.stringify(services)}`,
-            "",
-            scanContext,
-          ]
-            .filter(Boolean)
-            .join("\n");
-          if (useReasoning) systemPrompt += REASONING_SUFFIX;
-          trigger = `La IP detectada del servidor es ${scan.network.localIp}. Confirma con el administrador la configuración de red.`;
-          break;
-        }
-        case 5: {
-          // Seguridad (era etapa 4)
-          const p5 = useReasoning ? COMPACT_PROMPTS.security : loadPrompt("04-security-policy.md");
-          systemPrompt =
-            p5 + "\n\nServicios seleccionados: " + JSON.stringify(services) + "\n\n" + scanContext;
-          if (useReasoning) systemPrompt += REASONING_SUFFIX;
-          trigger =
-            "Define la política de seguridad del servidor: contraseñas, exposición a internet y SSH.";
-          break;
-        }
-        default: {
-          // 6 — Cumplimiento (era etapa 5)
-          const p6 = useReasoning
-            ? COMPACT_PROMPTS.compliance
-            : loadPrompt("05-data-compliance.md");
-          systemPrompt = p6 + "\n\n" + scanContext;
-          if (useReasoning) systemPrompt += REASONING_SUFFIX;
-          trigger =
-            "Por último, revisemos los requisitos de protección de datos y cumplimiento normativo.";
-          break;
-        }
+
+        allMessages.push(...outcome.messages);
+        data = await extractConversationData(bootstrap, allMessages, data, scan);
+        stageIndex++;
+        snapshots[stageIndex] = cloneConversationData(data);
+      }
+    } else {
+      console.log(
+        t.dim(
+          mode === "tool-driven"
+            ? "\n  Modo Automático: Laia hará 5 preguntas exactas y luego continuará.\n"
+            : "\n  Modo Adaptativo: Laia se adaptará a lo que cuentes, sin orden fijo.\n",
+        ),
+      );
+
+      let systemPrompt = modeConfig.systemPrompt;
+      if (mode === "adaptive") {
+        systemPrompt = [modeConfig.systemPrompt, buildCollectedContext(data)].join("\n\n");
+      }
+      if (useReasoning) {
+        systemPrompt += REASONING_SUFFIX;
       }
 
-      const outcome = await runStage(rl, bootstrap, systemPrompt, trigger, modeConfig);
+      const trigger =
+        mode === "tool-driven"
+          ? 'Empieza con la pregunta 1 exactamente como está escrita. Haz una sola pregunta cada vez. Cuando tengas las 5 respuestas, resume lo entendido y termina con "[ETAPA_COMPLETA]".'
+          : "Empieza confirmando el servidor o preguntando por el dato más importante que falte. Haz una sola pregunta cada vez. Cuando tengas toda la información necesaria para el plan, resume lo entendido y termina con [ETAPA_COMPLETA].";
 
-      if (outcome.action === "back") {
-        if (stageIndex > 0) {
-          stageIndex--;
-          console.log(t.dim("  Volviendo a la etapa anterior...\n"));
-        } else {
-          console.log(t.dim("  Ya estás en la primera etapa.\n"));
-        }
-        continue;
-      }
-
-      // Extraer datos estructurados de la conversación de esta etapa
-      switch (stageIndex) {
-        case 1:
-          company = await extractJson<CompanyProfile>(
-            bootstrap,
-            outcome.messages,
-            `Extrae de la conversación anterior los datos del perfil de la empresa y devuelve este JSON:
-{
-  "name": "<nombre de la empresa>",
-  "sector": "<sector o industria>",
-  "teamSize": <número entero de personas>,
-  "language": "<código de idioma: es, en, ca, fr...>",
-  "timezone": "<zona horaria IANA, ej: Europe/Madrid>"
-}`,
-            company,
-          );
-          break;
-        case 2:
-          access = await extractJson<AccessModel>(
-            bootstrap,
-            outcome.messages,
-            `Extrae de la conversación el modelo de acceso y devuelve este JSON:
-{
-  "totalUsers": <número entero>,
-  "roles": [{"name": "<nombre del rol>", "count": <número>}],
-  "remoteUsers": <número de usuarios que acceden en remoto>,
-  "devices": ["<tipo de dispositivo>"],
-  "needsVpn": <true|false>,
-  "needsMfa": <true|false>
-}`,
-            access,
-          );
-          // Extraer usuarios si el administrador mencionó nombres de personas
-          users = await extractJson<UserConfig[]>(
-            bootstrap,
-            outcome.messages,
-            `Si en la conversación se mencionaron nombres de personas, extrae la lista de usuarios.
-Devuelve un array JSON. Si no se mencionaron nombres concretos, devuelve []:
-[
-  {
-    "username": "<nombre.apellido en minúsculas, ej: ana.garcia>",
-    "role": "<creativos|cuentas|comerciales>",
-    "remote": <true si trabaja en remoto habitualmente, false si no>
-  }
-]`,
-            users,
-          );
-          break;
-        case 3:
-          services = await extractJson<ServiceSelection>(
-            bootstrap,
-            outcome.messages,
-            `Extrae de la conversación los servicios seleccionados y devuelve este JSON (todos boolean):
-{
-  "dns": <true|false>,
-  "ldap": <true|false>,
-  "samba": <true|false>,
-  "wireguard": <true|false>,
-  "docker": <true|false>,
-  "nginx": <true|false>,
-  "cockpit": <true|false>,
-  "backups": <true|false>
-}`,
-            services,
-          );
-          break;
-        case 4: {
-          // Extraer configuración de red confirmada en la conversación
-          const suggestedDomain = company.name
-            .toLowerCase()
-            .replace(/\s+/g, "-")
-            .replace(/[^a-z0-9-]/g, "");
-          network = await extractJson<NetworkConfig>(
-            bootstrap,
-            outcome.messages,
-            `Extrae la configuración de red confirmada en la conversación y devuelve este JSON:
-{
-  "serverIp": "<IP del servidor confirmada, por defecto: ${scan.network.localIp}>",
-  "subnet": "<máscara de subred, por defecto: ${scan.network.subnet}>",
-  "gateway": "<gateway, por defecto: ${scan.network.gateway}>",
-  "internalDomain": "<dominio interno elegido, ej: ${suggestedDomain}.local>",
-  "vpnRange": "<rango VPN para WireGuard, ej: 10.10.10.0/24>",
-  "dhcpRange": "<rango DHCP, ej: ${network.dhcpRange}>"
-}`,
-            network,
-          );
-          break;
-        }
-        case 5:
-          security = await extractJson<SecurityPolicy>(
-            bootstrap,
-            outcome.messages,
-            `Extrae de la conversación la política de seguridad y devuelve este JSON:
-{
-  "passwordComplexity": "<basic|medium|high>",
-  "diskEncryption": <true|false>,
-  "internetExposed": <true|false>,
-  "sshKeyOnly": <true|false>
-}`,
-            security,
-          );
-          break;
-        case 6:
-          compliance = await extractJson<DataCompliance>(
-            bootstrap,
-            outcome.messages,
-            `Extrae de la conversación los datos de cumplimiento normativo y devuelve este JSON:
-{
-  "gdpr": <true|false>,
-  "backupRetentionDays": <número de días>,
-  "dataTypes": ["<tipo de dato>"],
-  "jurisdiction": "<código de país ISO: ES, EU, US...>"
-}`,
-            compliance,
-          );
-          break;
-      }
-
-      stageIndex++;
+      const messages = await runOpenConversation(rl, bootstrap, systemPrompt, trigger, modeConfig);
+      allMessages.push(...messages);
+      data = await extractConversationData(bootstrap, allMessages, data, scan);
     }
 
     rl.close();
 
+    data = await extractConversationData(bootstrap, allMessages, data, scan);
+
     const config: InstallerConfig = {
-      company,
-      access,
-      services,
-      security,
-      compliance,
-      network,
-      users,
+      company: data.company,
+      access: data.access,
+      services: data.services,
+      security: data.security,
+      compliance: data.compliance,
+      network: data.network,
+      users: data.users,
       installMode: mode,
     };
 

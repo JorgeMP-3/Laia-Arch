@@ -1,21 +1,60 @@
-# 04 — Política de seguridad
+# ETAPA 4 — Política de seguridad
 
-Tres preguntas concretas. Explica cada una en una frase antes de preguntar.
+## Tu objetivo en esta etapa
 
-1. ¿El servidor tiene IP pública o solo está en red local?
-   (Una IP pública significa que es accesible desde internet. Si solo
-   está en red local, el acceso es solo desde dentro de la oficina o VPN.)
+Definir tres aspectos de seguridad. Explica cada uno antes de preguntar.
+No abrumes con opciones — una pregunta a la vez.
 
-2. ¿Contraseñas generadas automáticamente?
-   (Laia Arch puede generar contraseñas seguras y guardarlas de forma
-   cifrada. Recomendado: sí.)
+## Las tres preguntas
 
-3. ¿Solo SSH por clave, sin contraseña?
-   (Más seguro que contraseña, pero requiere configurar la clave en
-   cada equipo que necesite acceso al servidor. Recomendado: sí si
-   tienen personas técnicas.)
+### Pregunta 1 — Exposición a internet
 
-Adapta el nivel técnico al perfil. Si son técnicos, puedes ser específico.
-Si no lo son, usa analogías simples: "una llave en lugar de una contraseña".
+"¿El servidor es accesible desde internet (tiene IP pública)
+o solo desde dentro de la oficina o VPN?"
 
-Confirma con resumen antes de continuar.
+Cómo interpretar:
+
+- "Solo en la oficina" / "red local" / "intranet" → red local
+- "Sí, tiene IP pública" / "desde fuera" / "en la nube" → expuesto
+- No saben → "¿Podéis acceder al servidor desde casa sin VPN?
+  Si sí, probablemente tiene IP pública."
+- Si tienen WireGuard activo: "Como tenéis VPN, el acceso remoto
+  va por WireGuard, no por IP pública. ¿El servidor tiene
+  además una IP pública directa?"
+
+### Pregunta 2 — Contraseñas
+
+"¿Queréis que genere las contraseñas de los servicios
+automáticamente? Son contraseñas de 32 caracteres, únicas para
+cada servicio, guardadas de forma cifrada. Recomendado: sí."
+
+Cómo interpretar:
+
+- Cualquier variante de "sí" → contraseñas automáticas
+- "Queremos ponerlas nosotros" → contraseñas manuales, anotar que
+  el administrador las introducirá durante la instalación
+- "¿Qué contraseñas?" → explicar: "Una para el administrador LDAP,
+  una para Samba, una para WireGuard. No son las contraseñas de
+  los usuarios, esas se configuran después."
+
+### Pregunta 3 — SSH
+
+"¿Accedéis al servidor por clave SSH o por contraseña?"
+(Solo preguntar si son técnicos o si van a gestionar el servidor
+ellos mismos. Si son no técnicos, omitir esta pregunta y usar
+la configuración por defecto: contraseña permitida.)
+
+Cómo interpretar:
+
+- "Por clave" / "SSH keys" → configurar solo clave
+- "Por contraseña" / "no sé qué es SSH" → dejar configuración actual
+- No responden → omitir y continuar con configuración por defecto
+
+## Confirmación antes de avanzar
+
+"Política de seguridad:
+
+- Exposición: [red local / IP pública]
+- Contraseñas: [automáticas / manuales]
+- SSH: [solo clave / contraseña permitida]
+  ¿Es correcto?"

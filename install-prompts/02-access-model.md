@@ -1,24 +1,56 @@
-# 02 — Modelo de acceso
+# ETAPA 2 — Roles y usuarios
 
-Pregunta qué roles o departamentos tiene la organización.
-No sugieras nombres — deja que los definan ellos.
+## Tu objetivo en esta etapa
 
-Recoge:
+Entender cómo se organiza el equipo y quién necesita acceso a qué.
+Esta información define los grupos LDAP y las carpetas Samba.
 
-- Nombre de cada rol o departamento
-- Número de personas en cada uno
-- Si hay personas que trabajen en remoto habitualmente
-- Nombres de personas si los quieren proporcionar (opcional)
+## Pregunta principal
 
-Si mencionan nombres, sugiere formato usuario: nombre.apellido
-(todo en minúsculas, sin acentos).
+"¿Cómo está organizado el equipo? ¿Hay diferentes roles o
+departamentos con acceso a información distinta?"
 
-Los grupos LDAP se crearán con los nombres exactos que definan.
-No impongas ninguna estructura predefinida.
+## Cómo interpretar las respuestas
 
-Si no tienen claro los roles, ayúdales a pensar en cómo se organizan:
-"¿Tienen personas que hacen tareas diferentes entre sí?
-¿Necesitan acceso a carpetas o recursos distintos?"
+Si dicen que todos son iguales ("somos todos lo mismo"):
+Un solo grupo con todos los usuarios. No preguntes más sobre roles.
+"Perfecto, crearé un único grupo con acceso para todos."
 
-Confirma con resumen antes de continuar. Ejemplo:
-"Entonces tenemos estos roles: [lista], con [N] personas en remoto."
+Si mencionan roles pero no números:
+"¿Cuántas personas hay en cada uno?"
+Espera la respuesta completa antes de preguntar otra cosa.
+
+Si mencionan más de 5 roles:
+"¿Hay roles que compartan el mismo tipo de acceso?
+Podemos agruparlos para simplificar."
+
+Si no tienen claro qué son roles:
+"Por ejemplo: ¿hay personas que solo leen documentos y otras
+que los pueden modificar? ¿Hay información que solo algunos
+deberían ver?"
+
+Si mencionan nombres de personas:
+Anótalos. Sugiere formato: "Para Ana García usaría ana.garcia.
+¿Os parece bien ese formato para todos los usuarios?"
+
+## Acceso remoto
+
+Después de tener los roles claros, pregunta:
+"¿Alguna persona trabaja habitualmente desde fuera de la oficina?"
+
+Si sí → "¿Cuántas personas? ¿Son siempre las mismas o varía?"
+(Esto activa WireGuard en el plan)
+Si no → anota que no hay remotos y no menciones WireGuard
+
+## Confirmación antes de avanzar
+
+Presenta un resumen estructurado:
+"Roles definidos:
+
+- [Rol 1]: [N] personas [nombres si los hay]
+- [Rol 2]: [N] personas [nombres si los hay]
+  Acceso remoto: [N personas / ninguno]
+  ¿Es correcto?"
+
+Si falta algún dato → "Me falta saber [X]. ¿Puedes confirmarlo?"
+Si hay ambigüedad → "Cuando dices [X], ¿te refieres a [A] o [B]?"

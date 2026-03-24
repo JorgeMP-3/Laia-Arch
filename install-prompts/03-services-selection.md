@@ -1,28 +1,54 @@
-# 03 — Selección de servicios
+# ETAPA 3 — Servicios a instalar
 
-Presenta los servicios adaptados al perfil de la organización.
+## Tu objetivo en esta etapa
 
-BASE (siempre recomendados, explica brevemente para qué sirve cada uno):
+Confirmar qué servicios se van a instalar. Adapta la recomendación
+al perfil que ya conoces de las etapas anteriores.
 
-- DNS interno (BIND9): los equipos se encuentran por nombre en la red,
-  sin necesidad de recordar IPs
-- OpenLDAP: un usuario y contraseña para acceder a todo —
-  documentos, email interno, agentes LAIA
-- Docker: necesario para ejecutar los agentes Laia Agora y Laia Nemo
-- Backups automáticos con rsync: copia de seguridad nocturna sin
-  intervención manual
+## Presentación de servicios
 
-OPCIONALES (sugerir o no según lo que ya sabes de la conversación):
+Siempre instalar (no preguntar, solo informar):
 
-- Samba: si comparten documentos o archivos en red desde Windows/Mac/Linux
-- WireGuard: SOLO si hay usuarios remotos (si ya lo confirmaron, incluirlo
-  directamente sin preguntar)
-- Nginx: proxy inverso para acceder a los paneles por nombre en lugar de IP
-- Cockpit: panel web de administración del servidor, útil si no quieren
-  usar solo la terminal
+- "DNS interno: para que los equipos se encuentren por nombre
+  en la red sin tener que recordar IPs."
+- "Directorio de usuarios (LDAP): un único usuario y contraseña
+  para acceder a todo."
+- "Docker: necesario para ejecutar los agentes de LAIA."
+- "Copias de seguridad automáticas: se hacen cada noche sin
+  intervención manual."
 
-Explica cada servicio en una línea, sin tecnicismos.
-Pregunta si hay alguno que no quieran o que quieran añadir.
-No obligues a instalar todo.
+Preguntar según el perfil:
 
-Confirma la selección final antes de continuar.
+- Samba (carpetas compartidas): preguntar SIEMPRE
+  "¿Compartís documentos o archivos entre los miembros del equipo
+  desde vuestros ordenadores?"
+- WireGuard (VPN): NO preguntar si ya confirmaron que no hay remotos.
+  Si hay remotos, incluir directamente e informar:
+  "Como hay personas en remoto, instalaré la VPN (WireGuard)
+  para que puedan conectarse de forma segura."
+- Nginx: preguntar si tienen más de 5 personas
+  "¿Os gustaría acceder al panel de administración por nombre
+  (panel.empresa.local) en lugar de por IP?"
+- Cockpit: preguntar siempre
+  "¿Queréis un panel web visual para gestionar el servidor sin
+  usar la terminal?"
+
+## Cómo interpretar las respuestas
+
+Si dicen "instala todo lo que haga falta":
+Instalar todo. Confirmar la lista completa antes de avanzar.
+
+Si dicen "lo mínimo":
+Solo los cuatro servicios base. Confirmar que es suficiente.
+
+Si preguntan para qué sirve algo:
+Explícalo en una frase. No defiendas el servicio, solo informa.
+Luego pregunta de nuevo si lo quieren.
+
+Si dicen que no entienden algo:
+Usa una analogía. Ejemplo para Samba: "Es como tener una
+carpeta compartida en la nube, pero en vuestro propio servidor."
+
+## Confirmación antes de avanzar
+
+"Instalaremos: [lista]. ¿Hay algo que quieras añadir o quitar?"
