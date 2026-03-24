@@ -38,7 +38,9 @@ export async function runInstaller(): Promise<void> {
   // ── Fase 0: Configurar proveedor IA ──────────────────────────────────────
   try {
     bootstrapResult = await runBootstrap();
-    console.log("  " + t.good(`Proveedor: ${bootstrapResult.providerId} / ${bootstrapResult.model}\n`));
+    console.log(
+      "  " + t.good(`Proveedor: ${bootstrapResult.providerId} / ${bootstrapResult.model}\n`),
+    );
   } catch (err) {
     console.error("\n  Error en Fase 0 (proveedor IA):");
     console.error(err instanceof Error ? err.message : String(err));
@@ -152,7 +154,9 @@ export async function runInstaller(): Promise<void> {
 
   console.log(t.section("INSTALACIÓN COMPLETADA"));
   console.log(`\n  ${t.label("Servidor:")} ${t.value(systemScan.os.hostname)}`);
-  console.log(`  ${t.label("Sistema: ")} ${t.value(`${systemScan.os.distribution} ${systemScan.os.version}`)}`);
+  console.log(
+    `  ${t.label("Sistema: ")} ${t.value(`${systemScan.os.distribution} ${systemScan.os.version}`)}`,
+  );
   console.log(`  ${t.label("IP local:")} ${t.value(systemScan.network.localIp)}\n`);
   console.log("  " + t.good("Laia Arch ha terminado su trabajo."));
   console.log(t.dim("  Lo que construyó queda.\n"));

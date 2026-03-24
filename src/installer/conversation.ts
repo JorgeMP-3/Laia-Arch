@@ -51,8 +51,16 @@ async function callAI(
     // setup-token es OAuth: usa Authorization: Bearer en lugar de x-api-key
     const anthropicHeaders: Record<string, string> =
       bootstrap.authMethod === "setup-token"
-        ? { "Content-Type": "application/json", Authorization: `Bearer ${key}`, "anthropic-version": "2023-06-01" }
-        : { "Content-Type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01" };
+        ? {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${key}`,
+            "anthropic-version": "2023-06-01",
+          }
+        : {
+            "Content-Type": "application/json",
+            "x-api-key": key,
+            "anthropic-version": "2023-06-01",
+          };
     const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: anthropicHeaders,
@@ -182,26 +190,25 @@ const ADVANCE_WORDS = new Set([
   "confirmado",
 ]);
 
-const CANCEL_WORDS = new Set(["salir", "exit", "cancelar", "abortar", "q"]);
+// Palabras que indican que el usuario quiere volver a la etapa anterior
+const BACK_WORDS = new Set(["atrás", "atras", "volver", "anterior", "back", "retroceder"]);
 
 // ── Bucle de conversación por etapa ──────────────────────────────────────
 
-interface StageResult {
-  messages: Message[];
-}
+type StageOutcome = { action: "advance"; messages: Message[] } | { action: "back" };
 
 /**
  * Ejecuta una etapa conversacional.
- * El bucle termina cuando el usuario escribe una palabra de avance
- * o cuando la IA incluye [ETAPA_COMPLETA] en su respuesta.
- * La primera llamada a la IA usa initialTrigger como mensaje oculto de arranque.
+ * Devuelve { action: "advance", messages } cuando el usuario avanza,
+ * o { action: "back" } cuando pide volver a la etapa anterior.
+ * La única forma de salir es Ctrl+C (gestionado por el SIGINT del rl).
  */
 async function runStage(
   rl: readline.Interface,
   bootstrap: BootstrapResult,
   systemPrompt: string,
   initialTrigger: string,
-): Promise<StageResult> {
+): Promise<StageOutcome> {
   const messages: Message[] = [{ role: "user", content: initialTrigger }];
 
   while (true) {
@@ -224,8 +231,9 @@ async function runStage(
 
     const normalized = userInput.toLowerCase().trim();
 
-    if (CANCEL_WORDS.has(normalized)) {
-      throw new Error("Instalación cancelada por el usuario.");
+    // Volver a la etapa anterior
+    if (BACK_WORDS.has(normalized)) {
+      return { action: "back" };
     }
 
     messages.push({ role: "user", content: userInput });
@@ -238,7 +246,7 @@ async function runStage(
       );
 
     if (userWantsAdvance || stageComplete) {
-      return { messages };
+      return { action: "advance", messages };
     }
   }
 }
@@ -289,8 +297,19 @@ async function extractJson<T>(
 
 // ── Función principal ─────────────────────────────────────────────────────
 
+const STAGE_LABELS = [
+  "Revisión del sistema",
+  "Perfil de la empresa",
+  "Modelo de acceso",
+  "Servicios a instalar",
+  "Política de seguridad",
+  "Cumplimiento normativo",
+];
+
 /**
  * Ejecuta la Fase 2 completa: 6 etapas conversacionales con la IA.
+ * Navega hacia adelante con 'continuar'/'siguiente' y hacia atrás con 'atrás'/'volver'.
+ * La única forma de salir es Ctrl+C.
  * Devuelve InstallerConfig con todos los datos recopilados.
  */
 export async function runConversation(
@@ -299,7 +318,8 @@ export async function runConversation(
 ): Promise<InstallerConfig> {
   console.log(t.section("FASE 2 — CONVERSACIÓN CON LA IA"));
   console.log(t.dim("\n  Escribe 'continuar' o 'siguiente' para avanzar de etapa."));
-  console.log(t.dim("  Escribe 'salir' en cualquier momento para cancelar.\n"));
+  console.log(t.dim("  Escribe 'atrás' o 'volver' para retroceder."));
+  console.log(t.dim("  Usa Ctrl+C para cancelar la instalación.\n"));
 
   const rl = readline.createInterface({
     input: process.stdin,
@@ -307,35 +327,140 @@ export async function runConversation(
     terminal: true,
   });
 
+  // Ctrl+C es la única salida
+  rl.on("SIGINT", () => {
+    console.log("\n\n  Instalación cancelada.");
+    rl.close();
+    process.exit(1);
+  });
+
   const scanContext = formatScan(scan);
 
+  // Datos extraídos de cada etapa (se actualizan al avanzar, se reutilizan al volver)
+  let company: CompanyProfile = {
+    name: scan.os.hostname,
+    sector: "Servicios",
+    teamSize: 10,
+    language: "es",
+    timezone: "Europe/Madrid",
+  };
+  let access: AccessModel = {
+    totalUsers: 5,
+    roles: [
+      { name: "administrador", count: 1 },
+      { name: "usuario", count: 4 },
+    ],
+    remoteUsers: 0,
+    devices: ["linux", "windows"],
+    needsVpn: false,
+    needsMfa: false,
+  };
+  let services: ServiceSelection = {
+    dns: true,
+    ldap: true,
+    samba: true,
+    wireguard: false,
+    docker: false,
+    nginx: true,
+    cockpit: true,
+    backups: true,
+  };
+  let security: SecurityPolicy = {
+    passwordComplexity: "medium",
+    diskEncryption: false,
+    internetExposed: false,
+    sshKeyOnly: true,
+  };
+  let compliance: DataCompliance = {
+    gdpr: true,
+    backupRetentionDays: 30,
+    dataTypes: ["documentos de trabajo"],
+    jurisdiction: "ES",
+  };
+
+  let stageIndex = 0;
+
   try {
-    // ── Etapa 0: Contexto del sistema ─────────────────────────────────────
-    console.log(t.step("Etapa 0/5: Revisión del sistema\n"));
-    const stage0System = loadPrompt("00-system-context.md") + "\n\n" + scanContext;
-    await runStage(
-      rl,
-      bootstrap,
-      stage0System,
-      "Por favor, presenta el estado actual del servidor de forma clara y no técnica, " +
-        "señalando las advertencias importantes. Al terminar, pregunta si podemos continuar.",
-    );
+    while (stageIndex < 6) {
+      console.log(t.step(`Etapa ${stageIndex}/5: ${STAGE_LABELS[stageIndex]}\n`));
 
-    // ── Etapa 1: Perfil de la empresa ─────────────────────────────────────
-    console.log(t.step("Etapa 1/5: Perfil de la empresa\n"));
-    const stage1System = loadPrompt("01-company-profile.md") + "\n\n" + scanContext;
-    const { messages: msgs1 } = await runStage(
-      rl,
-      bootstrap,
-      stage1System,
-      "Comienza recopilando el perfil de la empresa. " +
-        `El hostname actual es "${scan.os.hostname}".`,
-    );
+      // Construir el prompt del sistema según la etapa actual
+      let systemPrompt: string;
+      let trigger: string;
 
-    const company = await extractJson<CompanyProfile>(
-      bootstrap,
-      msgs1,
-      `Extrae de la conversación anterior los datos del perfil de la empresa y devuelve este JSON:
+      switch (stageIndex) {
+        case 0:
+          systemPrompt = loadPrompt("00-system-context.md") + "\n\n" + scanContext;
+          trigger =
+            "Por favor, presenta el estado actual del servidor de forma clara y no técnica, " +
+            "señalando las advertencias importantes. Al terminar, pregunta si podemos continuar.";
+          break;
+        case 1:
+          systemPrompt = loadPrompt("01-company-profile.md") + "\n\n" + scanContext;
+          trigger =
+            "Comienza recopilando el perfil de la empresa. " +
+            `El hostname actual es "${scan.os.hostname}".`;
+          break;
+        case 2:
+          systemPrompt =
+            loadPrompt("02-access-model.md") +
+            "\n\nEmpresa: " +
+            JSON.stringify(company) +
+            "\n\n" +
+            scanContext;
+          trigger =
+            "Ahora necesitamos definir quién tendrá acceso al servidor: " +
+            "usuarios, roles, acceso remoto y dispositivos.";
+          break;
+        case 3:
+          systemPrompt =
+            loadPrompt("03-services-selection.md") +
+            "\n\nEmpresa: " +
+            JSON.stringify(company) +
+            "\nAcceso: " +
+            JSON.stringify(access) +
+            "\n\n" +
+            scanContext;
+          trigger =
+            "Basándote en el perfil del equipo, sugiere qué servicios instalar " +
+            "explicando cada uno en términos sencillos.";
+          break;
+        case 4:
+          systemPrompt =
+            loadPrompt("04-security-policy.md") +
+            "\n\nServicios seleccionados: " +
+            JSON.stringify(services) +
+            "\n\n" +
+            scanContext;
+          trigger =
+            "Define la política de seguridad del servidor: contraseñas, exposición a internet y SSH.";
+          break;
+        default: // 5
+          systemPrompt = loadPrompt("05-data-compliance.md") + "\n\n" + scanContext;
+          trigger =
+            "Por último, revisemos los requisitos de protección de datos y cumplimiento normativo.";
+          break;
+      }
+
+      const outcome = await runStage(rl, bootstrap, systemPrompt, trigger);
+
+      if (outcome.action === "back") {
+        if (stageIndex > 0) {
+          stageIndex--;
+          console.log(t.dim("  Volviendo a la etapa anterior...\n"));
+        } else {
+          console.log(t.dim("  Ya estás en la primera etapa.\n"));
+        }
+        continue;
+      }
+
+      // Extraer datos estructurados de la conversación de esta etapa
+      switch (stageIndex) {
+        case 1:
+          company = await extractJson<CompanyProfile>(
+            bootstrap,
+            outcome.messages,
+            `Extrae de la conversación anterior los datos del perfil de la empresa y devuelve este JSON:
 {
   "name": "<nombre de la empresa>",
   "sector": "<sector o industria>",
@@ -343,35 +468,14 @@ export async function runConversation(
   "language": "<código de idioma: es, en, ca, fr...>",
   "timezone": "<zona horaria IANA, ej: Europe/Madrid>"
 }`,
-      {
-        name: scan.os.hostname,
-        sector: "Servicios",
-        teamSize: 10,
-        language: "es",
-        timezone: "Europe/Madrid",
-      },
-    );
-
-    // ── Etapa 2: Modelo de acceso ─────────────────────────────────────────
-    console.log(t.step("Etapa 2/5: Modelo de acceso\n"));
-    const stage2System =
-      loadPrompt("02-access-model.md") +
-      "\n\nEmpresa: " +
-      JSON.stringify(company) +
-      "\n\n" +
-      scanContext;
-    const { messages: msgs2 } = await runStage(
-      rl,
-      bootstrap,
-      stage2System,
-      "Ahora necesitamos definir quién tendrá acceso al servidor: " +
-        "usuarios, roles, acceso remoto y dispositivos.",
-    );
-
-    const access = await extractJson<AccessModel>(
-      bootstrap,
-      msgs2,
-      `Extrae de la conversación el modelo de acceso y devuelve este JSON:
+            company,
+          );
+          break;
+        case 2:
+          access = await extractJson<AccessModel>(
+            bootstrap,
+            outcome.messages,
+            `Extrae de la conversación el modelo de acceso y devuelve este JSON:
 {
   "totalUsers": <número entero>,
   "roles": [{"name": "<nombre del rol>", "count": <número>}],
@@ -380,41 +484,14 @@ export async function runConversation(
   "needsVpn": <true|false>,
   "needsMfa": <true|false>
 }`,
-      {
-        totalUsers: 5,
-        roles: [
-          { name: "administrador", count: 1 },
-          { name: "usuario", count: 4 },
-        ],
-        remoteUsers: 0,
-        devices: ["linux", "windows"],
-        needsVpn: false,
-        needsMfa: false,
-      },
-    );
-
-    // ── Etapa 3: Selección de servicios ───────────────────────────────────
-    console.log(t.step("Etapa 3/5: Servicios a instalar\n"));
-    const stage3System =
-      loadPrompt("03-services-selection.md") +
-      "\n\nEmpresa: " +
-      JSON.stringify(company) +
-      "\nAcceso: " +
-      JSON.stringify(access) +
-      "\n\n" +
-      scanContext;
-    const { messages: msgs3 } = await runStage(
-      rl,
-      bootstrap,
-      stage3System,
-      "Basándote en el perfil del equipo, sugiere qué servicios instalar " +
-        "explicando cada uno en términos sencillos.",
-    );
-
-    const services = await extractJson<ServiceSelection>(
-      bootstrap,
-      msgs3,
-      `Extrae de la conversación los servicios seleccionados y devuelve este JSON (todos boolean):
+            access,
+          );
+          break;
+        case 3:
+          services = await extractJson<ServiceSelection>(
+            bootstrap,
+            outcome.messages,
+            `Extrae de la conversación los servicios seleccionados y devuelve este JSON (todos boolean):
 {
   "dns": <true|false>,
   "ldap": <true|false>,
@@ -425,78 +502,41 @@ export async function runConversation(
   "cockpit": <true|false>,
   "backups": <true|false>
 }`,
-      {
-        dns: true,
-        ldap: true,
-        samba: true,
-        wireguard: false,
-        docker: false,
-        nginx: true,
-        cockpit: true,
-        backups: true,
-      },
-    );
-
-    // ── Etapa 4: Política de seguridad ────────────────────────────────────
-    console.log(t.step("Etapa 4/5: Política de seguridad\n"));
-    const stage4System =
-      loadPrompt("04-security-policy.md") +
-      "\n\nServicios seleccionados: " +
-      JSON.stringify(services) +
-      "\n\n" +
-      scanContext;
-    const { messages: msgs4 } = await runStage(
-      rl,
-      bootstrap,
-      stage4System,
-      "Define la política de seguridad del servidor: contraseñas, exposición a internet y SSH.",
-    );
-
-    const security = await extractJson<SecurityPolicy>(
-      bootstrap,
-      msgs4,
-      `Extrae de la conversación la política de seguridad y devuelve este JSON:
+            services,
+          );
+          break;
+        case 4:
+          security = await extractJson<SecurityPolicy>(
+            bootstrap,
+            outcome.messages,
+            `Extrae de la conversación la política de seguridad y devuelve este JSON:
 {
   "passwordComplexity": "<basic|medium|high>",
   "diskEncryption": <true|false>,
   "internetExposed": <true|false>,
   "sshKeyOnly": <true|false>
 }`,
-      {
-        passwordComplexity: "medium",
-        diskEncryption: false,
-        internetExposed: false,
-        sshKeyOnly: true,
-      },
-    );
-
-    // ── Etapa 5: Cumplimiento normativo ───────────────────────────────────
-    console.log(t.step("Etapa 5/5: Cumplimiento normativo\n"));
-    const stage5System = loadPrompt("05-data-compliance.md") + "\n\n" + scanContext;
-    const { messages: msgs5 } = await runStage(
-      rl,
-      bootstrap,
-      stage5System,
-      "Por último, revisemos los requisitos de protección de datos y cumplimiento normativo.",
-    );
-
-    const compliance = await extractJson<DataCompliance>(
-      bootstrap,
-      msgs5,
-      `Extrae de la conversación los datos de cumplimiento normativo y devuelve este JSON:
+            security,
+          );
+          break;
+        case 5:
+          compliance = await extractJson<DataCompliance>(
+            bootstrap,
+            outcome.messages,
+            `Extrae de la conversación los datos de cumplimiento normativo y devuelve este JSON:
 {
   "gdpr": <true|false>,
   "backupRetentionDays": <número de días>,
   "dataTypes": ["<tipo de dato>"],
   "jurisdiction": "<código de país ISO: ES, EU, US...>"
 }`,
-      {
-        gdpr: true,
-        backupRetentionDays: 30,
-        dataTypes: ["documentos de trabajo"],
-        jurisdiction: "ES",
-      },
-    );
+            compliance,
+          );
+          break;
+      }
+
+      stageIndex++;
+    }
 
     rl.close();
 

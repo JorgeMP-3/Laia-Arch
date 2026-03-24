@@ -3,14 +3,9 @@
 import * as crypto from "node:crypto";
 import * as readline from "node:readline";
 import { laiaTheme as t } from "../cli/laia-arch-theme.js";
-import {
-  extractCredentialValue,
-  retrieveProfileCredential,
-  storeApiKey,
-  storeSetupToken,
-} from "./credential-manager.js";
-import type { AiProvider, AuthMethod, BootstrapResult } from "./types.js";
 import { validateAnthropicSetupToken } from "../plugins/provider-auth-token.js";
+import { storeApiKey, storeSetupToken } from "./credential-manager.js";
+import type { AiProvider, AuthMethod, BootstrapResult } from "./types.js";
 
 const SUPPORTED_PROVIDERS: AiProvider[] = [
   {
@@ -122,7 +117,9 @@ async function validateApiKey(
     } else if (providerId === "openai-compatible") {
       const url = `${baseUrl ?? "http://localhost:1234"}/chat/completions`;
       const headers: Record<string, string> = { "Content-Type": "application/json" };
-      if (key) headers["Authorization"] = `Bearer ${key}`;
+      if (key) {
+        headers["Authorization"] = `Bearer ${key}`;
+      }
       const response = await fetch(url, {
         method: "POST",
         headers,
@@ -215,7 +212,9 @@ async function handleSetupToken(model: string): Promise<{ profileId: string }> {
     "\n" +
       t.label("Para obtener el token:") +
       "\n" +
-      t.dim("  1. Instala Claude Code CLI en cualquier máquina: npm install -g @anthropic-ai/claude-code") +
+      t.dim(
+        "  1. Instala Claude Code CLI en cualquier máquina: npm install -g @anthropic-ai/claude-code",
+      ) +
       "\n" +
       t.dim("  2. Ejecuta: claude setup-token") +
       "\n" +
@@ -261,14 +260,17 @@ async function exchangeOAuthCode(code: string): Promise<string> {
   });
 
   if (!response.ok) {
-    throw new Error(`Error al intercambiar el código OAuth: ${response.status} ${response.statusText}`);
+    throw new Error(
+      `Error al intercambiar el código OAuth: ${response.status} ${response.statusText}`,
+    );
   }
 
   const data = (await response.json()) as { access_token?: string };
-  if (!data.access_token) throw new Error("La respuesta OAuth no incluye access_token.");
+  if (!data.access_token) {
+    throw new Error("La respuesta OAuth no incluye access_token.");
+  }
   return data.access_token;
 }
-
 
 // ─── Flujo principal ──────────────────────────────────────────────────────────
 
@@ -277,6 +279,13 @@ export async function runBootstrap(): Promise<BootstrapResult> {
   console.log(t.dim("  Antes de empezar necesito configurar el modelo de IA.\n"));
 
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+
+  // Ctrl+C es la única salida durante la configuración del proveedor
+  rl.on("SIGINT", () => {
+    console.log("\n\n  Instalación cancelada.");
+    rl.close();
+    process.exit(1);
+  });
 
   // 1. Seleccionar proveedor
   console.log(t.label("Proveedores disponibles:") + "\n");
@@ -345,7 +354,9 @@ export async function runBootstrap(): Promise<BootstrapResult> {
   if (selectedProvider.id === "openai-compatible") {
     // Para compatibles, el usuario escribe el nombre del modelo directamente
     selectedModel = (await ask(rl, "Nombre del modelo (ej: llama-3-8b): ")).trim();
-    if (!selectedModel) selectedModel = "local-model";
+    if (!selectedModel) {
+      selectedModel = "local-model";
+    }
   } else if (selectedProvider.id === "ollama") {
     console.log(`\nModelos conocidos de ${selectedProvider.name}:\n`);
     selectedProvider.models.forEach((m, i) => {
@@ -362,7 +373,9 @@ export async function runBootstrap(): Promise<BootstrapResult> {
 
     if (modelIndex === selectedProvider.models.length) {
       selectedModel = (await ask(rl, "Nombre del modelo instalado en Ollama: ")).trim();
-      if (!selectedModel) throw new Error("El nombre del modelo no puede estar vacío.");
+      if (!selectedModel) {
+        throw new Error("El nombre del modelo no puede estar vacío.");
+      }
     } else if (modelIndex < 0 || modelIndex >= selectedProvider.models.length) {
       rl.close();
       throw new Error("Modelo no válido.");
@@ -452,10 +465,12 @@ export async function runBootstrap(): Promise<BootstrapResult> {
     try {
       const url = new URL(callbackUrl.trim());
       const codeParam = url.searchParams.get("code");
-      if (!codeParam) throw new Error("no hay parámetro 'code' en la URL");
+      if (!codeParam) {
+        throw new Error("no hay parámetro 'code' en la URL");
+      }
       code = codeParam;
     } catch (err) {
-      throw new Error(`URL de callback inválida: ${(err as Error).message}`);
+      throw new Error(`URL de callback inválida: ${(err as Error).message}`, { cause: err });
     }
 
     console.log("\n" + t.step("Intercambiando código por token de acceso..."));
@@ -464,7 +479,9 @@ export async function runBootstrap(): Promise<BootstrapResult> {
 
     console.log(t.step("Validando el token con OpenAI..."));
     const valid = await validateApiKey("openai", accessToken, selectedModel);
-    if (!valid) throw new Error("El token OAuth no es válido para la API de OpenAI.");
+    if (!valid) {
+      throw new Error("El token OAuth no es válido para la API de OpenAI.");
+    }
     console.log("  " + t.good("Token válido\n"));
 
     console.log(t.step("Almacenando credenciales en auth-profiles..."));
@@ -484,7 +501,9 @@ export async function runBootstrap(): Promise<BootstrapResult> {
     // Validación opcional de formato
     if (selectedProvider.id === "openrouter" && !apiKey.startsWith("sk-or-")) {
       console.warn(
-        t.warn('  ⚠ La API key de OpenRouter debería empezar por "sk-or-". Continuando de todas formas...'),
+        t.warn(
+          '  ⚠ La API key de OpenRouter debería empezar por "sk-or-". Continuando de todas formas...',
+        ),
       );
     }
 

@@ -6,11 +6,14 @@ import { execSync } from "node:child_process";
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
+import { upsertAuthProfile } from "../agents/auth-profiles/profiles.js";
 import { ensureAuthProfileStore } from "../agents/auth-profiles/store.js";
 import type { AuthProfileCredential } from "../agents/auth-profiles/types.js";
 import { buildApiKeyCredential } from "../plugins/provider-auth-helpers.js";
-import { buildTokenProfileId, validateAnthropicSetupToken } from "../plugins/provider-auth-token.js";
-import { upsertAuthProfile } from "../agents/auth-profiles/profiles.js";
+import {
+  buildTokenProfileId,
+  validateAnthropicSetupToken,
+} from "../plugins/provider-auth-token.js";
 
 // ─── Credenciales de IA (usan el sistema de auth-profiles de OpenClaw) ─────────
 
@@ -54,9 +57,7 @@ export function retrieveProfileCredential(profileId: string): AuthProfileCredent
   const store = ensureAuthProfileStore();
   const credential = store.profiles[profileId];
   if (!credential) {
-    throw new Error(
-      `Credencial "${profileId}" no encontrada. Ejecuta laia-arch install de nuevo.`,
-    );
+    throw new Error(`Credencial "${profileId}" no encontrada. Ejecuta laia-arch install de nuevo.`);
   }
   return credential;
 }
@@ -66,8 +67,12 @@ export function retrieveProfileCredential(profileId: string): AuthProfileCredent
  * Útil para construir los headers HTTP de las llamadas a la IA.
  */
 export function extractCredentialValue(credential: AuthProfileCredential): string {
-  if (credential.type === "api_key") return credential.key ?? "";
-  if (credential.type === "token") return credential.token ?? "";
+  if (credential.type === "api_key") {
+    return credential.key ?? "";
+  }
+  if (credential.type === "token") {
+    return credential.token ?? "";
+  }
   // oauth: usar access token
   return (credential as { access?: string }).access ?? "";
 }

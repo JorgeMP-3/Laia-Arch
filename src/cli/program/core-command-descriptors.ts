@@ -7,8 +7,7 @@ export type CoreCliCommandDescriptor = {
 export const CORE_CLI_COMMAND_DESCRIPTORS = [
   {
     name: "install",
-    description:
-      "Instalador conversacional de Laia Arch — configura el servidor completo con IA",
+    description: "Instalador conversacional de Laia Arch — configura el servidor completo con IA",
     hasSubcommands: false,
   },
   {

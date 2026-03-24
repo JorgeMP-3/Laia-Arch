@@ -217,8 +217,14 @@ export async function runScanner(): Promise<SystemScan> {
   const row = (label: string, value: string) =>
     console.log(`  ${t.label(label.padEnd(10))} ${t.value(value)}`);
 
-  row("Hardware:", `${scan.hardware.arch}, ${scan.hardware.cores} cores, ${scan.hardware.ramGb} GB RAM`);
-  row("Disco:", `${scan.hardware.diskFreeGb.toFixed(1)} GB libres de ${scan.hardware.diskTotalGb.toFixed(1)} GB`);
+  row(
+    "Hardware:",
+    `${scan.hardware.arch}, ${scan.hardware.cores} cores, ${scan.hardware.ramGb} GB RAM`,
+  );
+  row(
+    "Disco:",
+    `${scan.hardware.diskFreeGb.toFixed(1)} GB libres de ${scan.hardware.diskTotalGb.toFixed(1)} GB`,
+  );
   row("Sistema:", scan.os.distribution);
   row("Kernel:", scan.os.kernel);
   row("Hostname:", scan.os.hostname);
