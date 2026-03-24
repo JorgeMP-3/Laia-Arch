@@ -30,6 +30,7 @@ import type {
 // Los prompts están en install-prompts/ en la raíz del repo.
 // process.cwd() siempre apunta a la raíz del proyecto donde se ejecuta laia-arch.
 const PROMPTS_DIR = path.resolve(process.cwd(), "install-prompts");
+const PROMPTS_SESSION_ROOT = path.join(os.homedir(), ".laia-arch", "installer-prompts");
 
 export type ConversationState = "idle" | "active" | "complete";
 
@@ -552,14 +553,46 @@ async function callAI(
 
 // ── Utilidades ────────────────────────────────────────────────────────────
 
-function loadPrompt(name: string): string {
-  const filePath = path.join(PROMPTS_DIR, name);
+function loadPrompt(name: string, baseDir = PROMPTS_DIR): string {
+  const filePath = path.join(baseDir, name);
   try {
     return fs.readFileSync(filePath, "utf8");
   } catch {
     console.warn(`  Aviso: no se pudo cargar el prompt ${name}`);
     return "";
   }
+}
+
+function createGuidedPromptSessionDir(): string {
+  const sessionId = `guided-${new Date().toISOString().replace(/[:.]/g, "-")}-pid${process.pid}`;
+  const sessionDir = path.join(PROMPTS_SESSION_ROOT, sessionId);
+
+  fs.mkdirSync(sessionDir, { recursive: true });
+
+  for (const fileName of GUIDED_STAGE_FILES) {
+    const sourcePath = path.join(PROMPTS_DIR, fileName);
+    const targetPath = path.join(sessionDir, fileName);
+    const content = fs.readFileSync(sourcePath, "utf8");
+    fs.writeFileSync(targetPath, content, { mode: 0o600 });
+  }
+
+  const manifestPath = path.join(sessionDir, "manifest.json");
+  fs.writeFileSync(
+    manifestPath,
+    JSON.stringify(
+      {
+        createdAt: new Date().toISOString(),
+        mode: "guided",
+        sourceDir: PROMPTS_DIR,
+        files: GUIDED_STAGE_FILES,
+      },
+      null,
+      2,
+    ),
+    { mode: 0o600 },
+  );
+
+  return sessionDir;
 }
 
 function formatScan(scan: SystemScan): string {
@@ -1009,14 +1042,17 @@ export async function runConversation(
 
   try {
     if (mode === "guided") {
+      const guidedPromptDir = createGuidedPromptSessionDir();
       console.log(
         t.dim(
           "\n  Modo Asistido: etapas fijas en orden estricto." +
             "\n  Cuando una etapa quede clara, Laia avanzará sola." +
+            "\n  Los prompts de esta instalación se han copiado a una sesión independiente." +
             '\n  Para volver a la etapa anterior escribe "atrás".' +
             "\n  Ctrl+C para cancelar en cualquier momento.\n",
         ),
       );
+      console.log(`  ${t.muted(`Sesión de prompts: ${guidedPromptDir}`)}\n`);
 
       const snapshots: ConversationData[] = [cloneConversationData(data)];
       let stageIndex = 0;
@@ -1027,7 +1063,7 @@ export async function runConversation(
         let systemPrompt = [
           modeConfig.systemPrompt,
           `PROMPT DE ETAPA ACTUAL — ${GUIDED_STAGE_LABELS[stageIndex]}:`,
-          loadPrompt(GUIDED_STAGE_FILES[stageIndex]),
+          loadPrompt(GUIDED_STAGE_FILES[stageIndex], guidedPromptDir),
           buildCollectedContext(data),
         ].join("\n\n");
         if (useReasoning) {
