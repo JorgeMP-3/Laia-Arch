@@ -6,6 +6,71 @@ import { execSync } from "node:child_process";
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
+import { ensureAuthProfileStore } from "../agents/auth-profiles/store.js";
+import type { AuthProfileCredential } from "../agents/auth-profiles/types.js";
+import { buildApiKeyCredential } from "../plugins/provider-auth-helpers.js";
+import { buildTokenProfileId, validateAnthropicSetupToken } from "../plugins/provider-auth-token.js";
+import { upsertAuthProfile } from "../agents/auth-profiles/profiles.js";
+
+// ─── Credenciales de IA (usan el sistema de auth-profiles de OpenClaw) ─────────
+
+/**
+ * Almacena una API key para un proveedor de IA usando el sistema de auth-profiles
+ * de OpenClaw. Escribe en ~/.laia-arch/agents/main/agent/auth-profiles.json,
+ * el mismo fichero que lee el Gateway al arrancar.
+ * Devuelve el profileId (e.g. "anthropic:default").
+ */
+export function storeApiKey(provider: string, key: string): string {
+  const profileId = buildTokenProfileId({ provider, name: "default" });
+  const credential = buildApiKeyCredential(provider, key);
+  upsertAuthProfile({ profileId, credential });
+  return profileId;
+}
+
+/**
+ * Almacena un setup-token de Claude Code (tipo TokenCredential).
+ * Valida el formato antes de persistir.
+ * Devuelve el profileId ("anthropic:default").
+ */
+export function storeSetupToken(token: string): string {
+  const error = validateAnthropicSetupToken(token);
+  if (error) {
+    throw new Error(error);
+  }
+  const profileId = buildTokenProfileId({ provider: "anthropic", name: "default" });
+  const credential: AuthProfileCredential = {
+    type: "token",
+    provider: "anthropic",
+    token: token.trim(),
+  };
+  upsertAuthProfile({ profileId, credential });
+  return profileId;
+}
+
+/**
+ * Recupera una credencial de IA por su profileId desde auth-profiles.json.
+ */
+export function retrieveProfileCredential(profileId: string): AuthProfileCredential {
+  const store = ensureAuthProfileStore();
+  const credential = store.profiles[profileId];
+  if (!credential) {
+    throw new Error(
+      `Credencial "${profileId}" no encontrada. Ejecuta laia-arch install de nuevo.`,
+    );
+  }
+  return credential;
+}
+
+/**
+ * Extrae el valor de autenticación (key/token) de una credencial.
+ * Útil para construir los headers HTTP de las llamadas a la IA.
+ */
+export function extractCredentialValue(credential: AuthProfileCredential): string {
+  if (credential.type === "api_key") return credential.key ?? "";
+  if (credential.type === "token") return credential.token ?? "";
+  // oauth: usar access token
+  return (credential as { access?: string }).access ?? "";
+}
 
 export type CredentialType = "api_key" | "password" | "token";
 

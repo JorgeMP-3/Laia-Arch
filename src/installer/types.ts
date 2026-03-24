@@ -132,7 +132,10 @@ export interface AiProvider {
 export interface BootstrapResult {
   providerId: string;
   model: string;
-  credentialId: string;
+  /** ID del perfil en auth-profiles.json (e.g. "anthropic:default") */
+  profileId: string;
   authMethod: AuthMethod;
+  /** Tipo de credencial almacenada — indica cómo leer el valor al recuperarla */
+  authType: "api_key" | "token" | "oauth";
   baseUrl?: string;
 }

@@ -7,7 +7,7 @@ import * as path from "node:path";
 import * as readline from "node:readline";
 import { fileURLToPath } from "node:url";
 import { laiaTheme as t } from "../cli/laia-arch-theme.js";
-import { retrieveKey } from "./bootstrap.js";
+import { extractCredentialValue, retrieveProfileCredential } from "./credential-manager.js";
 import type {
   AccessModel,
   BootstrapResult,
@@ -42,7 +42,10 @@ async function callAI(
   systemPrompt: string,
   messages: Message[],
 ): Promise<string> {
-  const key = bootstrap.providerId !== "ollama" ? retrieveKey(bootstrap.credentialId) : "";
+  const key =
+    bootstrap.providerId !== "ollama"
+      ? extractCredentialValue(retrieveProfileCredential(bootstrap.profileId))
+      : "";
 
   if (bootstrap.providerId === "anthropic") {
     // setup-token es OAuth: usa Authorization: Bearer en lugar de x-api-key

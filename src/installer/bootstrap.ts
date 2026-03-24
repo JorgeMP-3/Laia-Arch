@@ -1,13 +1,16 @@
 // bootstrap.ts — Fase 0: Configuración del proveedor IA antes del instalador conversacional
 
-import { spawn } from "node:child_process";
-import { execSync } from "node:child_process";
 import * as crypto from "node:crypto";
-import * as fs from "node:fs";
-import * as os from "node:os";
 import * as readline from "node:readline";
 import { laiaTheme as t } from "../cli/laia-arch-theme.js";
+import {
+  extractCredentialValue,
+  retrieveProfileCredential,
+  storeApiKey,
+  storeSetupToken,
+} from "./credential-manager.js";
 import type { AiProvider, AuthMethod, BootstrapResult } from "./types.js";
+import { validateAnthropicSetupToken } from "../plugins/provider-auth-token.js";
 
 const SUPPORTED_PROVIDERS: AiProvider[] = [
   {
@@ -45,89 +48,6 @@ const OPENAI_OAUTH_CLIENT_ID = "app_01JYXNZS89AZ3XKCGSZAHSRPN8";
 const OPENAI_OAUTH_REDIRECT_URI = "http://127.0.0.1:1455/auth/callback";
 const OPENAI_AUTH_URL = "https://auth.openai.com/authorize";
 const OPENAI_TOKEN_URL = "https://auth.openai.com/oauth/token";
-
-// ─── Almacenamiento seguro ────────────────────────────────────────────────────
-
-async function storeCredential(keyId: string, key: string): Promise<void> {
-  const platform = os.platform();
-  try {
-    if (platform === "linux") {
-      await new Promise<void>((resolve, reject) => {
-        const proc = spawn("secret-tool", [
-          "store",
-          "--label",
-          `Laia Arch credential (${keyId})`,
-          "service",
-          "laia-arch",
-          "key",
-          keyId,
-        ]);
-        proc.stdin.write(key);
-        proc.stdin.end();
-        proc.on("close", (code) => {
-          if (code === 0) resolve();
-          else reject(new Error(`secret-tool failed with code ${code}`));
-        });
-        proc.on("error", reject);
-      });
-    } else if (platform === "darwin") {
-      execSync(`security add-generic-password -a laia-arch -s ${keyId} -w`, {
-        input: key,
-        stdio: ["pipe", "ignore", "ignore"],
-      });
-    } else {
-      throw new Error("unsupported platform");
-    }
-  } catch {
-    // Fallback: archivo con permisos 600
-    const configDir = `${os.homedir()}/.laia-arch`;
-    fs.mkdirSync(configDir, { recursive: true });
-    const keyFile = `${configDir}/.${keyId}`;
-    fs.writeFileSync(keyFile, key, { mode: 0o600 });
-    console.warn(
-      "  Aviso: keychain no disponible. La credencial se guardó en archivo protegido (600).",
-    );
-  }
-}
-
-async function storeKeySecurely(providerId: string, key: string): Promise<string> {
-  const keyId = `laia-arch-${providerId}-api-key`;
-  await storeCredential(keyId, key);
-  return keyId;
-}
-
-export function retrieveKey(keyId: string): string {
-  const platform = os.platform();
-
-  try {
-    if (platform === "linux") {
-      return execSync(`secret-tool lookup service laia-arch key ${keyId}`, {
-        stdio: ["pipe", "pipe", "ignore"],
-      })
-        .toString()
-        .trim();
-    } else if (platform === "darwin") {
-      return execSync(`security find-generic-password -a laia-arch -s ${keyId} -w`, {
-        stdio: ["pipe", "pipe", "ignore"],
-      })
-        .toString()
-        .trim();
-    } else {
-      const keyFile = `${os.homedir()}/.laia-arch/.${keyId}`;
-      return fs.readFileSync(keyFile, "utf8").trim();
-    }
-  } catch {
-    // Intentar fallback de archivo independientemente de la plataforma
-    try {
-      const keyFile = `${os.homedir()}/.laia-arch/.${keyId}`;
-      return fs.readFileSync(keyFile, "utf8").trim();
-    } catch {
-      throw new Error(
-        `No se pudo recuperar la credencial: ${keyId}. Ejecuta laia-arch install de nuevo.`,
-      );
-    }
-  }
-}
 
 // ─── Validación de credenciales ───────────────────────────────────────────────
 
@@ -282,7 +202,7 @@ function askSecret(question: string): Promise<string> {
 
 // ─── Flujos de autenticación especiales ──────────────────────────────────────
 
-async function handleSetupToken(model: string): Promise<{ credentialId: string }> {
+async function handleSetupToken(model: string): Promise<{ profileId: string }> {
   console.log(
     "\n" +
       t.warn(
@@ -304,10 +224,10 @@ async function handleSetupToken(model: string): Promise<{ credentialId: string }
 
   let token = await askSecret("Setup-token: ");
 
-  if (!token.startsWith("sk-ant-oat")) {
-    throw new Error(
-      'El setup-token debe empezar por "sk-ant-oat". Verifica que has copiado el token completo.',
-    );
+  // Validación de formato con la función oficial de OpenClaw
+  const formatError = validateAnthropicSetupToken(token);
+  if (formatError) {
+    throw new Error(formatError);
   }
 
   console.log("\n" + t.step("Validando el setup-token..."));
@@ -321,12 +241,11 @@ async function handleSetupToken(model: string): Promise<{ credentialId: string }
 
   console.log("  " + t.good("Setup-token válido\n"));
 
-  const credentialId = "laia-arch-anthropic-setup-token";
-  console.log(t.step("Almacenando credenciales en el keychain del sistema..."));
-  await storeCredential(credentialId, token);
+  console.log(t.step("Almacenando credenciales en auth-profiles..."));
+  const profileId = storeSetupToken(token);
   token = token.replace(/./g, "\0");
 
-  return { credentialId };
+  return { profileId };
 }
 
 async function exchangeOAuthCode(code: string): Promise<string> {
@@ -507,7 +426,8 @@ export async function runBootstrap(): Promise<BootstrapResult> {
 
   // ─── Ejecutar autenticación ────────────────────────────────────────────────
 
-  let credentialId: string;
+  let profileId: string;
+  let authType: BootstrapResult["authType"] = "api_key";
 
   if (selectedProvider.id === "ollama") {
     console.log("\n" + t.step("Verificando servidor Ollama local..."));
@@ -518,12 +438,13 @@ export async function runBootstrap(): Promise<BootstrapResult> {
       );
     }
     console.log("  " + t.good("Ollama disponible\n"));
-    credentialId = "laia-arch-ollama-none";
-    // No hay key que almacenar, guardamos un placeholder para consistencia
-    await storeCredential(credentialId, "ollama-local");
+    // Ollama no necesita credencial — guardamos un api_key vacía para consistencia
+    profileId = storeApiKey("ollama", "");
+    authType = "api_key";
   } else if (authMethod === "setup-token") {
     const result = await handleSetupToken(selectedModel);
-    credentialId = result.credentialId;
+    profileId = result.profileId;
+    authType = "token";
   } else if (authMethod === "oauth") {
     // Extraer el código de la callback URL recogida con readline
     const callbackUrl = oauthCallbackUrl ?? "";
@@ -546,9 +467,10 @@ export async function runBootstrap(): Promise<BootstrapResult> {
     if (!valid) throw new Error("El token OAuth no es válido para la API de OpenAI.");
     console.log("  " + t.good("Token válido\n"));
 
-    credentialId = "laia-arch-openai-oauth-token";
-    console.log(t.step("Almacenando credenciales en el keychain del sistema..."));
-    await storeCredential(credentialId, accessToken);
+    console.log(t.step("Almacenando credenciales en auth-profiles..."));
+    // El token OAuth se almacena como api_key (Bearer estático sin refresh)
+    profileId = storeApiKey("openai", accessToken);
+    authType = "api_key";
   } else {
     // Flujo estándar: API key
     const providerLabel =
@@ -577,15 +499,9 @@ export async function runBootstrap(): Promise<BootstrapResult> {
 
     console.log("  " + t.good("API key válida\n"));
 
-    // Usar keyId específico para openrouter
-    if (selectedProvider.id === "openrouter") {
-      credentialId = "laia-arch-openrouter-api-key";
-      console.log(t.step("Almacenando credenciales en el keychain del sistema..."));
-      await storeCredential(credentialId, apiKey);
-    } else {
-      console.log(t.step("Almacenando credenciales en el keychain del sistema..."));
-      credentialId = await storeKeySecurely(selectedProvider.id, apiKey);
-    }
+    console.log(t.step("Almacenando credenciales en auth-profiles..."));
+    profileId = storeApiKey(selectedProvider.id, apiKey);
+    authType = "api_key";
 
     // Destruir la key de memoria inmediatamente
     apiKey = apiKey.replace(/./g, "\0");
@@ -598,8 +514,9 @@ export async function runBootstrap(): Promise<BootstrapResult> {
   return {
     providerId: selectedProvider.id,
     model: selectedModel,
-    credentialId,
+    profileId,
     authMethod,
+    authType,
     baseUrl,
   };
 }
