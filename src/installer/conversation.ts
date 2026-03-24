@@ -5,7 +5,6 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import * as readline from "node:readline";
-import { fileURLToPath } from "node:url";
 import { laiaTheme as t } from "../cli/laia-arch-theme.js";
 import { extractCredentialValue, retrieveProfileCredential } from "./credential-manager.js";
 import type {
@@ -25,10 +24,8 @@ import type {
 import { TOOL_DEFINITIONS_ANTHROPIC, TOOL_DEFINITIONS_OPENAI, TOOL_HANDLERS } from "./tools/index.js";
 
 // Los prompts están en install-prompts/ en la raíz del repo.
-// En dist/ estaremos en dist/installer/, así que subimos dos niveles.
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const PROMPTS_DIR = path.resolve(__dirname, "../install-prompts");
+// process.cwd() siempre apunta a la raíz del proyecto donde se ejecuta laia-arch.
+const PROMPTS_DIR = path.resolve(process.cwd(), "install-prompts");
 
 export type ConversationState = "idle" | "active" | "complete";
 
@@ -135,6 +132,27 @@ function buildGuidedPrompt(scan: SystemScan): string {
     "",
     "TOOLS DISPONIBLES:",
     toolList,
+    "",
+    "INSTRUCCIONES DE FLUJO:",
+    "No sigas un guion rigido de etapas numeradas.",
+    "Tu objetivo es recopilar esta informacion en el orden mas natural para el administrador:",
+    "",
+    "INFORMACION OBLIGATORIA (sin esto no puedes generar el plan):",
+    "- Confirmacion de que es el servidor correcto",
+    "- Nombre de la empresa y numero de empleados",
+    "- Distribucion por roles (creativos, cuentas, comerciales)",
+    "- Si hay usuarios remotos (activa WireGuard)",
+    "- Servicios a instalar",
+    "",
+    "REGLAS DE CONVERSACION:",
+    "- Si el administrador da informacion de varias etapas a la vez, recogela toda sin interrumpir.",
+    "- Si se contradice, pregunta para aclarar antes de continuar.",
+    "- Si quiere saltarse una etapa, permitelo y continua.",
+    "- Cuando tengas toda la informacion obligatoria, genera el plan.",
+    "- NUNCA simules acciones; solo ejecuta tools reales.",
+    "- Si no tienes una tool para algo, dilo claramente.",
+    "",
+    "CRITICO: Cuando el administrador apruebe el plan, usa las tools disponibles para ejecutar CADA paso. No generes texto describiendo lo que harias; llama a las tools reales.",
   ]
     .filter(Boolean)
     .join("\n");
@@ -332,11 +350,14 @@ async function callAI(
       Authorization: `Bearer ${key || "none"}`,
     };
 
-    // Tool use solo para proveedores compatibles con function calling (no deepseek)
-    const useToolsOpenAI =
-      modeConfig?.useTools === true &&
-      !useReasoning &&
-      bootstrap.providerId !== "deepseek";
+    // Proveedores que usan formato OpenAI para tool use (function calling).
+    // DeepSeek usa exactamente el mismo formato que OpenAI: tool_calls / role:tool.
+    const usesOpenAIToolFormat =
+      bootstrap.providerId === "openai" ||
+      bootstrap.providerId === "openrouter" ||
+      bootstrap.providerId === "deepseek" ||
+      bootstrap.providerId === "openai-compatible";
+    const useToolsOpenAI = modeConfig?.useTools === true && !useReasoning && usesOpenAIToolFormat;
 
     if (useToolsOpenAI) {
       // Bucle de tool use: formato OpenAI (tool_calls / role:tool)
@@ -723,7 +744,7 @@ export async function runConversation(
 
   try {
     while (stageIndex < 7) {
-      console.log(t.step(`Etapa ${stageIndex + 1}/${STAGE_LABELS.length}: ${STAGE_LABELS[stageIndex]}\n`));
+      console.log(t.step(`Configurando: ${STAGE_LABELS[stageIndex]}\n`));
 
       // Construir el prompt del sistema según la etapa actual
       let systemPrompt: string;
