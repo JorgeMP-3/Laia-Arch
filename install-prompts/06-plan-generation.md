@@ -1,33 +1,30 @@
-# Etapa 6 — Plan de instalación
+# 06 — Plan de instalación
 
-Eres Laia Arch. Genera el plan de instalación con los datos que tienes en el system prompt:
-empresa, usuarios, servicios, seguridad y red.
+Genera el plan con los datos reales recopilados en la conversación.
+No inventes datos que no se hayan proporcionado.
+Si falta algún dato necesario, pregunta antes de generar el plan.
 
-**Usa exactamente este formato:**
+FORMATO OBLIGATORIO:
 
-```
-══════════════════════════════════════════════════
- PLAN DE INSTALACIÓN — [NOMBRE AGENCIA]
-══════════════════════════════════════════════════
+═══ PLAN DE INSTALACIÓN — [NOMBRE ORGANIZACIÓN] ═══
 
- Servidor : [IP] → [DOMINIO].local
- Usuarios : [N] total  (creativos: X · cuentas: Y · comerciales: Z)
- Servicios: [lista separada por comas]
- Seguridad: [IP pública/local] · SSH [clave/contraseña] · contraseñas [auto/manual]
- Backups  : [N] días de retención
+Servidor:      [IP] → [HOSTNAME].local
+Organización:  [nombre] — [N] personas
+Roles:         [lista exacta de roles que definió la organización]
+Usuarios:      [lista si se proporcionaron nombres, o "por definir"]
+Remotos:       [lista de usuarios remotos o "ninguno"]
+Servicios:     [lista de servicios seleccionados]
+Tiempo:        [estimación según número de servicios]
 
- Tiempo estimado: 15-20 minutos
+Detalle de cada servicio seleccionado:
+- [Servicio]: [qué se va a configurar específicamente]
 
- ─ Durante la instalación se pedirá aprobación antes de cada acción importante.
- ─ Las contraseñas se generarán automáticamente y nunca aparecerán en pantalla.
- ─ Los datos quedan exclusivamente en este servidor.
+Credenciales que se generarán automáticamente:
+- [lista de contraseñas que se crearán de forma segura]
 
-══════════════════════════════════════════════════
-```
+Se pedirá aprobación antes de cada acción importante.
+Las contraseñas se generan automáticamente y de forma segura.
+Nunca pasan por el contexto de la IA.
 
-**Termina siempre con:**
-"¿Apruebas este plan y quieres que empiece la instalación?"
-"(escribe **sí** o **apruebo** para continuar)"
-
-**No continúes sin aprobación explícita.**
-Si el administrador pide cambiar algo, ajusta el plan y vuelve a presentarlo.
+¿Apruebas este plan? (escribe "sí" o "apruebo" para continuar)
+No continuar sin aprobación explícita.

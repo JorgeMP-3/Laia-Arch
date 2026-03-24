@@ -1,6 +1,7 @@
 // index.ts — Orquestador del instalador conversacional de Laia Arch
 // Fases: 0 Bootstrap → 1 Escáner → 2 Conversación → 3 Plan → 4 Credenciales → 5 Ejecución
 
+import { execSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -73,25 +74,25 @@ export async function runInstaller(): Promise<void> {
   }
 
   // ── Selección de modo ─────────────────────────────────────────────────────
-  let installMode: InstallMode = "full-ai";
+  let installMode: InstallMode = "adaptive";
   try {
     const modeChoice = await select({
       message: "¿Cómo quieres instalar el ecosistema LAIA?",
       options: [
         {
           value: "tool-driven",
-          label: "Automático",
-          hint: "La IA ejecuta herramientas. Rápido y eficiente.",
+          label: "⚡ Automático",
+          hint: "La IA hace preguntas mínimas y ejecuta todo con herramientas. Rápido.",
         },
         {
           value: "guided",
-          label: "Asistido",
-          hint: "La IA conoce la arquitectura completa y se adapta.",
+          label: "🗺 Asistido",
+          hint: "La IA sigue una guía fija de preguntas. Siempre el mismo camino.",
         },
         {
-          value: "full-ai",
-          label: "Conversacional",
-          hint: "La IA genera todo el proceso. Máxima flexibilidad.",
+          value: "adaptive",
+          label: "🧠 Adaptativo",
+          hint: "La IA adapta la instalación según tu empresa. Camino personalizado.",
         },
       ],
     });
@@ -103,13 +104,12 @@ export async function runInstaller(): Promise<void> {
   } catch (err) {
     console.log(
       "\n  " +
-        t.warn(
-          "No se pudo mostrar el selector de modo. " +
-            "Usando modo conversacional por defecto.",
-        ),
+        t.warn("No se pudo mostrar el selector de modo. " + "Usando modo adaptativo por defecto."),
     );
-    if (err instanceof Error) console.log("  " + t.muted(err.message));
-    // installMode ya es "full-ai" por defecto
+    if (err instanceof Error) {
+      console.log("  " + t.muted(err.message));
+    }
+    // installMode ya es "adaptive" por defecto
   }
 
   // ── Fase 2: Conversación con la IA ───────────────────────────────────────
@@ -130,6 +130,20 @@ export async function runInstaller(): Promise<void> {
     console.error("\n  Error generando el plan de instalación:");
     console.error(err instanceof Error ? err.message : String(err));
     process.exit(1);
+  }
+
+  try {
+    execSync("sudo -n true", { stdio: "ignore", timeout: 2000 });
+  } catch {
+    console.log(
+      t.warn(
+        "\n⚠ AVISO: El usuario actual no tiene permisos sudo.\n" +
+          "La instalación fallará al ejecutar comandos del sistema.\n\n" +
+          "Antes de aprobar el plan, abre otro terminal y ejecuta:\n" +
+          "  sudo bash scripts/setup-sudoers.sh\n" +
+          "Luego vuelve aquí y aprueba el plan.\n",
+      ),
+    );
   }
 
   // Confirmación explícita antes de continuar con la ejecución

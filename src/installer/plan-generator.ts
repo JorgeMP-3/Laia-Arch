@@ -20,6 +20,23 @@ export async function generatePlan(config: InstallerConfig): Promise<InstallPlan
   // ── Fase 0: Configuración inicial del sistema ──────────────────────────
   const hostname = config.network?.internalDomain?.split(".")[0] ?? "servidor";
   const fqdn = config.network?.internalDomain ?? `${hostname}.local`;
+  const uniqueRolesFromUsers =
+    config.users && config.users.length > 0
+      ? [...new Set(config.users.map((u) => u.role.trim()).filter(Boolean))]
+      : [];
+  const uniqueRoles = uniqueRolesFromUsers.length > 0 ? uniqueRolesFromUsers : ["usuarios"];
+  const roleShareFolders = uniqueRoles.map((role) => {
+    const slug = role
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .replace(/\s+/g, "-")
+      .replace(/[^a-z0-9-]/g, "")
+      .replace(/^-+|-+$/g, "");
+    return `/srv/samba/${slug || "usuarios"}`;
+  });
+  const sambaFolders = roleShareFolders.join(" ");
+  const allSambaFolders = [...roleShareFolders, "/srv/samba/compartido"].join(" ");
 
   steps.push({
     id: "init-01",
@@ -108,11 +125,30 @@ export async function generatePlan(config: InstallerConfig): Promise<InstallPlan
     steps.push({
       id: "ldap-02",
       phase: 3,
-      description: `Crear estructura LDAP para ${ldapDomain} con grupos creativos, cuentas, comerciales`,
+      description: `Crear estructura LDAP para ${ldapDomain} con grupos: ${uniqueRoles.join(", ")}`,
       commands: [
         `mkdir -p /tmp/laia-arch-ldap`,
-        // OUs + tres grupos fijos del ecosistema LAIA
-        `printf 'dn: ou=users,${ldapDc}\nobjectClass: organizationalUnit\nou: users\n\ndn: ou=groups,${ldapDc}\nobjectClass: organizationalUnit\nou: groups\n\ndn: cn=creativos,ou=groups,${ldapDc}\nobjectClass: groupOfNames\ncn: creativos\nmember: uid=admin,ou=users,${ldapDc}\n\ndn: cn=cuentas,ou=groups,${ldapDc}\nobjectClass: groupOfNames\ncn: cuentas\nmember: uid=admin,ou=users,${ldapDc}\n\ndn: cn=comerciales,ou=groups,${ldapDc}\nobjectClass: groupOfNames\ncn: comerciales\nmember: uid=admin,ou=users,${ldapDc}\n' > /tmp/laia-arch-ldap/base.ldif`,
+        [
+          "cat <<'EOF' > /tmp/laia-arch-ldap/base.ldif",
+          [
+            `dn: ou=users,${ldapDc}`,
+            "objectClass: organizationalUnit",
+            "ou: users",
+            "",
+            `dn: ou=groups,${ldapDc}`,
+            "objectClass: organizationalUnit",
+            "ou: groups",
+            "",
+            ...uniqueRoles.flatMap((role) => [
+              `dn: cn=${role},ou=groups,${ldapDc}`,
+              "objectClass: groupOfNames",
+              `cn: ${role}`,
+              `member: uid=admin,ou=users,${ldapDc}`,
+              "",
+            ]),
+          ].join("\n"),
+          "EOF",
+        ].join("\n"),
       ],
       requiresApproval: true,
     });
@@ -140,7 +176,7 @@ export async function generatePlan(config: InstallerConfig): Promise<InstallPlan
         phase: 3,
         description: `Crear ${config.users.length} usuario(s) en LDAP: ${config.users.map((u) => u.username).join(", ")}`,
         commands: [
-          `printf '${userLdif}\\n' > /tmp/laia-arch-ldap/users.ldif`,
+          [`cat <<'EOF' > /tmp/laia-arch-ldap/users.ldif`, userLdif, "EOF"].join("\n"),
           `ldapadd -x -D "cn=admin,${ldapDc}" -W -f /tmp/laia-arch-ldap/users.ldif`,
         ],
         requiresApproval: true,
@@ -169,13 +205,13 @@ export async function generatePlan(config: InstallerConfig): Promise<InstallPlan
     steps.push({
       id: "smb-02",
       phase: 4,
-      description: "Crear carpetas compartidas por rol (campanas, creativos, cuentas, comerciales, docs)",
+      description: `Crear carpetas compartidas: ${uniqueRoles.join(", ")} + compartido`,
       commands: [
         "groupadd sambashare 2>/dev/null || true",
-        "mkdir -p /srv/samba/campanas /srv/samba/creativos /srv/samba/cuentas /srv/samba/comerciales /srv/samba/docs",
-        "chown -R root:sambashare /srv/samba/creativos /srv/samba/cuentas /srv/samba/comerciales",
-        "chmod 2770 /srv/samba/creativos /srv/samba/cuentas /srv/samba/comerciales",
-        "chmod 2775 /srv/samba/campanas /srv/samba/docs",
+        `mkdir -p ${allSambaFolders}`,
+        `chown -R root:sambashare ${sambaFolders}`,
+        `chmod 2770 ${sambaFolders}`,
+        "chmod 2775 /srv/samba/compartido",
       ],
       requiresApproval: true,
     });

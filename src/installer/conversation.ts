@@ -7,6 +7,11 @@ import * as path from "node:path";
 import * as readline from "node:readline";
 import { laiaTheme as t } from "../cli/laia-arch-theme.js";
 import { extractCredentialValue, retrieveProfileCredential } from "./credential-manager.js";
+import {
+  TOOL_DEFINITIONS_ANTHROPIC,
+  TOOL_DEFINITIONS_OPENAI,
+  TOOL_HANDLERS,
+} from "./tools/index.js";
 import type {
   AccessModel,
   BootstrapResult,
@@ -21,7 +26,6 @@ import type {
   SystemScan,
   UserConfig,
 } from "./types.js";
-import { TOOL_DEFINITIONS_ANTHROPIC, TOOL_DEFINITIONS_OPENAI, TOOL_HANDLERS } from "./tools/index.js";
 
 // Los prompts están en install-prompts/ en la raíz del repo.
 // process.cwd() siempre apunta a la raíz del proyecto donde se ejecuta laia-arch.
@@ -78,8 +82,8 @@ const COMPACT_PROMPTS = {
 
 // ── Modos de instalación ──────────────────────────────────────────────────
 
-/** Construye el system prompt completo para el modo guided con arquitectura y estado real del servidor. */
-function buildGuidedPrompt(scan: SystemScan): string {
+/** Formatea el resumen del escaneo para incluir en system prompts. */
+function formatScan(scan: SystemScan): string {
   const relevantServices = [
     "bind9",
     "slapd",
@@ -89,35 +93,8 @@ function buildGuidedPrompt(scan: SystemScan): string {
     "wg-quick@wg0",
     "cockpit",
   ].filter((s) => scan.services.includes(s));
-  const conflictPorts = scan.ports.filter((p) =>
-    [53, 389, 636, 445, 51820, 80, 9090].includes(p),
-  );
-  const toolList = TOOL_DEFINITIONS_ANTHROPIC.map(
-    (tool) => `- ${tool.name}: ${tool.description}`,
-  ).join("\n");
-
+  const conflictPorts = scan.ports.filter((p) => [53, 389, 636, 445, 51820, 80, 9090].includes(p));
   return [
-    "Eres Laia Arch, el agente fundador del ecosistema LAIA.",
-    "Piensas en infraestructura, seguridad y capas de aislamiento.",
-    "Cada decisión tiene consecuencias reales en el servidor.",
-    "Antes de ejecutar cualquier cosa, verifica el estado actual con las tools disponibles.",
-    "",
-    "ECOSISTEMA LAIA — TRES AGENTES:",
-    "- Laia Arch (tú): configura infraestructura, máximo privilegio, solo accesible desde el host físico",
-    "- Laia Agora: operaciones diarias, Docker puerto 18789, accesible desde red local 192.168.x.x y VPN",
-    "- Laia Nemo: acceso externo, Docker con NemoClaw, WhatsApp/Telegram/Slack, mínimo privilegio",
-    "",
-    "SERVICIOS QUE INSTALARÁS:",
-    "- BIND9: DNS interno, zona DOMINIO.local",
-    "- OpenLDAP: directorio usuarios, grupos creativos/cuentas/comerciales",
-    "- Samba: /srv/samba/{campanas,creativos,cuentas,comerciales,docs}",
-    "- WireGuard: VPN 10.10.10.0/24, puerto UDP 51820",
-    "- Docker: contenedores Laia Agora y Laia Nemo",
-    "- Nginx: proxy inverso, puerto 80",
-    "- Cockpit: panel admin, puerto 9090",
-    "- rsync: backups diarios 02:00 en /backup/",
-    "",
-    "SERVIDOR ACTUAL:",
     `IP: ${scan.network.localIp} | Gateway: ${scan.network.gateway}`,
     `Hardware: ${scan.hardware.arch}, ${scan.hardware.cores} cores, ${scan.hardware.ramGb} GB RAM, ${scan.hardware.diskFreeGb} GB libres`,
     `OS: ${scan.os.distribution} ${scan.os.version} — ${scan.os.hostname}`,
@@ -125,34 +102,136 @@ function buildGuidedPrompt(scan: SystemScan): string {
     relevantServices.length > 0
       ? `Servicios activos relevantes: ${relevantServices.join(", ")}`
       : "",
-    conflictPorts.length > 0
-      ? `Puertos con posible conflicto: ${conflictPorts.join(", ")}`
-      : "",
+    conflictPorts.length > 0 ? `Puertos con posible conflicto: ${conflictPorts.join(", ")}` : "",
     scan.warnings.length > 0 ? `Advertencias: ${scan.warnings.join("; ")}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+/** Construye el system prompt para el modo Asistido (guided): orden fijo de pasos. */
+function buildGuidedPrompt(scan: SystemScan): string {
+  const toolList = TOOL_DEFINITIONS_ANTHROPIC.map(
+    (tool) => `- ${tool.name}: ${tool.description}`,
+  ).join("\n");
+
+  return [
+    "Eres Laia Arch. Sigue este orden de preguntas exacto.",
+    "No te saltes ninguna. No cambies el orden.",
+    "",
+    "ORDEN FIJO DE CONFIGURACIÓN:",
+    "",
+    "PASO 1 — Confirmar servidor:",
+    "Presenta el resumen del escaneo y pregunta si es el servidor correcto.",
+    "No avances hasta recibir confirmación.",
+    "",
+    "PASO 2 — Perfil de la organización:",
+    "Pregunta: nombre de la empresa, sector o actividad, número de personas, idioma principal.",
+    "Confirma con resumen antes de avanzar.",
+    "",
+    "PASO 3 — Roles y usuarios:",
+    "Pregunta: qué roles o departamentos tiene la organización, cuántas personas en cada rol,",
+    "si hay personas remotas, nombres si los quieren proporcionar.",
+    "No sugieras nombres de roles — deja que los definan ellos.",
+    "Confirma con resumen antes de avanzar.",
+    "",
+    "PASO 4 — Servicios:",
+    "Presenta la lista de servicios disponibles y pregunta cuáles instalar.",
+    "Siempre recomienda el conjunto base (DNS, LDAP, Docker, backups).",
+    "Omite WireGuard si en el paso 3 confirmaron que nadie trabaja en remoto.",
+    "Confirma con resumen antes de avanzar.",
+    "",
+    "PASO 5 — Seguridad:",
+    "Pregunta: ¿IP pública o solo red local? ¿Contraseñas automáticas? ¿SSH solo por clave?",
+    "Confirma con resumen antes de avanzar.",
+    "",
+    "PASO 6 — GDPR:",
+    "Pregunta si manejan datos personales de clientes.",
+    "Si sí, confirmar retención de backups (sugerir 30 días).",
+    "",
+    "PASO 7 — Plan final:",
+    "Genera el plan completo con los datos recopilados y espera aprobación explícita.",
+    "Cuando se apruebe, usa las tools disponibles para ejecutar CADA paso.",
+    "No generes texto describiendo lo que harías — llama a las tools reales.",
+    "",
+    "SERVIDOR ACTUAL:",
+    formatScan(scan),
+    "",
+    "ECOSISTEMA LAIA:",
+    "- Laia Arch (tú): configura infraestructura, máximo privilegio, solo accesible desde el host físico",
+    "- Laia Agora: operaciones diarias, Docker puerto 18789, accesible desde red local y VPN",
+    "- Laia Nemo: interfaz externa, Docker con OpenClaw, WhatsApp/Telegram/Slack, mínimo privilegio",
+    "",
+    "ROLES: Los define la organización durante la conversación.",
+    "No asumas creativos/cuentas/comerciales ni ningún otro rol específico.",
+    "Los grupos LDAP se crean según lo que diga la organización.",
     "",
     "TOOLS DISPONIBLES:",
     toolList,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+/** Construye el system prompt para el modo Adaptativo: sin orden fijo, camino personalizado. */
+function buildAdaptivePrompt(scan: SystemScan): string {
+  const toolList = TOOL_DEFINITIONS_ANTHROPIC.map(
+    (tool) => `- ${tool.name}: ${tool.description}`,
+  ).join("\n");
+
+  return [
+    "Eres Laia Arch. Tu objetivo es configurar este servidor para el ecosistema LAIA.",
+    "El camino para llegar ahí depende de lo que te diga el administrador.",
     "",
-    "INSTRUCCIONES DE FLUJO:",
-    "No sigas un guion rigido de etapas numeradas.",
-    "Tu objetivo es recopilar esta informacion en el orden mas natural para el administrador:",
+    "INFORMACIÓN QUE NECESITAS OBTENER (en cualquier orden):",
+    "□ Confirmación de que es el servidor correcto",
+    "□ Nombre y tipo de empresa u organización",
+    "□ Roles o departamentos y cuántas personas en cada uno",
+    "□ Si hay personas que trabajan en remoto",
+    "□ Qué servicios necesitan (adapta según el perfil)",
+    "□ Política de seguridad básica",
+    "□ Si manejan datos personales (GDPR)",
     "",
-    "INFORMACION OBLIGATORIA (sin esto no puedes generar el plan):",
-    "- Confirmacion de que es el servidor correcto",
-    "- Nombre de la empresa y numero de empleados",
-    "- Distribucion por roles (creativos, cuentas, comerciales)",
-    "- Si hay usuarios remotos (activa WireGuard)",
-    "- Servicios a instalar",
+    "REGLAS DE ADAPTACIÓN:",
+    "- Si el administrador da información de varios pasos a la vez, recógela toda sin interrumpir.",
+    "- Si dice 'somos solo 2 personas', simplifica la configuración.",
+    "- Si dice 'hay 50 personas en varios países', propón más servicios.",
+    "- Si dice 'nadie trabaja en remoto', omite WireGuard sin preguntar.",
+    "- Si dice 'todos son técnicos', puedes ser más específico.",
+    "- Si algo no queda claro, pregunta. Si queda claro, no preguntes.",
+    "- Cuando tengas suficiente información, propón el plan.",
+    "- El administrador puede modificar el plan antes de aprobarlo.",
     "",
-    "REGLAS DE CONVERSACION:",
-    "- Si el administrador da informacion de varias etapas a la vez, recogela toda sin interrumpir.",
-    "- Si se contradice, pregunta para aclarar antes de continuar.",
-    "- Si quiere saltarse una etapa, permitelo y continua.",
-    "- Cuando tengas toda la informacion obligatoria, genera el plan.",
-    "- NUNCA simules acciones; solo ejecuta tools reales.",
-    "- Si no tienes una tool para algo, dilo claramente.",
+    "NO ASUMAS:",
+    "- No asumas el sector de la empresa",
+    "- No asumas los roles (no digas creativos/cuentas/comerciales)",
+    "- No asumas que necesitan todos los servicios",
+    "- No asumas nada que no te hayan dicho",
     "",
-    "CRITICO: Cuando el administrador apruebe el plan, usa las tools disponibles para ejecutar CADA paso. No generes texto describiendo lo que harias; llama a las tools reales.",
+    "SERVIDOR ACTUAL:",
+    formatScan(scan),
+    "",
+    "ECOSISTEMA LAIA:",
+    "- Laia Arch (tú): configura infraestructura, máximo privilegio, solo accesible desde el host físico",
+    "- Laia Agora: operaciones diarias, corre en Docker puerto 18789, accesible desde red local y VPN",
+    "- Laia Nemo: interfaz externa, corre en Docker con OpenClaw, WhatsApp/Telegram/Slack/web pública",
+    "",
+    "SERVICIOS DISPONIBLES:",
+    "- DNS interno (BIND9): resolución de nombres en red local",
+    "- OpenLDAP: directorio central de usuarios por roles",
+    "- Samba: carpetas compartidas en red por departamento",
+    "- WireGuard: VPN para acceso remoto seguro",
+    "- Docker: necesario para Laia Agora y Laia Nemo",
+    "- Nginx: proxy inverso y panel web",
+    "- Cockpit: panel de administración visual",
+    "- rsync: copias de seguridad automáticas nocturnas",
+    "",
+    "CUANDO EL ADMINISTRADOR APRUEBE EL PLAN:",
+    "Usa las tools disponibles para ejecutar CADA paso.",
+    "No generes texto describiendo lo que harías — llama a las tools reales.",
+    "",
+    "TOOLS DISPONIBLES:",
+    toolList,
   ]
     .filter(Boolean)
     .join("\n");
@@ -160,22 +239,30 @@ function buildGuidedPrompt(scan: SystemScan): string {
 
 /**
  * Devuelve la configuración del modo de instalación seleccionado.
- * - tool-driven: la IA ejecuta herramientas directamente, sin explicaciones
- * - guided: la IA conoce la arquitectura completa y usa tools + contexto real
- * - full-ai: conversación pura para recopilar configuración (por defecto)
+ * - tool-driven: preguntas mínimas, ejecuta todo con tools directamente
+ * - guided: orden fijo de preguntas, usa tools para ejecutar
+ * - adaptive: sin orden fijo, se adapta a cada empresa, usa tools para ejecutar
  */
 export function getModeConfig(mode: InstallMode, scan: SystemScan): ModeConfig {
   switch (mode) {
     case "tool-driven":
       return {
         mode,
-        systemPrompt:
-          "Eres Laia Arch. Tienes herramientas disponibles. " +
-          "Úsalas en orden para instalar el ecosistema LAIA. Para cada paso: llama la tool correcta, " +
-          "verifica el resultado, continúa. " +
-          "Si una tool falla y retryable es true, inténtalo una vez más. " +
-          "Si retryable es false, informa al administrador del error exacto. " +
-          "No expliques lo que vas a hacer — hazlo directamente con tools.",
+        systemPrompt: [
+          "Eres Laia Arch. Configura este servidor para el ecosistema LAIA usando las herramientas disponibles.",
+          "",
+          "Haz SOLO estas preguntas mínimas antes de ejecutar:",
+          "1. Nombre de la empresa",
+          "2. Número total de personas",
+          "3. Qué roles o departamentos tienen (pide que los listen)",
+          "4. ¿Hay personas que trabajen en remoto? (sí/no)",
+          "5. ¿Manejan datos personales de clientes? (sí/no)",
+          "",
+          "Con esas 5 respuestas genera el plan y ejecuta.",
+          "No hagas más preguntas. No expliques lo que haces.",
+          "Usa las tools directamente para cada paso.",
+          "Si algo falla, informa del error exacto.",
+        ].join("\n"),
         useTools: true,
         contextLevel: "minimal",
         maxTokensPerCall: 1024,
@@ -190,15 +277,13 @@ export function getModeConfig(mode: InstallMode, scan: SystemScan): ModeConfig {
         maxTokensPerCall: 4096,
       };
 
-    default: // full-ai
+    default: // adaptive
       return {
-        mode: "full-ai",
-        systemPrompt:
-          "Eres Laia Arch. Para cada paso genera el comando exacto, " +
-          "explica en una línea qué hace, y espera aprobación.",
-        useTools: false,
-        contextLevel: "none",
-        maxTokensPerCall: 2048,
+        mode: "adaptive",
+        systemPrompt: buildAdaptivePrompt(scan),
+        useTools: true,
+        contextLevel: "full",
+        maxTokensPerCall: 4096,
       };
   }
 }
@@ -662,14 +747,16 @@ const STAGE_LABELS = [
 export async function runConversation(
   bootstrap: BootstrapResult,
   scan: SystemScan,
-  mode: InstallMode = "full-ai",
+  mode: InstallMode = "adaptive",
 ): Promise<InstallerConfig> {
   console.log(t.section("CONFIGURACIÓN CON LAIA ARCH"));
-  console.log(t.dim(
-    '\n  Cuando hayas confirmado esta etapa escribe "continuar".' +
-    '\n  Para volver a la etapa anterior escribe "atrás".' +
-    '\n  Ctrl+C para cancelar en cualquier momento.\n',
-  ));
+  console.log(
+    t.dim(
+      '\n  Cuando hayas confirmado esta etapa escribe "continuar".' +
+        '\n  Para volver a la etapa anterior escribe "atrás".' +
+        "\n  Ctrl+C para cancelar en cualquier momento.\n",
+    ),
+  );
 
   const rl = readline.createInterface({
     input: process.stdin,
@@ -761,9 +848,7 @@ export async function runConversation(
           break;
         }
         case 1: {
-          const p1 = useReasoning
-            ? COMPACT_PROMPTS.company
-            : loadPrompt("01-company-profile.md");
+          const p1 = useReasoning ? COMPACT_PROMPTS.company : loadPrompt("01-company-profile.md");
           systemPrompt = p1 + "\n\n" + scanContext;
           if (useReasoning) systemPrompt += REASONING_SUFFIX;
           trigger =
@@ -772,9 +857,7 @@ export async function runConversation(
           break;
         }
         case 2: {
-          const p2 = useReasoning
-            ? COMPACT_PROMPTS.access
-            : loadPrompt("02-access-model.md");
+          const p2 = useReasoning ? COMPACT_PROMPTS.access : loadPrompt("02-access-model.md");
           systemPrompt = p2 + "\n\nEmpresa: " + JSON.stringify(company) + "\n\n" + scanContext;
           if (useReasoning) systemPrompt += REASONING_SUFFIX;
           trigger =
@@ -827,15 +910,9 @@ export async function runConversation(
         }
         case 5: {
           // Seguridad (era etapa 4)
-          const p5 = useReasoning
-            ? COMPACT_PROMPTS.security
-            : loadPrompt("04-security-policy.md");
+          const p5 = useReasoning ? COMPACT_PROMPTS.security : loadPrompt("04-security-policy.md");
           systemPrompt =
-            p5 +
-            "\n\nServicios seleccionados: " +
-            JSON.stringify(services) +
-            "\n\n" +
-            scanContext;
+            p5 + "\n\nServicios seleccionados: " + JSON.stringify(services) + "\n\n" + scanContext;
           if (useReasoning) systemPrompt += REASONING_SUFFIX;
           trigger =
             "Define la política de seguridad del servidor: contraseñas, exposición a internet y SSH.";
@@ -989,7 +1066,16 @@ Devuelve un array JSON. Si no se mencionaron nombres concretos, devuelve []:
 
     rl.close();
 
-    const config: InstallerConfig = { company, access, services, security, compliance, network, users, installMode: mode };
+    const config: InstallerConfig = {
+      company,
+      access,
+      services,
+      security,
+      compliance,
+      network,
+      users,
+      installMode: mode,
+    };
 
     // Guardar la configuración en ~/.laia-arch/
     const configDir = path.join(os.homedir(), ".laia-arch");

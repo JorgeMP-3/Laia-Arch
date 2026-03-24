@@ -1,7 +1,9 @@
 // executor.ts — Ejecución del plan de instalación paso a paso con HITL
 
-import { exec } from "node:child_process";
+import { exec, execSync } from "node:child_process";
+import * as readline from "node:readline";
 import { promisify } from "node:util";
+import { laiaTheme as t } from "../cli/laia-arch-theme.js";
 import { requestApproval, waitForApproval } from "./hitl-controller.js";
 import type { InstallPlan, InstallStep } from "./types.js";
 
@@ -14,6 +16,18 @@ export interface StepResult {
   status: ExecutionStatus;
   output?: string;
   error?: string;
+}
+
+async function checkSudoPermissions(): Promise<boolean> {
+  try {
+    execSync("sudo -n hostnamectl --version 2>/dev/null || sudo -n true", {
+      stdio: "ignore",
+      timeout: 3000,
+    });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** Ejecuta un único paso del plan y devuelve el resultado. */
@@ -70,6 +84,30 @@ export async function executeStep(step: InstallStep): Promise<StepResult> {
  */
 export async function executePlan(plan: InstallPlan): Promise<StepResult[]> {
   const results: StepResult[] = [];
+
+  const sudoAvailable = await checkSudoPermissions();
+  if (!sudoAvailable) {
+    console.log(`\n  ${t.warn("⚠ Permisos sudo insuficientes detectados.")}`);
+    console.log(`  ${t.muted("El instalador necesita sudo para ejecutar comandos del sistema.")}`);
+    console.log(`\n  ${t.step("Configura los permisos con:")}`);
+    console.log(`  ${t.brand("sudo bash scripts/setup-sudoers.sh")}`);
+    console.log(`\n  ${t.muted("Luego vuelve a ejecutar el instalador.\n")}`);
+
+    const rl = readline.createInterface({
+      input: process.stdin,
+      output: process.stdout,
+      terminal: true,
+    });
+    const answer = await new Promise<string>((resolve) => {
+      rl.question("¿Continuar de todas formas? (s/n): ", resolve);
+    });
+    rl.close();
+
+    const normalized = answer.toLowerCase().trim();
+    if (normalized !== "s" && normalized !== "si" && normalized !== "sí") {
+      process.exit(0);
+    }
+  }
 
   console.log("\n╔══════════════════════════════════════════════════════════╗");
   console.log("║            EJECUTANDO PLAN DE INSTALACIÓN               ║");

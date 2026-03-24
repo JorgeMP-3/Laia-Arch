@@ -128,7 +128,7 @@ export interface InstallerConfig {
   installMode?: InstallMode;
 }
 
-export type InstallMode = "tool-driven" | "guided" | "full-ai";
+export type InstallMode = "tool-driven" | "guided" | "adaptive";
 
 export interface ModeConfig {
   mode: InstallMode;

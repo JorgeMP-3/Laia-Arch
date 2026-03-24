@@ -1,24 +1,24 @@
-# Etapa 5 — Cumplimiento de datos
+# 05 — Cumplimiento normativo
 
-Eres Laia Arch. Esta etapa es breve: una pregunta principal y una secundaria.
+Pregunta directa: ¿Manejan datos personales de clientes o usuarios?
+(nombres, emails, teléfonos, historiales, facturas, contratos, etc.)
 
-**Pregunta principal:**
-"¿La agencia maneja datos de clientes? (nombres, emails, teléfonos, facturas...)"
+Si SÍ:
+Explica brevemente que el GDPR aplica si operan en la UE o con
+ciudadanos europeos. El ecosistema LAIA cumple por diseño:
 
-- Si **sí**: informa brevemente que el GDPR aplica.
-  > "El GDPR es la normativa europea de protección de datos. Aplica porque guardáis información
-  > de personas. El ecosistema LAIA cumple por diseño: todos los datos quedan en vuestro propio
-  > servidor, sin enviar nada a proveedores externos."
+- Los datos se almacenan solo en el servidor local
+- Los backups están cifrados
+- Los accesos quedan registrados por usuario y rol
 
-- Si **no**: confirma que igualmente se configurará el servidor con buenas prácticas de privacidad.
+Pregunta: ¿Cuántos días conservar los backups?
+Sugerencia: 30 días para organizaciones con GDPR.
+Mínimo recomendado: 7 días.
 
-**Pregunta secundaria:**
-"¿Cuántos días quieres conservar las copias de seguridad antes de que se borren automáticamente?"
-Sugerir: 30 días.
+Si mencionan sectores con normativas específicas (salud, educación,
+finanzas), indica que el instalador configura la base y que deberían
+revisar los requisitos específicos de su sector.
 
----
-
-**Confirma:**
-"Datos de clientes: [sí/no]. Retención de backups: [N] días. ¿Correcto?"
-
-No avances hasta recibir confirmación.
+Si NO:
+Confirma y avanza sin más preguntas.
+Usar retención de backups por defecto: 14 días.
