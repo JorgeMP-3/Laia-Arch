@@ -5,6 +5,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import * as readline from "node:readline";
+import { select } from "@clack/prompts";
 import { laiaTheme as t } from "../cli/laia-arch-theme.js";
 import { runBootstrap } from "./bootstrap.js";
 import { runConversation } from "./conversation.js";
@@ -12,7 +13,7 @@ import { provisionCredential } from "./credential-manager.js";
 import { executePlan } from "./executor.js";
 import { displayPlan, generatePlan } from "./plan-generator.js";
 import { runScanner } from "./scanner.js";
-import type { BootstrapResult, InstallerConfig, SystemScan } from "./types.js";
+import type { BootstrapResult, InstallerConfig, InstallMode, SystemScan } from "./types.js";
 
 /** Pide una confirmación explícita al usuario antes de continuar. */
 async function askConfirmation(question: string): Promise<boolean> {
@@ -71,9 +72,41 @@ export async function runInstaller(): Promise<void> {
     console.warn("  Aviso: no se pudo guardar el escaneo en disco.");
   }
 
+  // ── Selección de modo ─────────────────────────────────────────────────────
+  let installMode: InstallMode = "full-ai";
+  try {
+    const selected = await select({
+      message: "¿Cómo quieres que Laia Arch configure el servidor?",
+      options: [
+        {
+          value: "full-ai",
+          label: "Conversacional",
+          hint: "La IA te pregunta y genera el plan de instalación",
+        },
+        {
+          value: "guided",
+          label: "Guiado",
+          hint: "La IA explica cada paso; tú ejecutas los comandos",
+        },
+        {
+          value: "tool-driven",
+          label: "Autónomo (solo Anthropic)",
+          hint: "La IA ejecuta los pasos directamente con herramientas",
+        },
+      ],
+    });
+    if (typeof selected === "symbol") {
+      console.log("\n  Instalación cancelada.");
+      process.exit(0);
+    }
+    installMode = selected as InstallMode;
+  } catch {
+    // Fallback silencioso al modo conversacional por defecto
+  }
+
   // ── Fase 2: Conversación con la IA ───────────────────────────────────────
   try {
-    config = await runConversation(bootstrapResult, systemScan);
+    config = await runConversation(bootstrapResult, systemScan, installMode);
   } catch (err) {
     console.error("\n  Error en Fase 2 (conversación):");
     console.error(err instanceof Error ? err.message : String(err));

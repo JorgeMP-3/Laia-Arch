@@ -125,6 +125,17 @@ export interface InstallerConfig {
   compliance: DataCompliance;
   network?: NetworkConfig;
   users?: UserConfig[];
+  installMode?: InstallMode;
+}
+
+export type InstallMode = "tool-driven" | "guided" | "full-ai";
+
+export interface ModeConfig {
+  mode: InstallMode;
+  systemPrompt: string;
+  useTools: boolean;
+  contextLevel: "minimal" | "full" | "none";
+  maxTokensPerCall: number;
 }
 
 export type ApprovalResult = "approved" | "rejected" | "timeout";

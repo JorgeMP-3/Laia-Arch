@@ -13,13 +13,16 @@ import type {
   BootstrapResult,
   CompanyProfile,
   DataCompliance,
+  InstallMode,
   InstallerConfig,
+  ModeConfig,
   NetworkConfig,
   SecurityPolicy,
   ServiceSelection,
   SystemScan,
   UserConfig,
 } from "./types.js";
+import { TOOL_DEFINITIONS, TOOL_HANDLERS } from "./tools/index.js";
 
 // Los prompts están en install-prompts/ en la raíz del repo.
 // En dist/ estaremos en dist/installer/, así que subimos dos niveles.
@@ -76,6 +79,78 @@ const COMPACT_PROMPTS = {
     "Pregunta cuántos días conservar backups (sugerir 30). Confirma y avanza.",
 };
 
+// ── Modos de instalación ──────────────────────────────────────────────────
+
+/**
+ * Devuelve la configuración del modo de instalación seleccionado.
+ * - tool-driven: la IA ejecuta herramientas directamente (solo Anthropic)
+ * - guided: la IA explica pasos; el administrador ejecuta
+ * - full-ai: conversación pura para recopilar configuración (por defecto)
+ */
+export function getModeConfig(mode: InstallMode, scan: SystemScan): ModeConfig {
+  switch (mode) {
+    case "tool-driven":
+      return {
+        mode,
+        systemPrompt: [
+          "Eres Laia Arch en modo agente autónomo. Configuras el servidor del ecosistema LAIA",
+          "utilizando las herramientas disponibles. Ejecuta las herramientas de forma secuencial,",
+          "verificando cada paso antes de continuar.",
+          "",
+          "Reglas:",
+          "- Usa get_system_info al principio para conocer el estado actual.",
+          "- Llama a verify_service_chain al finalizar para confirmar que todo funciona.",
+          "- Ante cualquier fallo retryable, reintenta una vez antes de informar al usuario.",
+          "- Nunca reveles contraseñas; usa generate_and_store_password y pasa el ID.",
+          "- Informa al administrador antes de cada acción irreversible importante.",
+          "",
+          `Estado del servidor:\n${[
+            `IP: ${scan.network.localIp} | Gateway: ${scan.network.gateway}`,
+            `SO: ${scan.os.distribution} ${scan.os.version}`,
+            `Hardware: ${scan.hardware.cores} cores, ${scan.hardware.ramGb} GB RAM, ${scan.hardware.diskFreeGb} GB libres`,
+            scan.warnings.length > 0 ? `Advertencias: ${scan.warnings.join("; ")}` : "",
+          ]
+            .filter(Boolean)
+            .join("\n")}`,
+        ].join("\n"),
+        useTools: true,
+        contextLevel: "full",
+        maxTokensPerCall: 4096,
+      };
+
+    case "guided":
+      return {
+        mode,
+        systemPrompt: [
+          "Eres Laia Arch en modo guiado. Ayudas al administrador a configurar el servidor",
+          "explicando claramente cada paso: qué comando ejecutar, por qué, y qué esperar.",
+          "No ejecutas comandos directamente — explicas y el administrador actúa.",
+          "",
+          "Sé conciso. Un paso a la vez. Confirma antes de avanzar.",
+          "",
+          `Estado del servidor:\n${[
+            `IP: ${scan.network.localIp} | SO: ${scan.os.distribution} ${scan.os.version}`,
+            scan.warnings.length > 0 ? `Advertencias: ${scan.warnings.join("; ")}` : "",
+          ]
+            .filter(Boolean)
+            .join("\n")}`,
+        ].join("\n"),
+        useTools: false,
+        contextLevel: "full",
+        maxTokensPerCall: 2048,
+      };
+
+    default: // full-ai
+      return {
+        mode: "full-ai",
+        systemPrompt: "Eres Laia Arch, agente de configuración del ecosistema LAIA.",
+        useTools: false,
+        contextLevel: "none",
+        maxTokensPerCall: 2048,
+      };
+  }
+}
+
 // ── Cliente IA unificado ──────────────────────────────────────────────────
 
 /** Envía un turno al proveedor de IA y devuelve el texto de la respuesta. */
@@ -83,6 +158,7 @@ async function callAI(
   bootstrap: BootstrapResult,
   systemPrompt: string,
   messages: Message[],
+  modeConfig?: ModeConfig,
 ): Promise<string> {
   const key =
     bootstrap.providerId !== "ollama"
@@ -91,6 +167,7 @@ async function callAI(
 
   // supportsReasoning de bootstrap tiene prioridad; si no está, detectamos por nombre
   const useReasoning = bootstrap.supportsReasoning ?? isReasoningModel(bootstrap.model);
+  const maxTokens = modeConfig?.maxTokensPerCall ?? (useReasoning ? 8000 : 2048);
 
   if (bootstrap.providerId === "anthropic") {
     // setup-token es OAuth: usa Authorization: Bearer en lugar de x-api-key
@@ -106,9 +183,78 @@ async function callAI(
             "x-api-key": key,
             "anthropic-version": "2023-06-01",
           };
+
+    const useTools = modeConfig?.useTools === true && !useReasoning;
+
+    if (useTools) {
+      // Bucle de tool use: la IA llama herramientas hasta que stop_reason !== "tool_use"
+      type ApiContent = Record<string, unknown>;
+      type ApiMsg = { role: string; content: string | ApiContent[] };
+      const apiMessages: ApiMsg[] = messages.map((m) => ({ role: m.role, content: m.content }));
+
+      while (true) {
+        const body: Record<string, unknown> = {
+          model: bootstrap.model,
+          max_tokens: maxTokens,
+          system: systemPrompt,
+          messages: apiMessages,
+          tools: TOOL_DEFINITIONS,
+        };
+        const response = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: anthropicHeaders,
+          body: JSON.stringify(body),
+        });
+        if (!response.ok) {
+          const errBody = await response.text().catch(() => "");
+          throw new Error(`Anthropic API ${response.status}: ${errBody.slice(0, 200)}`);
+        }
+        const data = (await response.json()) as {
+          stop_reason: string;
+          content: Array<{
+            type: string;
+            id?: string;
+            name?: string;
+            input?: Record<string, unknown>;
+            text?: string;
+          }>;
+        };
+
+        if (data.stop_reason !== "tool_use") {
+          return data.content.find((b) => b.type === "text")?.text ?? "";
+        }
+
+        // Ejecutar las herramientas solicitadas
+        const toolResults: ApiContent[] = [];
+        for (const block of data.content.filter((b) => b.type === "tool_use")) {
+          const handler = TOOL_HANDLERS[block.name ?? ""];
+          let resultContent: string;
+          try {
+            const toolResult = handler
+              ? await handler((block.input ?? {}) as Record<string, unknown>)
+              : { error: `Herramienta desconocida: ${block.name}` };
+            resultContent = JSON.stringify(toolResult);
+          } catch (err) {
+            resultContent = JSON.stringify({
+              error: err instanceof Error ? err.message : String(err),
+            });
+          }
+          toolResults.push({
+            type: "tool_result",
+            tool_use_id: block.id ?? "",
+            content: resultContent,
+          });
+        }
+
+        // Añadir turno de la IA y resultados al historial
+        apiMessages.push({ role: "assistant", content: data.content as ApiContent[] });
+        apiMessages.push({ role: "user", content: toolResults });
+      }
+    }
+
     const anthropicBody: Record<string, unknown> = {
       model: bootstrap.model,
-      max_tokens: useReasoning ? 8000 : 2048,
+      max_tokens: maxTokens,
       system: systemPrompt,
       messages,
     };
@@ -148,7 +294,7 @@ async function callAI(
           : "https://api.openai.com/v1");
     const openaiBody: Record<string, unknown> = {
       model: bootstrap.model,
-      max_tokens: useReasoning ? 8000 : 2048,
+      max_tokens: maxTokens,
       messages: [{ role: "system", content: systemPrompt }, ...messages],
     };
     if (!useReasoning) {
@@ -269,13 +415,14 @@ async function runStage(
   bootstrap: BootstrapResult,
   systemPrompt: string,
   initialTrigger: string,
+  modeConfig?: ModeConfig,
 ): Promise<StageOutcome> {
   const messages: Message[] = [{ role: "user", content: initialTrigger }];
 
   while (true) {
     // Llamar a la IA con el historial actual
     process.stdout.write("  (pensando...)\r");
-    const aiText = await callAI(bootstrap, systemPrompt, messages);
+    const aiText = await callAI(bootstrap, systemPrompt, messages, modeConfig);
     process.stdout.write("                \r");
 
     printAiMessage(aiText);
@@ -377,6 +524,7 @@ const STAGE_LABELS = [
 export async function runConversation(
   bootstrap: BootstrapResult,
   scan: SystemScan,
+  mode: InstallMode = "full-ai",
 ): Promise<InstallerConfig> {
   console.log(t.section("FASE 2 — CONVERSACIÓN CON LA IA"));
   console.log(t.dim(
@@ -452,6 +600,7 @@ export async function runConversation(
   let users: UserConfig[] = [];
 
   const useReasoning = bootstrap.supportsReasoning ?? isReasoningModel(bootstrap.model);
+  const modeConfig = getModeConfig(mode, scan);
 
   let stageIndex = 0;
 
@@ -567,7 +716,7 @@ export async function runConversation(
         }
       }
 
-      const outcome = await runStage(rl, bootstrap, systemPrompt, trigger);
+      const outcome = await runStage(rl, bootstrap, systemPrompt, trigger, modeConfig);
 
       if (outcome.action === "back") {
         if (stageIndex > 0) {
@@ -702,7 +851,7 @@ Devuelve un array JSON. Si no se mencionaron nombres concretos, devuelve []:
 
     rl.close();
 
-    const config: InstallerConfig = { company, access, services, security, compliance, network, users };
+    const config: InstallerConfig = { company, access, services, security, compliance, network, users, installMode: mode };
 
     // Guardar la configuración en ~/.laia-arch/
     const configDir = path.join(os.homedir(), ".laia-arch");
