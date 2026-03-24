@@ -97,7 +97,7 @@ export interface NetworkConfig {
 
 export interface UserConfig {
   username: string;
-  role: "creativos" | "cuentas" | "comerciales";
+  role: string;
   remote: boolean;
 }
 
@@ -108,6 +108,10 @@ export interface InstallStep {
   commands: string[];
   requiresApproval: boolean;
   rollback?: string;
+  /** Timeout por comando en ms. Por defecto 600 000 (10 min). */
+  timeout?: number;
+  /** Reintentos máximos ante errores transitorios. Por defecto 2. */
+  maxRetries?: number;
 }
 
 export interface InstallPlan {

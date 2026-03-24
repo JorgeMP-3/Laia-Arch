@@ -6,14 +6,8 @@ import { retrieveCredential } from "../credential-manager.js";
 import { logToolCall } from "./logger.js";
 
 type ToolFailure = { success: false; error: string; retryable: boolean };
-type RoleName = "creativos" | "cuentas" | "comerciales";
 
 const LDAP_ADMIN_PASSWORD_ID = "laia-arch-ldap-admin-password";
-const ROLE_GID: Record<RoleName, number> = {
-  creativos: 2001,
-  cuentas: 2002,
-  comerciales: 2003,
-};
 
 function fail(error: string, retryable: boolean): ToolFailure {
   return { success: false, error, retryable };
@@ -56,6 +50,27 @@ function shellQuote(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`;
 }
 
+function normalizeGroupName(value: string): string {
+  return (
+    value
+      .trim()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .replace(/\s+/g, "-")
+      .replace(/[^a-z0-9_-]/g, "")
+      .replace(/^-+|-+$/g, "") || "usuarios"
+  );
+}
+
+function deriveGroupGid(name: string): number {
+  let hash = 0;
+  for (const char of normalizeGroupName(name)) {
+    hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
+  }
+  return 20_000 + (hash % 20_000);
+}
+
 function withTempFiles<T>(
   files: Record<string, string>,
   fn: (dir: string, paths: Record<string, string>) => T,
@@ -83,10 +98,11 @@ export async function createLdapUser(params: {
   username: string;
   givenName: string;
   sn: string;
-  role: RoleName;
+  role: string;
   uidNumber: number;
   passwordId: string;
   domain: string;
+  gidNumber?: number;
 }): Promise<{ success: true; dn: string } | ToolFailure> {
   let result: { success: true; dn: string } | ToolFailure;
   if (!validateUsername(params.username)) {
@@ -99,6 +115,8 @@ export async function createLdapUser(params: {
     logToolCall("create_ldap_user", params, result);
     return result;
   }
+  const groupName = normalizeGroupName(params.role);
+  const gidNumber = params.gidNumber ?? deriveGroupGid(groupName);
 
   try {
     const userPassword = await retrieveCredential(params.passwordId);
@@ -115,7 +133,7 @@ export async function createLdapUser(params: {
       `givenName: ${params.givenName}`,
       `uid: ${params.username}`,
       `uidNumber: ${params.uidNumber}`,
-      `gidNumber: ${ROLE_GID[params.role]}`,
+      `gidNumber: ${gidNumber}`,
       `homeDirectory: /home/${params.username}`,
       "loginShell: /bin/bash",
       `userPassword: ${userPassword}`,
@@ -148,17 +166,19 @@ export async function createLdapUser(params: {
 
 export async function createLdapGroup(
   name: string,
-  gidNumber: number,
+  gidNumber: number | undefined,
   domain: string,
 ): Promise<{ success: true; dn: string } | ToolFailure> {
-  const params = { name, gidNumber, domain };
+  const normalizedName = normalizeGroupName(name);
+  const resolvedGidNumber = gidNumber ?? deriveGroupGid(normalizedName);
+  const params = { name, normalizedName, gidNumber: resolvedGidNumber, domain };
   let result: { success: true; dn: string } | ToolFailure;
-  if (!/^[a-z][a-z0-9_-]*$/.test(name)) {
+  if (!/^[a-z][a-z0-9_-]*$/.test(normalizedName)) {
     result = fail("nombre de grupo LDAP inválido", false);
     logToolCall("create_ldap_group", params, result);
     return result;
   }
-  if (!Number.isInteger(gidNumber) || gidNumber <= 0) {
+  if (!Number.isInteger(resolvedGidNumber) || resolvedGidNumber <= 0) {
     result = fail("gidNumber inválido", false);
     logToolCall("create_ldap_group", params, result);
     return result;
@@ -167,12 +187,12 @@ export async function createLdapGroup(
   try {
     const adminPassword = await getLdapAdminPassword();
     const baseDn = domainToBaseDn(domain);
-    const dn = `cn=${name},ou=groups,${baseDn}`;
+    const dn = `cn=${normalizedName},ou=groups,${baseDn}`;
     const ldif = [
       `dn: ${dn}`,
       "objectClass: posixGroup",
-      `cn: ${name}`,
-      `gidNumber: ${gidNumber}`,
+      `cn: ${normalizedName}`,
+      `gidNumber: ${resolvedGidNumber}`,
       "",
     ].join("\n");
     result = withTempFiles(
@@ -204,14 +224,15 @@ export async function addUserToGroup(
   group: string,
   domain: string,
 ): Promise<{ success: true; dn: string } | ToolFailure> {
-  const params = { username, group, domain };
+  const normalizedGroup = normalizeGroupName(group);
+  const params = { username, group, normalizedGroup, domain };
   let result: { success: true; dn: string } | ToolFailure;
   if (!validateUsername(username)) {
     result = fail("username inválido: debe tener formato nombre.apellido", false);
     logToolCall("add_user_to_group", params, result);
     return result;
   }
-  if (!/^[a-z][a-z0-9_-]*$/.test(group)) {
+  if (!/^[a-z][a-z0-9_-]*$/.test(normalizedGroup)) {
     result = fail("grupo inválido", false);
     logToolCall("add_user_to_group", params, result);
     return result;
@@ -220,7 +241,7 @@ export async function addUserToGroup(
   try {
     const adminPassword = await getLdapAdminPassword();
     const baseDn = domainToBaseDn(domain);
-    const dn = `cn=${group},ou=groups,${baseDn}`;
+    const dn = `cn=${normalizedGroup},ou=groups,${baseDn}`;
     const ldif = [
       `dn: ${dn}`,
       "changetype: modify",

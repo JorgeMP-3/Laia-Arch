@@ -3,11 +3,7 @@
 
 import { generateAndStorePassword } from "./credential-tools.js";
 import { addUserToGroup, createLdapGroup, createLdapUser, verifyLdapUser } from "./ldap-tools.js";
-import {
-  addDnsRecord,
-  configureHostname,
-  configureWireguardPeer,
-} from "./network-tools.js";
+import { addDnsRecord, configureHostname, configureWireguardPeer } from "./network-tools.js";
 import { createSambaShare, registerSambaUser, verifySambaShare } from "./samba-tools.js";
 import {
   addAptRepository,
@@ -123,7 +119,7 @@ export const TOOL_DEFINITIONS_ANTHROPIC: ToolDefinition[] = [
   },
   {
     name: "create_ldap_user",
-    description: "Crea un usuario en OpenLDAP con su rol (creativos, cuentas o comerciales).",
+    description: "Crea un usuario en OpenLDAP y lo asocia a un rol o departamento.",
     input_schema: {
       type: "object",
       properties: {
@@ -132,9 +128,13 @@ export const TOOL_DEFINITIONS_ANTHROPIC: ToolDefinition[] = [
         sn: { type: "string", description: "Apellido" },
         role: {
           type: "string",
-          description: "Rol: creativos, cuentas o comerciales",
+          description: "Rol o departamento del usuario (ej: ventas, soporte, administracion)",
         },
         uidNumber: { type: "integer", description: "UID único del usuario (ej: 2101)" },
+        gidNumber: {
+          type: "integer",
+          description: "GID del grupo LDAP. Si se omite, se deriva automáticamente del rol.",
+        },
         passwordId: {
           type: "string",
           description: "ID de credencial almacenada para la contraseña del usuario",
@@ -149,15 +149,18 @@ export const TOOL_DEFINITIONS_ANTHROPIC: ToolDefinition[] = [
   },
   {
     name: "create_ldap_group",
-    description: "Crea un grupo posixGroup en OpenLDAP.",
+    description: "Crea un grupo posixGroup en OpenLDAP para un rol o departamento.",
     input_schema: {
       type: "object",
       properties: {
-        name: { type: "string", description: "Nombre del grupo (ej: creativos)" },
-        gidNumber: { type: "integer", description: "GID del grupo (ej: 2001)" },
+        name: { type: "string", description: "Nombre del grupo (ej: ventas)" },
+        gidNumber: {
+          type: "integer",
+          description: "GID del grupo. Si se omite, se calcula de forma estable.",
+        },
         domain: { type: "string", description: "Dominio interno (ej: miagencia.local)" },
       },
-      required: ["name", "gidNumber", "domain"],
+      required: ["name", "domain"],
     },
   },
   {
@@ -234,8 +237,7 @@ export const TOOL_DEFINITIONS_ANTHROPIC: ToolDefinition[] = [
   },
   {
     name: "configure_hostname",
-    description:
-      "Establece el hostname del servidor y añade la entrada FQDN en /etc/hosts.",
+    description: "Establece el hostname del servidor y añade la entrada FQDN en /etc/hosts.",
     input_schema: {
       type: "object",
       properties: {
@@ -247,8 +249,7 @@ export const TOOL_DEFINITIONS_ANTHROPIC: ToolDefinition[] = [
   },
   {
     name: "configure_wireguard_peer",
-    description:
-      "Genera claves WireGuard para un usuario remoto y añade su peer al servidor.",
+    description: "Genera claves WireGuard para un usuario remoto y añade su peer al servidor.",
     input_schema: {
       type: "object",
       properties: {
@@ -261,7 +262,10 @@ export const TOOL_DEFINITIONS_ANTHROPIC: ToolDefinition[] = [
           type: "string",
           description: "IP pública o hostname del servidor WireGuard",
         },
-        serverPort: { type: "integer", description: "Puerto UDP del servidor WireGuard (ej: 51820)" },
+        serverPort: {
+          type: "integer",
+          description: "Puerto UDP del servidor WireGuard (ej: 51820)",
+        },
         serverPublicKey: { type: "string", description: "Clave pública del servidor WireGuard" },
       },
       required: ["username", "clientIp", "serverIp", "serverPort", "serverPublicKey"],
@@ -306,7 +310,10 @@ export const TOOL_DEFINITIONS_ANTHROPIC: ToolDefinition[] = [
     input_schema: {
       type: "object",
       properties: {
-        hostname: { type: "string", description: "Hostname a resolver (ej: server.miagencia.local)" },
+        hostname: {
+          type: "string",
+          description: "Hostname a resolver (ej: server.miagencia.local)",
+        },
       },
       required: ["hostname"],
     },
@@ -377,8 +384,7 @@ export const TOOL_DEFINITIONS_ANTHROPIC: ToolDefinition[] = [
       properties: {
         repoUrl: {
           type: "string",
-          description:
-            "URL base del repositorio (ej: https://download.docker.com/linux/ubuntu)",
+          description: "URL base del repositorio (ej: https://download.docker.com/linux/ubuntu)",
         },
         gpgKeyUrl: {
           type: "string",
@@ -453,14 +459,19 @@ export const TOOL_HANDLERS: Record<string, ToolHandler> = {
       username: input.username as string,
       givenName: input.givenName as string,
       sn: input.sn as string,
-      role: input.role as "creativos" | "cuentas" | "comerciales",
+      role: input.role as string,
       uidNumber: input.uidNumber as number,
+      gidNumber: input.gidNumber as number | undefined,
       passwordId: input.passwordId as string,
       domain: input.domain as string,
     }),
 
   create_ldap_group: async (input) =>
-    createLdapGroup(input.name as string, input.gidNumber as number, input.domain as string),
+    createLdapGroup(
+      input.name as string,
+      input.gidNumber as number | undefined,
+      input.domain as string,
+    ),
 
   add_user_to_group: async (input) =>
     addUserToGroup(input.username as string, input.group as string, input.domain as string),

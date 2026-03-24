@@ -104,7 +104,7 @@ export async function runInstaller(): Promise<void> {
   } catch (err) {
     console.log(
       "\n  " +
-        t.warn("No se pudo mostrar el selector de modo. " + "Usando modo adaptativo por defecto."),
+        t.warn("No se pudo mostrar el selector de modo. Usando modo adaptativo por defecto."),
     );
     if (err instanceof Error) {
       console.log("  " + t.muted(err.message));
@@ -137,11 +137,10 @@ export async function runInstaller(): Promise<void> {
   } catch {
     console.log(
       t.warn(
-        "\n⚠ AVISO: El usuario actual no tiene permisos sudo.\n" +
-          "La instalación fallará al ejecutar comandos del sistema.\n\n" +
-          "Antes de aprobar el plan, abre otro terminal y ejecuta:\n" +
-          "  sudo bash scripts/setup-sudoers.sh\n" +
-          "Luego vuelve aquí y aprueba el plan.\n",
+        "\n⚠ AVISO: El usuario actual no tiene permisos sudo sin interacción.\n" +
+          "El instalador puede pedir contraseña más adelante o fallar al ejecutar comandos del sistema.\n\n" +
+          "Si quieres evitar cortes, prepara antes:\n" +
+          "  sudo bash scripts/setup-sudoers.sh\n",
       ),
     );
   }
