@@ -202,20 +202,27 @@ export async function generatePlan(config: InstallerConfig): Promise<InstallPlan
     // Generar entradas LDIF por cada usuario configurado en la conversación
     if (config.users && config.users.length > 0) {
       const userLdif = config.users
-        .map((u) => {
+        .map((u, idx) => {
           const parts = u.username.split(".");
           const givenName = parts[0] ?? u.username;
           const sn = parts[1] ?? givenName;
+          const uidNumber = 10001 + idx;
           return [
             `dn: uid=${u.username},ou=users,${ldapDc}`,
-            `objectClass: inetOrgPerson`,
+            "objectClass: inetOrgPerson",
+            "objectClass: posixAccount",
+            "objectClass: shadowAccount",
             `uid: ${u.username}`,
             `cn: ${givenName} ${sn}`,
             `sn: ${sn}`,
             `givenName: ${givenName}`,
-          ].join("\\n");
+            `uidNumber: ${uidNumber}`,
+            "gidNumber: 10000",
+            `homeDirectory: /home/${u.username}`,
+            "loginShell: /bin/bash",
+          ].join("\n");
         })
-        .join("\\n\\n");
+        .join("\n\n");
 
       steps.push({
         id: "ldap-03",

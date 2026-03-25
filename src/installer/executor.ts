@@ -9,7 +9,7 @@ import * as readline from "node:readline";
 import { laiaTheme as t } from "../cli/laia-arch-theme.js";
 import { extractCredentialValue, retrieveProfileCredential } from "./credential-manager.js";
 import { requestApproval } from "./hitl-controller.js";
-import type { BootstrapResult, InstallPlan, InstallStep } from "./types.js";
+import type { BootstrapResult, InstallerConfig, InstallPlan, InstallStep } from "./types.js";
 
 // ── Tipos ─────────────────────────────────────────────────────────────────────
 
@@ -590,6 +590,12 @@ interface RescueContext {
   completedCount: number;
   totalCount: number;
   planSummary: string;
+  /** Ruta al log de instalación para que la IA pueda leerlo. */
+  logPath?: string;
+  /** Configuración completa de la instalación. */
+  installerConfig?: InstallerConfig;
+  /** Resumen del sistema (de last-scan.json). */
+  systemInfo?: string;
 }
 
 type RescueDecision = "continue" | "cancel";
@@ -680,7 +686,80 @@ async function callRescueAI(
   return data.choices[0]?.message?.content ?? "";
 }
 
+/** Devuelve comandos de diagnóstico sugeridos según el tipo de error y el paso. */
+function buildErrorDiagnosticHints(error: string, step: InstallStep): string {
+  const errorLower = error.toLowerCase();
+  const stepId = step.id.toLowerCase();
+  if (stepId.includes("ldap") || errorLower.includes("ldap") || errorLower.includes("slapd")) {
+    return [
+      "- Estado slapd  : journalctl -u slapd -n 50",
+      "- Config slapd  : slapcat -n 0",
+      "- Test conexión : ldapsearch -x -H ldap://localhost -b '' -s base",
+      "- Logs syslog   : tail -50 /var/log/syslog | grep -i slapd",
+    ].join("\n");
+  }
+  if (stepId.includes("dns") || errorLower.includes("named") || errorLower.includes("bind")) {
+    return [
+      "- Estado named  : systemctl status named",
+      "- Verificar cfg : named-checkconf",
+      "- Test DNS      : dig @localhost localhost",
+      "- Logs named    : journalctl -u named -n 50",
+    ].join("\n");
+  }
+  if (stepId.includes("docker") || errorLower.includes("docker")) {
+    return [
+      "- Info docker   : docker info",
+      "- Contenedores  : docker ps -a",
+      "- Logs docker   : journalctl -u docker -n 50",
+      "- Estado servicio: systemctl status docker",
+    ].join("\n");
+  }
+  if (stepId.includes("wg") || errorLower.includes("wireguard")) {
+    return [
+      "- Interfaces    : ip link show",
+      "- Config WG     : wg show",
+      "- Logs wg       : journalctl -u wg-quick@wg0 -n 50",
+    ].join("\n");
+  }
+  if (stepId.includes("smb") || errorLower.includes("samba") || errorLower.includes("smbd")) {
+    return [
+      "- Estado samba  : systemctl status smbd nmbd",
+      "- Verificar cfg : testparm",
+      "- Logs smbd     : journalctl -u smbd -n 50",
+    ].join("\n");
+  }
+  return [
+    "- Logs recientes : journalctl -n 100 --no-pager",
+    "- Fallos unitarios: systemctl list-units --state=failed",
+    "- Espacio disco  : df -h",
+    "- Red activa     : ip addr && ss -tlnp",
+  ].join("\n");
+}
+
 function buildRescueSystemPrompt(ctx: RescueContext): string {
+  const configSection = ctx.installerConfig
+    ? `\nCONFIGURACIÓN DE LA INSTALACIÓN:\n` +
+      `- Empresa  : ${ctx.installerConfig.company.name} (sector: ${ctx.installerConfig.company.sector})\n` +
+      `- Dominio  : ${ctx.installerConfig.network?.internalDomain ?? "(no configurado)"}\n` +
+      `- Usuarios : ${ctx.installerConfig.users?.map((u) => u.username).join(", ") ?? "ninguno"}\n` +
+      `- Servicios: ${
+        Object.entries(ctx.installerConfig.services)
+          .filter(([, v]) => v)
+          .map(([k]) => k)
+          .join(", ")
+      }`
+    : "";
+
+  const logSection = ctx.logPath
+    ? `\nLOG DE INSTALACIÓN:\nPuedes leer el log completo con read_file en: ${ctx.logPath}`
+    : "";
+
+  const systemSection = ctx.systemInfo
+    ? `\nINFORMACIÓN DEL SISTEMA:\n${ctx.systemInfo}`
+    : "";
+
+  const errorHints = buildErrorDiagnosticHints(ctx.error ?? "", ctx.step);
+
   return `Eres una IA de diagnóstico y recuperación para el instalador de Laia Arch.
 
 CONTEXTO ACTUAL:
@@ -696,15 +775,21 @@ ${ctx.step.commands.map((c) => `  $ ${c}`).join("\n")}
 ${ctx.output ? ctx.output.split("\n").slice(-30).join("\n") : "(sin salida)"}
 
 PLAN RESUMIDO:
-${ctx.planSummary}
+${ctx.planSummary}${configSection}${logSection}${systemSection}
+
+HERRAMIENTAS DISPONIBLES:
+Tienes acceso a las tools del instalador: check_service_status, read_file, install_package
+y otras. Úsalas directamente para diagnosticar y resolver el problema.
+NO pidas al administrador que copie y pegue comandos — ejecútalos tú con las tools.
+
+DIAGNÓSTICO SUGERIDO PARA ESTE TIPO DE ERROR:
+${errorHints}
 
 TU OBJETIVO:
-1. Entender el problema que ha ocurrido.
-2. Proponer soluciones concretas con comandos exactos que el administrador pueda ejecutar.
-3. Guiar paso a paso si el administrador aprueba un diagnóstico.
-4. NO ejecutes nada sin confirmación explícita del administrador.
-5. Cuando el problema esté resuelto o el administrador quiera continuar, indícale que escriba "continuar".
-6. Si decide abortar la instalación, indícale que escriba "cancelar".
+1. Diagnosticar el problema con las tools disponibles.
+2. Ejecutar las soluciones directamente — no esperes a que el administrador las ejecute.
+3. Cuando el problema esté resuelto, comunícalo y pide que escriba "continuar".
+4. Si la instalación debe abortarse, pide que escriba "cancelar".
 
 Responde siempre en español. Sé claro, directo y técnico.`;
 }
