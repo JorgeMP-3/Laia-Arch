@@ -169,7 +169,8 @@ export async function generatePlan(config: InstallerConfig): Promise<InstallPlan
         "systemctl start named",
       ],
       requiresApproval: true,
-      rollback: "apt-get remove -y --purge bind9 bind9utils && systemctl daemon-reload",
+      rollback:
+        "apt-get remove -y --purge bind9 bind9utils && rm -rf /etc/bind/db.* /etc/bind/named.conf.local && systemctl daemon-reload",
     });
     estimatedMinutes += 10;
   }

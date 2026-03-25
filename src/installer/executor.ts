@@ -820,6 +820,12 @@ function printRescueAssistantReply(response: string): void {
   }
 }
 
+function printRescueToolResult(resultJson: string): void {
+  const MAX = 300;
+  const display = resultJson.length > MAX ? `${resultJson.slice(0, MAX)}…` : resultJson;
+  console.log(`  ${t.muted(`↳ ${display}`)}`);
+}
+
 async function callRescueAI(
   bootstrap: BootstrapResult,
   systemPrompt: string,
@@ -974,9 +980,18 @@ async function resolveAnthropicRescueTurn(
     const result = await callRescueAI(bootstrap, systemPrompt, messages);
     if (result.kind === "anthropic_tool_use") {
       messages.push(result.assistantMessage);
+      // Mostrar texto de razonamiento que la IA produce antes de llamar a las tools
+      const textBlocks = Array.isArray(result.assistantMessage.content)
+        ? result.assistantMessage.content.filter(isAnthropicTextBlock)
+        : [];
+      if (textBlocks.length > 0) {
+        process.stdout.write("\r  \r");
+        printRescueAssistantReply(textBlocks.map((b) => b.text).join("\n"));
+      }
       const toolResults: RescueAnthropicToolResultBlock[] = [];
       for (const toolUse of result.toolUses) {
         const resultContent = await executeRescueTool(toolUse.name, toolUse.input);
+        printRescueToolResult(resultContent);
         toolResults.push({
           type: "tool_result",
           tool_use_id: toolUse.id,
@@ -984,6 +999,7 @@ async function resolveAnthropicRescueTurn(
         });
       }
       messages.push({ role: "user", content: toolResults });
+      process.stdout.write(t.muted("  Analizando..."));
       continue;
     }
     if (result.kind === "text") {
@@ -1003,6 +1019,12 @@ async function resolveOpenAIRescueTurn(
     const result = await callRescueAI(bootstrap, systemPrompt, messages);
     if (result.kind === "openai_tool_calls") {
       messages.push(result.assistantMessage);
+      // Mostrar texto de razonamiento que la IA produce antes de llamar a las tools
+      const preText = result.assistantMessage.content;
+      if (preText && preText.trim()) {
+        process.stdout.write("\r  \r");
+        printRescueAssistantReply(preText);
+      }
       for (const toolCall of result.toolCalls) {
         let resultContent: string;
         try {
@@ -1015,12 +1037,14 @@ async function resolveOpenAIRescueTurn(
             error: err instanceof Error ? err.message : String(err),
           });
         }
+        printRescueToolResult(resultContent);
         messages.push({
           role: "tool",
           tool_call_id: toolCall.id,
           content: resultContent,
         });
       }
+      process.stdout.write(t.muted("  Analizando..."));
       continue;
     }
     if (result.kind === "text") {
