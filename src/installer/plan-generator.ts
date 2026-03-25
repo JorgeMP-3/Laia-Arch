@@ -6,6 +6,10 @@ import type { InstallerConfig, InstallPlan, InstallStep } from "./types.js";
 
 export type PlanStatus = "draft" | "approved" | "executing";
 
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
 /**
  * Genera un plan de instalación ordenado y reproducible a partir de la configuración
  * recopilada durante la conversación.
@@ -108,16 +112,52 @@ export async function generatePlan(config: InstallerConfig): Promise<InstallPlan
       .split(".")
       .map((p) => `dc=${p}`)
       .join(",");
+    const ldapOrganization = config.company.name.trim() || ldapDomain;
+    const ldapPasswordCredentialId = "laia-arch-ldap-admin-password";
+    const ldapInstallCommand = [
+      "set -euo pipefail",
+      `LDAP_ADMIN_PASSWORD_ID=${shellQuote(ldapPasswordCredentialId)}`,
+      'LDAP_ADMIN_PASSWORD=""',
+      'LAIA_ARCH_CREDENTIAL_HOME="${HOME}"',
+      'if [ -n "${SUDO_USER:-}" ]; then',
+      '  LAIA_ARCH_CREDENTIAL_HOME="$(getent passwd "$SUDO_USER" | cut -d: -f6 || printf "%s" "$HOME")"',
+      "fi",
+      "if command -v secret-tool >/dev/null 2>&1; then",
+      '  if [ -n "${SUDO_USER:-}" ]; then',
+      '    LDAP_ADMIN_PASSWORD="$(sudo -u "$SUDO_USER" secret-tool lookup service laia-arch key "$LDAP_ADMIN_PASSWORD_ID" 2>/dev/null || true)"',
+      "  else",
+      '    LDAP_ADMIN_PASSWORD="$(secret-tool lookup service laia-arch key "$LDAP_ADMIN_PASSWORD_ID" 2>/dev/null || true)"',
+      "  fi",
+      "fi",
+      'if [ -z "$LDAP_ADMIN_PASSWORD" ] && command -v security >/dev/null 2>&1; then',
+      '  if [ -n "${SUDO_USER:-}" ]; then',
+      '    LDAP_ADMIN_PASSWORD="$(sudo -u "$SUDO_USER" security find-generic-password -a laia-arch -s "$LDAP_ADMIN_PASSWORD_ID" -w 2>/dev/null || true)"',
+      "  else",
+      '    LDAP_ADMIN_PASSWORD="$(security find-generic-password -a laia-arch -s "$LDAP_ADMIN_PASSWORD_ID" -w 2>/dev/null || true)"',
+      "  fi",
+      "fi",
+      'if [ -z "$LDAP_ADMIN_PASSWORD" ] && [ -f "$LAIA_ARCH_CREDENTIAL_HOME/.laia-arch/credentials/.$LDAP_ADMIN_PASSWORD_ID" ]; then',
+      '  LDAP_ADMIN_PASSWORD="$(cat "$LAIA_ARCH_CREDENTIAL_HOME/.laia-arch/credentials/.$LDAP_ADMIN_PASSWORD_ID")"',
+      "fi",
+      'if [ -z "$LDAP_ADMIN_PASSWORD" ]; then',
+      '  echo "No se pudo recuperar la credencial LDAP laia-arch-ldap-admin-password." >&2',
+      "  exit 1",
+      "fi",
+      `printf '%s\\n' ${shellQuote("slapd slapd/no_configuration boolean false")} | debconf-set-selections`,
+      "printf '%s\\n' \"slapd slapd/internal/generated_adminpw password $LDAP_ADMIN_PASSWORD\" | debconf-set-selections",
+      "printf '%s\\n' \"slapd slapd/internal/adminpw password $LDAP_ADMIN_PASSWORD\" | debconf-set-selections",
+      "printf '%s\\n' \"slapd slapd/password1 password $LDAP_ADMIN_PASSWORD\" | debconf-set-selections",
+      "printf '%s\\n' \"slapd slapd/password2 password $LDAP_ADMIN_PASSWORD\" | debconf-set-selections",
+      `printf '%s\\n' ${shellQuote(`slapd slapd/domain string ${ldapDomain}`)} | debconf-set-selections`,
+      `printf '%s\\n' ${shellQuote(`slapd shared/organization string ${ldapOrganization}`)} | debconf-set-selections`,
+      "DEBIAN_FRONTEND=noninteractive apt-get install -y slapd ldap-utils",
+    ].join("\n");
 
     steps.push({
       id: "ldap-01",
       phase: 3,
       description: "Instalar OpenLDAP (slapd) para gestión de usuarios en red",
-      commands: [
-        "apt-get install -y slapd ldap-utils",
-        "systemctl enable slapd",
-        "systemctl start slapd",
-      ],
+      commands: [ldapInstallCommand, "systemctl enable slapd", "systemctl start slapd"],
       requiresApproval: true,
       rollback: "apt-get remove -y --purge slapd ldap-utils && rm -rf /etc/ldap /var/lib/ldap",
     });
