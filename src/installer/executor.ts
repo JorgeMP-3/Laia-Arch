@@ -183,62 +183,192 @@ async function validateSudoPassword(password: string): Promise<boolean> {
   });
 }
 
-function watchProcessOutput(
-  proc: import("node:child_process").ChildProcess,
-  onStdout: (chunk: string) => void,
-  onStderr: (chunk: string) => void
-) {
-  let lastOutputTime = Date.now();
-  const startTime = Date.now();
-  let heartbeatActive = false;
+function formatElapsed(ms: number): string {
+  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
+}
 
-  const heartbeatTimer = setInterval(() => {
-    if (Date.now() - lastOutputTime > 5000) {
-      const elapsedSec = Math.floor((Date.now() - startTime) / 1000);
-      readline.clearLine(process.stdout, 0);
-      readline.cursorTo(process.stdout, 0);
-      process.stdout.write(`      ${t.muted(`... ejecutando (${elapsedSec}s)`)}`);
-      heartbeatActive = true;
-    }
-  }, 1000);
+function isAptInstallCommand(cmd: string): boolean {
+  return /\bapt(?:-get)?\b[^\n]*\binstall\b/.test(cmd.toLowerCase());
+}
 
-  const handleLine = (line: string, isError: boolean) => {
-    if (heartbeatActive) {
-      readline.clearLine(process.stdout, 0);
-      readline.cursorTo(process.stdout, 0);
-      heartbeatActive = false;
-    }
-    lastOutputTime = Date.now();
-    if (isError) {
-      process.stdout.write(`      ${t.muted(line)}\n`);
-    } else {
-      process.stdout.write(`      ${line}\n`);
-    }
-  };
+function hasHeavyPackages(cmd: string): boolean {
+  const normalized = cmd.toLowerCase();
+  return HEAVY_PACKAGE_PATTERNS.some((pattern) => pattern.test(normalized));
+}
 
-  if (proc.stdout) {
-    const rlStdout = readline.createInterface({ input: proc.stdout });
-    rlStdout.on("line", (line) => {
-      handleLine(line, false);
-      onStdout(line + "\n");
-    });
+function resolveStepTimeoutMs(step: InstallStep): number {
+  if (step.timeout !== undefined) {
+    return step.timeout;
   }
 
-  if (proc.stderr) {
-    const rlStderr = readline.createInterface({ input: proc.stderr });
-    rlStderr.on("line", (line) => {
-      handleLine(line, true);
-      onStderr(line + "\n");
-    });
+  if (step.commands.some((cmd) => isAptInstallCommand(cmd) && hasHeavyPackages(cmd))) {
+    return HEAVY_INSTALL_TIMEOUT_MS;
   }
 
-  return () => {
-    clearInterval(heartbeatTimer);
-    if (heartbeatActive) {
+  if (step.commands.some((cmd) => isAptInstallCommand(cmd))) {
+    return APT_INSTALL_TIMEOUT_MS;
+  }
+
+  return DEFAULT_STEP_TIMEOUT_MS;
+}
+
+function clearHeartbeatLine(active: boolean): void {
+  if (!active || !process.stdout.isTTY) {
+    return;
+  }
+  readline.clearLine(process.stdout, 0);
+  readline.cursorTo(process.stdout, 0);
+}
+
+function renderCommandOutputLine(stream: "stdout" | "stderr", line: string): void {
+  const writer = stream === "stdout" ? process.stdout : process.stderr;
+  const prefix = stream === "stdout" ? t.muted("      │ ") : t.error("      ! ");
+  const content = stream === "stdout" ? line : t.error(line);
+  writer.write(`${prefix}${content}\n`);
+}
+
+function flushBufferedLines(
+  stream: "stdout" | "stderr",
+  buffer: string,
+  flushRemainder: boolean,
+): string {
+  let lastIndex = 0;
+
+  // Tratar `\r` como salto también permite ver progreso incremental de apt/dpkg.
+  for (const match of buffer.matchAll(/\r\n|\n|\r/g)) {
+    const index = match.index ?? 0;
+    renderCommandOutputLine(stream, buffer.slice(lastIndex, index));
+    lastIndex = index + match[0].length;
+  }
+
+  const remainder = buffer.slice(lastIndex);
+  if (flushRemainder && remainder.length > 0) {
+    renderCommandOutputLine(stream, remainder);
+    return "";
+  }
+
+  return remainder;
+}
+
+async function execWithStreaming(
+  spawnCmd: string,
+  args: string[],
+  env: NodeJS.ProcessEnv,
+  timeoutMs: number,
+  input?: string,
+): Promise<{ stdout: string; stderr: string }> {
+  return new Promise((resolve, reject) => {
+    const proc = spawn(spawnCmd, args, {
+      env,
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+
+    let settled = false;
+    let stdout = "";
+    let stderr = "";
+    let stdoutBuffer = "";
+    let stderrBuffer = "";
+    const startedAt = Date.now();
+    let lastOutputAt = startedAt;
+    let heartbeatVisible = false;
+
+    const cleanup = () => {
+      clearTimeout(timer);
+      clearInterval(heartbeatTimer);
+      clearHeartbeatLine(heartbeatVisible);
+      heartbeatVisible = false;
+    };
+
+    const noteOutput = () => {
+      lastOutputAt = Date.now();
+      clearHeartbeatLine(heartbeatVisible);
+      heartbeatVisible = false;
+    };
+
+    const handleChunk = (stream: "stdout" | "stderr", chunk: Buffer) => {
+      noteOutput();
+      const text = chunk.toString();
+      if (stream === "stdout") {
+        stdout += text;
+        stdoutBuffer += text;
+        stdoutBuffer = flushBufferedLines("stdout", stdoutBuffer, false);
+      } else {
+        stderr += text;
+        stderrBuffer += text;
+        stderrBuffer = flushBufferedLines("stderr", stderrBuffer, false);
+      }
+    };
+
+    const timer = setTimeout(() => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      cleanup();
+      proc.kill("SIGKILL");
+      reject(
+        new Error(
+          `Timeout (${Math.round(timeoutMs / 60_000)} min): ${args.at(-1)?.slice(0, 80) ?? spawnCmd}`,
+        ),
+      );
+    }, timeoutMs);
+
+    const heartbeatTimer = setInterval(() => {
+      if (settled || Date.now() - lastOutputAt < HEARTBEAT_IDLE_MS || !process.stdout.isTTY) {
+        return;
+      }
       readline.clearLine(process.stdout, 0);
       readline.cursorTo(process.stdout, 0);
+      process.stdout.write(
+        t.muted(
+          `      … proceso activo, sin salida nueva desde hace ${formatElapsed(Date.now() - lastOutputAt)} (total ${formatElapsed(Date.now() - startedAt)})`,
+        ),
+      );
+      heartbeatVisible = true;
+    }, HEARTBEAT_INTERVAL_MS);
+
+    if (input !== undefined) {
+      proc.stdin.write(input);
     }
-  };
+    proc.stdin.end();
+
+    proc.stdout.on("data", (chunk: Buffer) => {
+      handleChunk("stdout", chunk);
+    });
+    proc.stderr.on("data", (chunk: Buffer) => {
+      handleChunk("stderr", chunk);
+    });
+
+    proc.on("close", (code) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      cleanup();
+      stdoutBuffer = flushBufferedLines("stdout", stdoutBuffer, true);
+      stderrBuffer = flushBufferedLines("stderr", stderrBuffer, true);
+
+      if (code === 0) {
+        resolve({ stdout, stderr });
+      } else {
+        const errLines = stderr.trim().split("\n");
+        const errSummary = errLines.slice(-20).join("\n");
+        reject(new Error(`Exit ${code}: ${errSummary || stdout.trim().slice(-500)}`));
+      }
+    });
+
+    proc.on("error", (err) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      cleanup();
+      reject(err);
+    });
+  });
 }
 
 // ── Ejecutar comando como root vía sudo ──────────────────────────────────────
@@ -255,49 +385,13 @@ async function execAsSudo(
   env: NodeJS.ProcessEnv,
   timeoutMs: number,
 ): Promise<{ stdout: string; stderr: string }> {
-  return new Promise((resolve, reject) => {
-    const proc = spawn("sudo", ["-S", "-p", "", "bash", "-c", cmd], {
-      env,
-      stdio: ["pipe", "pipe", "pipe"],
-    });
-
-    let stdout = "";
-    let stderr = "";
-
-    const cleanupWatcher = watchProcessOutput(
-      proc,
-      (line) => { stdout += line; },
-      (line) => { stderr += line; }
-    );
-
-    const timer = setTimeout(() => {
-      cleanupWatcher();
-      proc.kill("SIGKILL");
-      reject(new Error(`Timeout (${Math.round(timeoutMs / 60_000)} min): ${cmd.slice(0, 80)}`));
-    }, timeoutMs);
-
-    proc.stdin.write(`${password}\n`);
-    proc.stdin.end();
-
-    proc.on("close", (code) => {
-      cleanupWatcher();
-      clearTimeout(timer);
-      if (code === 0) {
-        resolve({ stdout, stderr });
-      } else {
-        // Incluir las últimas 20 líneas de stderr para diagnóstico
-        const errLines = stderr.trim().split("\n");
-        const errSummary = errLines.slice(-20).join("\n");
-        reject(new Error(`Exit ${code}: ${errSummary || stdout.trim().slice(-500)}`));
-      }
-    });
-
-    proc.on("error", (err) => {
-      cleanupWatcher();
-      clearTimeout(timer);
-      reject(err);
-    });
-  });
+  return execWithStreaming(
+    "sudo",
+    ["-S", "-p", "", "bash", "-c", cmd],
+    env,
+    timeoutMs,
+    `${password}\n`,
+  );
 }
 
 // ── Ejecutar comando sin sudo (para comandos de usuario) ─────────────────────
@@ -307,45 +401,7 @@ async function execAsUser(
   env: NodeJS.ProcessEnv,
   timeoutMs: number,
 ): Promise<{ stdout: string; stderr: string }> {
-  return new Promise((resolve, reject) => {
-    const proc = spawn("bash", ["-c", cmd], {
-      env,
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-
-    let stdout = "";
-    let stderr = "";
-
-    const cleanupWatcher = watchProcessOutput(
-      proc,
-      (line) => { stdout += line; },
-      (line) => { stderr += line; }
-    );
-
-    const timer = setTimeout(() => {
-      cleanupWatcher();
-      proc.kill("SIGKILL");
-      reject(new Error(`Timeout (${Math.round(timeoutMs / 60_000)} min): ${cmd.slice(0, 80)}`));
-    }, timeoutMs);
-
-    proc.on("close", (code) => {
-      cleanupWatcher();
-      clearTimeout(timer);
-      if (code === 0) {
-        resolve({ stdout, stderr });
-      } else {
-        const errLines = stderr.trim().split("\n");
-        const errSummary = errLines.slice(-20).join("\n");
-        reject(new Error(`Exit ${code}: ${errSummary || stdout.trim().slice(-500)}`));
-      }
-    });
-
-    proc.on("error", (err) => {
-      cleanupWatcher();
-      clearTimeout(timer);
-      reject(err);
-    });
-  });
+  return execWithStreaming("bash", ["-c", cmd], env, timeoutMs);
 }
 
 // ── Keep-alive del sudo ───────────────────────────────────────────────────────
@@ -428,18 +484,7 @@ export async function executeStep(
   const result: StepResult = { stepId: step.id, status: "running" };
   const outputs: string[] = [];
   const env: NodeJS.ProcessEnv = { ...process.env, DEBIAN_FRONTEND: "noninteractive" };
-  
-  let timeoutMs = step.timeout;
-  if (!timeoutMs) {
-    const cmdStr = step.commands.join(" ");
-    if (/(slapd|docker-ce|samba|wireguard|nodejs)/.test(cmdStr)) {
-      timeoutMs = 30 * 60 * 1000;
-    } else if (/(apt-get install|apt install)/.test(cmdStr)) {
-      timeoutMs = 15 * 60 * 1000;
-    } else {
-      timeoutMs = 10 * 60 * 1000;
-    }
-  }
+  const timeoutMs = resolveStepTimeoutMs(step);
   const maxRetries = step.maxRetries ?? 2;
 
   try {
