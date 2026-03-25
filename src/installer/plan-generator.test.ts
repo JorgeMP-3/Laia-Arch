@@ -55,6 +55,21 @@ function createConfig(users: UserConfig[]): InstallerConfig {
 }
 
 describe("generatePlan LDAP steps", () => {
+  it("reconfigures an existing slapd install before binding with the new admin password", async () => {
+    const plan = await generatePlan(
+      createConfig([{ username: "usuario1", role: "Equipo", remote: false }]),
+    );
+
+    const ldapInstallStep = plan.steps.find((step) => step.id === "ldap-01");
+    expect(ldapInstallStep).toBeTruthy();
+
+    const commands = ldapInstallStep?.commands.join("\n") ?? "";
+    expect(commands).toContain("SLAPD_ALREADY_INSTALLED");
+    expect(commands).toContain("slapd slapd/move_old_database boolean true");
+    expect(commands).toContain("slapd slapd/purge_database boolean false");
+    expect(commands).toContain("DEBIAN_FRONTEND=noninteractive dpkg-reconfigure slapd");
+  });
+
   it("creates ldap-02 groups as normalized pure posixGroup entries", async () => {
     const plan = await generatePlan(
       createConfig([{ username: "usuario1", role: "Équipo Comercial", remote: false }]),

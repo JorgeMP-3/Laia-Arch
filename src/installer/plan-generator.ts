@@ -193,14 +193,23 @@ export async function generatePlan(config: InstallerConfig): Promise<InstallPlan
     const ldapInstallCommand = [
       "set -euo pipefail",
       ...createLdapAdminPasswordLoadLines(ldapPasswordCredentialId),
+      'SLAPD_ALREADY_INSTALLED="false"',
+      'if dpkg-query -W -f=\'${Status}\' slapd 2>/dev/null | grep -q "install ok installed"; then',
+      '  SLAPD_ALREADY_INSTALLED="true"',
+      "fi",
       `printf '%s\\n' ${shellQuote("slapd slapd/no_configuration boolean false")} | debconf-set-selections`,
       "printf '%s\\n' \"slapd slapd/internal/generated_adminpw password $LDAP_ADMIN_PASSWORD\" | debconf-set-selections",
       "printf '%s\\n' \"slapd slapd/internal/adminpw password $LDAP_ADMIN_PASSWORD\" | debconf-set-selections",
       "printf '%s\\n' \"slapd slapd/password1 password $LDAP_ADMIN_PASSWORD\" | debconf-set-selections",
       "printf '%s\\n' \"slapd slapd/password2 password $LDAP_ADMIN_PASSWORD\" | debconf-set-selections",
+      `printf '%s\\n' ${shellQuote("slapd slapd/move_old_database boolean true")} | debconf-set-selections`,
+      `printf '%s\\n' ${shellQuote("slapd slapd/purge_database boolean false")} | debconf-set-selections`,
       `printf '%s\\n' ${shellQuote(`slapd slapd/domain string ${ldapDomain}`)} | debconf-set-selections`,
       `printf '%s\\n' ${shellQuote(`slapd shared/organization string ${ldapOrganization}`)} | debconf-set-selections`,
       "DEBIAN_FRONTEND=noninteractive apt-get install -y slapd ldap-utils",
+      'if [ "$SLAPD_ALREADY_INSTALLED" = "true" ]; then',
+      "  DEBIAN_FRONTEND=noninteractive dpkg-reconfigure slapd",
+      "fi",
     ].join("\n");
 
     steps.push({
