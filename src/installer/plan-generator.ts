@@ -42,6 +42,22 @@ function createLdapAdminPasswordLoadLines(credentialId: string): string[] {
   ];
 }
 
+function createLdapAdminPasswordFileCommand(credentialId: string, command: string): string {
+  return [
+    "set -euo pipefail",
+    "mkdir -p /tmp/laia-arch-ldap",
+    "cleanup() { rm -f /tmp/laia-arch-ldap/admin.pwd; }",
+    "trap cleanup EXIT",
+    ...createLdapAdminPasswordLoadLines(credentialId),
+    "umask 077",
+    'printf "%s" "$LDAP_ADMIN_PASSWORD" > /tmp/laia-arch-ldap/admin.pwd',
+    "chmod 600 /tmp/laia-arch-ldap/admin.pwd",
+    command,
+    "cleanup",
+    "trap - EXIT",
+  ].join("\n");
+}
+
 function normalizeLdapGroupName(value: string): string {
   return (
     value
@@ -167,6 +183,13 @@ export async function generatePlan(config: InstallerConfig): Promise<InstallPlan
       .join(",");
     const ldapOrganization = config.company.name.trim() || ldapDomain;
     const ldapPasswordCredentialId = "laia-arch-ldap-admin-password";
+    const ldapGroupNameByRole = new Map(
+      uniqueRoles.map((role) => {
+        const trimmedRole = role.trim();
+        return [trimmedRole, normalizeLdapGroupName(trimmedRole)];
+      }),
+    );
+    const ldapGroupNames = [...new Set(ldapGroupNameByRole.values())];
     const ldapInstallCommand = [
       "set -euo pipefail",
       ...createLdapAdminPasswordLoadLines(ldapPasswordCredentialId),
@@ -206,32 +229,21 @@ export async function generatePlan(config: InstallerConfig): Promise<InstallPlan
             "objectClass: organizationalUnit",
             "ou: groups",
             "",
-            ...uniqueRoles.flatMap((role) => [
-              `dn: cn=${role},ou=groups,${ldapDc}`,
-              "objectClass: groupOfNames",
+            ...ldapGroupNames.flatMap((groupName) => [
+              `dn: cn=${groupName},ou=groups,${ldapDc}`,
               "objectClass: posixGroup",
-              `cn: ${role}`,
-              `gidNumber: ${deriveLdapGroupGid(role)}`,
-              `member: uid=admin,ou=users,${ldapDc}`,
+              `cn: ${groupName}`,
+              `gidNumber: ${deriveLdapGroupGid(groupName)}`,
               "",
             ]),
           ].join("\n"),
           "EOF",
         ].join("\n"),
         // Importar base.ldif en LDAP — mismo patrón que ldap-03
-        [
-          "set -euo pipefail",
-          "mkdir -p /tmp/laia-arch-ldap",
-          "cleanup() { rm -f /tmp/laia-arch-ldap/admin.pwd; }",
-          "trap cleanup EXIT",
-          ...createLdapAdminPasswordLoadLines(ldapPasswordCredentialId),
-          "umask 077",
-          'printf "%s" "$LDAP_ADMIN_PASSWORD" > /tmp/laia-arch-ldap/admin.pwd',
-          "chmod 600 /tmp/laia-arch-ldap/admin.pwd",
+        createLdapAdminPasswordFileCommand(
+          ldapPasswordCredentialId,
           `ldapadd -x -D "cn=admin,${ldapDc}" -y /tmp/laia-arch-ldap/admin.pwd -f /tmp/laia-arch-ldap/base.ldif`,
-          "cleanup",
-          "trap - EXIT",
-        ].join("\n"),
+        ),
       ],
       requiresApproval: true,
     });
@@ -243,8 +255,11 @@ export async function generatePlan(config: InstallerConfig): Promise<InstallPlan
           const parts = u.username.split(".");
           const givenName = parts[0] ?? u.username;
           const sn = parts[1] ?? givenName;
+          const normalizedRole = u.role.trim();
+          const ldapGroupName =
+            ldapGroupNameByRole.get(normalizedRole) ?? normalizeLdapGroupName(normalizedRole);
           const uidNumber = 10001 + idx;
-          const gidNumber = deriveLdapGroupGid(u.role);
+          const gidNumber = deriveLdapGroupGid(ldapGroupName);
           return [
             `dn: uid=${u.username},ou=users,${ldapDc}`,
             "objectClass: inetOrgPerson",
@@ -268,23 +283,53 @@ export async function generatePlan(config: InstallerConfig): Promise<InstallPlan
         description: `Crear ${config.users.length} usuario(s) en LDAP: ${config.users.map((u) => u.username).join(", ")}`,
         commands: [
           [`cat <<'EOF' > /tmp/laia-arch-ldap/users.ldif`, userLdif, "EOF"].join("\n"),
-          [
-            "set -euo pipefail",
-            "mkdir -p /tmp/laia-arch-ldap",
-            "cleanup() { rm -f /tmp/laia-arch-ldap/admin.pwd; }",
-            "trap cleanup EXIT",
-            ...createLdapAdminPasswordLoadLines(ldapPasswordCredentialId),
-            "umask 077",
-            'printf "%s" "$LDAP_ADMIN_PASSWORD" > /tmp/laia-arch-ldap/admin.pwd',
-            "chmod 600 /tmp/laia-arch-ldap/admin.pwd",
+          createLdapAdminPasswordFileCommand(
+            ldapPasswordCredentialId,
             `ldapadd -x -D "cn=admin,${ldapDc}" -y /tmp/laia-arch-ldap/admin.pwd -f /tmp/laia-arch-ldap/users.ldif`,
-            "cleanup",
-            "trap - EXIT",
-          ].join("\n"),
+          ),
         ],
         requiresApproval: true,
       });
+
+      const memberLdif = ldapGroupNames
+        .flatMap((groupName) => {
+          const usernames = config.users
+            ?.filter((user) => {
+              const normalizedRole = user.role.trim();
+              const normalizedGroupName =
+                ldapGroupNameByRole.get(normalizedRole) ?? normalizeLdapGroupName(normalizedRole);
+              return normalizedGroupName === groupName;
+            })
+            .map((user) => user.username);
+          if (!usernames || usernames.length === 0) {
+            return [];
+          }
+          return [
+            `dn: cn=${groupName},ou=groups,${ldapDc}`,
+            "changetype: modify",
+            "add: memberUid",
+            ...usernames.map((username) => `memberUid: ${username}`),
+            "",
+          ];
+        })
+        .join("\n");
+
+      steps.push({
+        id: "ldap-04",
+        phase: 3,
+        description: `Añadir membresía LDAP (memberUid) para ${config.users.length} usuario(s)`,
+        commands: [
+          [`cat <<'EOF' > /tmp/laia-arch-ldap/members.ldif`, memberLdif, "EOF"].join("\n"),
+          createLdapAdminPasswordFileCommand(
+            ldapPasswordCredentialId,
+            `ldapmodify -x -D "cn=admin,${ldapDc}" -y /tmp/laia-arch-ldap/admin.pwd -f /tmp/laia-arch-ldap/members.ldif`,
+          ),
+        ],
+        requiresApproval: true,
+      });
+
       estimatedMinutes += 5;
+      estimatedMinutes += 2;
     }
 
     estimatedMinutes += 15;
