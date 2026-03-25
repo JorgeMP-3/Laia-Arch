@@ -334,7 +334,7 @@ export async function runInstaller(): Promise<void> {
   // ── Fase 5: Ejecutar el plan ──────────────────────────────────────────────
   let results;
   try {
-    results = await executePlan(plan);
+    results = await executePlan(plan, { bootstrap: bootstrapResult });
   } catch (err) {
     console.error("\n  Error durante la ejecución:");
     console.error(err instanceof Error ? err.message : String(err));
@@ -454,7 +454,7 @@ export async function runInstallerWithPreset(config: InstallerConfig): Promise<v
   // ── Fase 5: Ejecutar el plan ──────────────────────────────────────────────
   let results;
   try {
-    results = await executePlan(plan);
+    results = await executePlan(plan, { bootstrap: bootstrapResult });
   } catch (err) {
     console.error("\n  Error durante la ejecución:");
     console.error(err instanceof Error ? err.message : String(err));

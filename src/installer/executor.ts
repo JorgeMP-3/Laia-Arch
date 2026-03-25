@@ -7,8 +7,9 @@ import * as os from "node:os";
 import * as path from "node:path";
 import * as readline from "node:readline";
 import { laiaTheme as t } from "../cli/laia-arch-theme.js";
-import { requestApproval, waitForApproval } from "./hitl-controller.js";
-import type { InstallPlan, InstallStep } from "./types.js";
+import { extractCredentialValue, retrieveProfileCredential } from "./credential-manager.js";
+import { requestApproval } from "./hitl-controller.js";
+import type { BootstrapResult, InstallPlan, InstallStep } from "./types.js";
 
 // ── Tipos ─────────────────────────────────────────────────────────────────────
 
@@ -580,6 +581,285 @@ function clearStepState(): void {
   }
 }
 
+// ── Modo rescate ──────────────────────────────────────────────────────────────
+
+interface RescueContext {
+  step: InstallStep;
+  output: string;
+  error?: string;
+  completedCount: number;
+  totalCount: number;
+  planSummary: string;
+}
+
+type RescueDecision = "continue" | "cancel";
+
+function buildPlanSummary(plan: InstallPlan, completedStepIds: Set<string>): string {
+  return plan.steps
+    .map((s) => {
+      const status = completedStepIds.has(s.id) ? "✓" : "○";
+      return `  ${status} [${s.id}] ${s.description}`;
+    })
+    .join("\n");
+}
+
+async function callRescueAI(
+  bootstrap: BootstrapResult,
+  systemPrompt: string,
+  messages: Array<{ role: "user" | "assistant"; content: string }>,
+): Promise<string> {
+  const key =
+    bootstrap.providerId !== "ollama"
+      ? extractCredentialValue(retrieveProfileCredential(bootstrap.profileId))
+      : "";
+
+  if (bootstrap.providerId === "anthropic") {
+    const headers: Record<string, string> =
+      bootstrap.authMethod === "setup-token"
+        ? {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${key}`,
+            "anthropic-version": "2023-06-01",
+          }
+        : {
+            "Content-Type": "application/json",
+            "x-api-key": key,
+            "anthropic-version": "2023-06-01",
+          };
+
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        model: bootstrap.model,
+        max_tokens: 2048,
+        system: systemPrompt,
+        messages,
+      }),
+    });
+    if (!response.ok) {
+      const body = await response.text().catch(() => "");
+      throw new Error(`Anthropic API ${response.status}: ${body.slice(0, 200)}`);
+    }
+    const data = (await response.json()) as {
+      content: Array<{ type: string; text: string }>;
+    };
+    return data.content.find((b) => b.type === "text")?.text ?? "";
+  }
+
+  // OpenAI-compatible providers (openai, deepseek, openrouter, openai-compatible, ollama)
+  const baseUrl =
+    bootstrap.baseUrl ??
+    (bootstrap.providerId === "openrouter"
+      ? "https://openrouter.ai/api/v1"
+      : bootstrap.providerId === "deepseek"
+        ? "https://api.deepseek.com/v1"
+        : bootstrap.providerId === "ollama"
+          ? "http://localhost:11434/v1"
+          : "https://api.openai.com/v1");
+
+  const response = await fetch(`${baseUrl}/chat/completions`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${key || "none"}`,
+    },
+    body: JSON.stringify({
+      model: bootstrap.model,
+      max_tokens: 2048,
+      messages: [{ role: "system", content: systemPrompt }, ...messages],
+    }),
+  });
+  if (!response.ok) {
+    const body = await response.text().catch(() => "");
+    throw new Error(`AI API ${response.status}: ${body.slice(0, 200)}`);
+  }
+  const data = (await response.json()) as {
+    choices: Array<{ message: { content: string } }>;
+  };
+  return data.choices[0]?.message?.content ?? "";
+}
+
+function buildRescueSystemPrompt(ctx: RescueContext): string {
+  return `Eres una IA de diagnóstico y recuperación para el instalador de Laia Arch.
+
+CONTEXTO ACTUAL:
+- Paso: ${ctx.step.id} — ${ctx.step.description}
+- Fase: ${ctx.step.phase}
+- Pasos completados: ${ctx.completedCount} de ${ctx.totalCount}
+- Error: ${ctx.error ?? "(ninguno — el administrador activó el rescate manualmente)"}
+
+COMANDOS DEL PASO:
+${ctx.step.commands.map((c) => `  $ ${c}`).join("\n")}
+
+ÚLTIMAS LÍNEAS DE SALIDA:
+${ctx.output ? ctx.output.split("\n").slice(-30).join("\n") : "(sin salida)"}
+
+PLAN RESUMIDO:
+${ctx.planSummary}
+
+TU OBJETIVO:
+1. Entender el problema que ha ocurrido.
+2. Proponer soluciones concretas con comandos exactos que el administrador pueda ejecutar.
+3. Guiar paso a paso si el administrador aprueba un diagnóstico.
+4. NO ejecutes nada sin confirmación explícita del administrador.
+5. Cuando el problema esté resuelto o el administrador quiera continuar, indícale que escriba "continuar".
+6. Si decide abortar la instalación, indícale que escriba "cancelar".
+
+Responde siempre en español. Sé claro, directo y técnico.`;
+}
+
+async function runRescueMode(ctx: RescueContext, bootstrap: BootstrapResult): Promise<RescueDecision> {
+  console.log(`\n${"═".repeat(62)}`);
+  console.log(t.warn("  MODO RESCATE ACTIVADO"));
+  console.log(`${"═".repeat(62)}\n`);
+  console.log(t.muted('  Escribe "continuar" para reanudar la instalación.'));
+  console.log(t.muted('  Escribe "cancelar" para abortar la instalación.\n'));
+
+  const systemPrompt = buildRescueSystemPrompt(ctx);
+  const messages: Array<{ role: "user" | "assistant"; content: string }> = [];
+
+  // Primer mensaje: pide diagnóstico inicial
+  const initialMessage = ctx.error
+    ? `Ha ocurrido un error durante la instalación:\n\n${ctx.error}\n\n¿Qué ha pasado y cómo puedo solucionarlo?`
+    : `He activado el modo rescate antes del paso ${ctx.step.id}. ¿Puedes explicarme qué va a hacer este paso y qué debo saber antes de aprobarlo?`;
+
+  messages.push({ role: "user", content: initialMessage });
+
+  try {
+    process.stdout.write(t.muted("  Analizando..."));
+    const response = await callRescueAI(bootstrap, systemPrompt, messages);
+    process.stdout.write("\r  \r");
+    console.log(`\n  ${t.brand("🔧 IA Rescate:")}\n`);
+    for (const line of response.split("\n")) {
+      console.log(`  ${line}`);
+    }
+    messages.push({ role: "assistant", content: response });
+  } catch (err) {
+    process.stdout.write("\r  \r");
+    console.log(
+      t.error(`  Error al contactar la IA: ${err instanceof Error ? err.message : String(err)}`),
+    );
+    console.log(t.muted('  Escribe "continuar" para seguir o "cancelar" para abortar.'));
+  }
+
+  // Bucle de conversación libre
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+    terminal: true,
+  });
+
+  try {
+    while (true) {
+      const input = await new Promise<string>((resolve) => {
+        rl.question(`\n  ${t.label("Tú")} > `, resolve);
+      });
+
+      const norm = input.toLowerCase().trim();
+
+      if (norm === "continuar" || norm === "continue") {
+        console.log(`\n  ${t.good("Reanudando instalación...")}\n`);
+        return "continue";
+      }
+      if (norm === "cancelar" || norm === "cancel") {
+        console.log(`\n  ${t.warn("Instalación cancelada desde el modo rescate.")}\n`);
+        return "cancel";
+      }
+      if (!input.trim()) continue;
+
+      messages.push({ role: "user", content: input });
+      try {
+        process.stdout.write(t.muted("  Pensando..."));
+        const response = await callRescueAI(bootstrap, systemPrompt, messages);
+        process.stdout.write("\r  \r");
+        console.log(`\n  ${t.brand("🔧 IA Rescate:")}\n`);
+        for (const line of response.split("\n")) {
+          console.log(`  ${line}`);
+        }
+        messages.push({ role: "assistant", content: response });
+      } catch (err) {
+        process.stdout.write("\r  \r");
+        console.log(
+          t.error(`  Error: ${err instanceof Error ? err.message : String(err)}`),
+        );
+      }
+    }
+  } finally {
+    rl.close();
+  }
+}
+
+/** Pregunta aprobación con soporte para palabras clave de rescate. */
+async function askApprovalWithRescue(
+  request: ApprovalRequestLocal,
+): Promise<"approved" | "rejected" | "timeout" | "rescue"> {
+  const ACCEPT = new Set(["s", "si", "sí", "y", "yes", "ok", "adelante", "aprobado"]);
+  const REJECT = new Set(["n", "no", "rechazar", "cancelar"]);
+  const RESCUE = new Set(["rescate", "ayuda", "help", "rescue"]);
+
+  return new Promise((resolve) => {
+    const rl = readline.createInterface({
+      input: process.stdin,
+      output: process.stdout,
+      terminal: false,
+    });
+
+    let settled = false;
+    const settle = (result: "approved" | "rejected" | "timeout" | "rescue") => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      rl.close();
+      resolve(result);
+    };
+
+    const timer = setTimeout(() => {
+      console.log(`\n  Tiempo de espera agotado (${request.timeoutSeconds}s). Paso rechazado.`);
+      settle("timeout");
+    }, request.timeoutSeconds * 1000);
+
+    rl.question(
+      `  ¿Aprobar este paso? (s/n/rescate) [timeout ${request.timeoutSeconds}s]: `,
+      (answer) => {
+        const norm = answer.toLowerCase().trim();
+        if (ACCEPT.has(norm)) {
+          settle("approved");
+        } else if (REJECT.has(norm)) {
+          settle("rejected");
+        } else if (RESCUE.has(norm)) {
+          settle("rescue");
+        } else {
+          console.log(
+            '  Responde "s" para aprobar, "n" para rechazar o "rescate" para pedir ayuda.',
+          );
+          settle("rejected");
+        }
+      },
+    );
+  });
+}
+
+// Tipo mínimo que necesita askApprovalWithRescue — evita importar ApprovalRequest completo
+interface ApprovalRequestLocal {
+  timeoutSeconds: number;
+}
+
+async function askConfirmationInline(question: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const rl = readline.createInterface({
+      input: process.stdin,
+      output: process.stdout,
+      terminal: true,
+    });
+    rl.question(`  ${question} (s/n): `, (answer) => {
+      rl.close();
+      const norm = answer.toLowerCase().trim();
+      resolve(norm === "s" || norm === "si" || norm === "sí");
+    });
+  });
+}
+
 // ── Ejecutar un solo paso ─────────────────────────────────────────────────────
 
 /**
@@ -681,7 +961,11 @@ export async function executeStep(
  * - Ofrece reanudar desde el último paso fallido si se detecta progreso previo.
  * - Los pasos con requiresApproval=true esperan confirmación antes de ejecutarse.
  */
-export async function executePlan(plan: InstallPlan): Promise<StepResult[]> {
+export async function executePlan(
+  plan: InstallPlan,
+  options?: { bootstrap?: BootstrapResult },
+): Promise<StepResult[]> {
+  const bootstrap = options?.bootstrap;
   const results: StepResult[] = [];
   const planSignature = buildPlanSignature(plan);
   const previousState = readProgressState();
@@ -817,9 +1101,27 @@ export async function executePlan(plan: InstallPlan): Promise<StepResult[]> {
 
       if (step.requiresApproval) {
         const request = await requestApproval(step, 120);
-        const decision = await waitForApproval(request);
+        let approvalDecision = await askApprovalWithRescue(request);
 
-        if (decision === "rejected") {
+        if (approvalDecision === "rescue") {
+          if (bootstrap) {
+            const ctx: RescueContext = {
+              step,
+              output: "",
+              completedCount: completedSteps.size,
+              totalCount: plan.steps.length,
+              planSummary: buildPlanSummary(plan, completedSteps),
+            };
+            const rescueResult = await runRescueMode(ctx, bootstrap);
+            // "continue" → proceder con el paso; "cancel" → detener
+            approvalDecision = rescueResult === "continue" ? "approved" : "rejected";
+          } else {
+            console.log(t.muted("  Modo rescate no disponible (proveedor IA no configurado)."));
+            approvalDecision = "rejected";
+          }
+        }
+
+        if (approvalDecision === "rejected") {
           console.log(`\n  Paso ${step.id} rechazado. Deteniendo ejecución.`);
           const r: StepResult = {
             stepId: step.id,
@@ -830,7 +1132,7 @@ export async function executePlan(plan: InstallPlan): Promise<StepResult[]> {
           saveStepStateForPlan(planSignature, step.id, "skipped", r.error);
           break;
         }
-        if (decision === "timeout") {
+        if (approvalDecision === "timeout") {
           console.log(`\n  Paso ${step.id} ignorado por timeout. Deteniendo ejecución.`);
           const r: StepResult = {
             stepId: step.id,
@@ -848,6 +1150,22 @@ export async function executePlan(plan: InstallPlan): Promise<StepResult[]> {
       saveStepStateForPlan(planSignature, result.stepId, result.status, result.error);
 
       if (result.status === "failed") {
+        if (bootstrap) {
+          const activateRescue = await askConfirmationInline(
+            "¿Activar el modo rescate para diagnosticar el error?",
+          );
+          if (activateRescue) {
+            const ctx: RescueContext = {
+              step,
+              output: result.output ?? "",
+              error: result.error,
+              completedCount: completedSteps.size,
+              totalCount: plan.steps.length,
+              planSummary: buildPlanSummary(plan, completedSteps),
+            };
+            await runRescueMode(ctx, bootstrap);
+          }
+        }
         console.error(`\n  El paso ${step.id} ha fallado. Deteniendo ejecución.`);
         console.log(
           `  ${t.muted("Vuelve a ejecutar 'laia-arch install' para retomar desde aquí.")}`,
