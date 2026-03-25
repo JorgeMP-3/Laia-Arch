@@ -1,6 +1,7 @@
 #!/bin/bash
 # setup-sudoers.sh — Configura permisos sudo para Laia Arch
 # Ejecutar como root: sudo bash scripts/setup-sudoers.sh
+# Script de alternativa manual: el instalador ahora configura sudo automáticamente al arrancar.
 
 set -e
 SUDOERS_FILE="/etc/sudoers.d/laia-arch"
@@ -58,10 +59,6 @@ laia-arch ALL=(root) NOPASSWD: /usr/bin/crontab *
 laia-arch ALL=(root) NOPASSWD: /bin/chmod +x /usr/local/bin/*
 laia-arch ALL=(root) NOPASSWD: /usr/bin/gpg *
 laia-arch ALL=(root) NOPASSWD: /usr/bin/curl *
-
-# Prohibido explícitamente
-laia-arch ALL=(root) !NOPASSWD: /usr/bin/passwd root
-laia-arch ALL=(root) !NOPASSWD: /usr/sbin/deluser root
 SUDOERS
 
 visudo -c -f "$SUDOERS_FILE" && echo "✓ Sudoers válido" || {

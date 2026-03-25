@@ -38,6 +38,11 @@ interface InstallProgressState {
   steps: Record<string, PersistedStepState>;
 }
 
+export interface SudoersResult {
+  ok: boolean;
+  message: string;
+}
+
 // ── Ruta del archivo de estado ────────────────────────────────────────────────
 
 const STATE_FILE = path.join(os.homedir(), ".laia-arch", "install-progress.json");
@@ -53,6 +58,53 @@ const HEAVY_PACKAGE_PATTERNS = [
   /\bwireguard(?:-tools)?\b/,
   /\bnodejs\b/,
 ];
+const LAIA_SUDOERS_FILE = "/etc/sudoers.d/laia-arch";
+const LAIA_SUDOERS_CONTENT = `Defaults:laia-arch !requiretty
+
+# Sistema base
+laia-arch ALL=(root) NOPASSWD: /usr/bin/hostnamectl *
+laia-arch ALL=(root) NOPASSWD: /usr/bin/apt-get update
+laia-arch ALL=(root) NOPASSWD: /usr/bin/apt-get install *
+laia-arch ALL=(root) NOPASSWD: /usr/bin/apt-get remove *
+laia-arch ALL=(root) NOPASSWD: /usr/bin/apt-get purge *
+
+# Systemd
+laia-arch ALL=(root) NOPASSWD: /bin/systemctl start *
+laia-arch ALL=(root) NOPASSWD: /bin/systemctl stop *
+laia-arch ALL=(root) NOPASSWD: /bin/systemctl enable *
+laia-arch ALL=(root) NOPASSWD: /bin/systemctl disable *
+laia-arch ALL=(root) NOPASSWD: /bin/systemctl restart *
+laia-arch ALL=(root) NOPASSWD: /bin/systemctl daemon-reload
+
+# Red y kernel
+laia-arch ALL=(root) NOPASSWD: /sbin/sysctl *
+laia-arch ALL=(root) NOPASSWD: /usr/sbin/ufw *
+
+# LDAP
+laia-arch ALL=(root) NOPASSWD: /usr/bin/ldapadd *
+laia-arch ALL=(root) NOPASSWD: /usr/bin/ldapmodify *
+laia-arch ALL=(root) NOPASSWD: /usr/bin/ldappasswd *
+
+# Samba
+laia-arch ALL=(root) NOPASSWD: /usr/bin/smbpasswd *
+laia-arch ALL=(root) NOPASSWD: /bin/mkdir *
+laia-arch ALL=(root) NOPASSWD: /bin/chmod *
+laia-arch ALL=(root) NOPASSWD: /bin/chown *
+
+# WireGuard
+laia-arch ALL=(root) NOPASSWD: /usr/bin/wg *
+laia-arch ALL=(root) NOPASSWD: /usr/bin/wg-quick *
+
+# Docker
+laia-arch ALL=(root) NOPASSWD: /usr/bin/docker *
+
+# Archivos y scripts
+laia-arch ALL=(root) NOPASSWD: /usr/bin/tee *
+laia-arch ALL=(root) NOPASSWD: /usr/bin/crontab *
+laia-arch ALL=(root) NOPASSWD: /bin/chmod +x /usr/local/bin/*
+laia-arch ALL=(root) NOPASSWD: /usr/bin/gpg *
+laia-arch ALL=(root) NOPASSWD: /usr/bin/curl *
+`;
 
 function buildPlanSignature(plan: InstallPlan): string {
   const fingerprint = plan.steps.map((step) => ({
@@ -181,6 +233,65 @@ async function validateSudoPassword(password: string): Promise<boolean> {
     proc.on("close", (code) => resolve(code === 0));
     proc.on("error", () => resolve(false));
   });
+}
+
+export function buildLaiaSudoersContent(): string {
+  return LAIA_SUDOERS_CONTENT;
+}
+
+export async function setupSudoers(password: string): Promise<SudoersResult> {
+  const env: NodeJS.ProcessEnv = { ...process.env };
+
+  try {
+    await execAsSudo(
+      `cat <<'SUDOERS' > ${LAIA_SUDOERS_FILE}
+${LAIA_SUDOERS_CONTENT}
+SUDOERS
+chmod 0440 ${LAIA_SUDOERS_FILE}`,
+      password,
+      env,
+      30_000,
+    );
+  } catch (err) {
+    return {
+      ok: false,
+      message: err instanceof Error ? err.message : String(err),
+    };
+  }
+
+  try {
+    await execAsSudo(`visudo -c -f ${LAIA_SUDOERS_FILE}`, password, env, 30_000);
+    return {
+      ok: true,
+      message: `Sudoers configurado y validado en ${LAIA_SUDOERS_FILE}.`,
+    };
+  } catch (err) {
+    try {
+      await execAsSudo(`rm -f ${LAIA_SUDOERS_FILE}`, password, env, 10_000);
+    } catch {
+      // Si la limpieza falla, el error principal sigue siendo el de validación.
+    }
+
+    return {
+      ok: false,
+      message: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
+export async function revokeSudoers(password: string): Promise<SudoersResult> {
+  try {
+    await execAsSudo(`rm -f ${LAIA_SUDOERS_FILE}`, password, { ...process.env }, 10_000);
+    return {
+      ok: true,
+      message: `Sudoers revocado en ${LAIA_SUDOERS_FILE}.`,
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      message: err instanceof Error ? err.message : String(err),
+    };
+  }
 }
 
 function formatElapsed(ms: number): string {
@@ -492,16 +603,21 @@ export async function executeStep(
       console.log(`    $ ${cmd}`);
 
       let stdout = "";
-      let stderr = "";
+      let _stderr = "";
 
       // Reintentar ante errores transitorios
       let lastErr: Error | undefined;
       for (let attempt = 0; attempt <= maxRetries; attempt++) {
         try {
           if (sudoContext !== undefined) {
-            ({ stdout, stderr } = await execAsSudo(cmd, sudoContext.password, env, timeoutMs));
+            ({ stdout, stderr: _stderr } = await execAsSudo(
+              cmd,
+              sudoContext.password,
+              env,
+              timeoutMs,
+            ));
           } else {
-            ({ stdout, stderr } = await execAsUser(cmd, env, timeoutMs));
+            ({ stdout, stderr: _stderr } = await execAsUser(cmd, env, timeoutMs));
           }
           lastErr = undefined;
           break;
