@@ -3,6 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { logToolCall } from "./logger.js";
+import { INVALID_INSTALLER_USERNAME_MESSAGE, isValidInstallerUsername } from "./username-policy.js";
 
 type ToolFailure = { success: false; error: string; retryable: boolean };
 
@@ -94,8 +95,8 @@ export function configureWireguardPeer(params: {
   serverPublicKey: string;
 }): { success: true; configPath: string; qrAvailable: boolean } | ToolFailure {
   let result: { success: true; configPath: string; qrAvailable: boolean } | ToolFailure;
-  if (!/^[a-z]+(?:\.[a-z]+)+$/.test(params.username)) {
-    result = fail("username inválido: debe tener formato nombre.apellido", false);
+  if (!isValidInstallerUsername(params.username)) {
+    result = fail(INVALID_INSTALLER_USERNAME_MESSAGE, false);
     logToolCall("configure_wireguard_peer", params, result);
     return result;
   }

@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { retrieveCredential } from "../credential-manager.js";
 import { logToolCall } from "./logger.js";
+import { INVALID_INSTALLER_USERNAME_MESSAGE, isValidInstallerUsername } from "./username-policy.js";
 
 type ToolFailure = { success: false; error: string; retryable: boolean };
 
@@ -94,8 +95,8 @@ export async function registerSambaUser(
 ): Promise<{ success: true } | ToolFailure> {
   const params = { username, passwordId };
   let result: { success: true } | ToolFailure;
-  if (!/^[a-z]+(?:\.[a-z]+)+$/.test(username)) {
-    result = fail("username inválido: debe tener formato nombre.apellido", false);
+  if (!isValidInstallerUsername(username)) {
+    result = fail(INVALID_INSTALLER_USERNAME_MESSAGE, false);
     logToolCall("register_samba_user", params, result);
     return result;
   }

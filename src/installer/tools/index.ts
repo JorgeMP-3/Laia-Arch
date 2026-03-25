@@ -20,6 +20,7 @@ import {
   readFile,
   writeFile,
 } from "./system-tools.js";
+import { INSTALLER_USERNAME_DESCRIPTION } from "./username-policy.js";
 import { runBackupTest, verifyDnsResolution, verifyServiceChain } from "./verify-tools.js";
 
 // ── Formato de definición de herramienta (Anthropic API) ──────────────────
@@ -123,7 +124,7 @@ export const TOOL_DEFINITIONS_ANTHROPIC: ToolDefinition[] = [
     input_schema: {
       type: "object",
       properties: {
-        username: { type: "string", description: "Usuario en formato nombre.apellido" },
+        username: { type: "string", description: INSTALLER_USERNAME_DESCRIPTION },
         givenName: { type: "string", description: "Nombre propio" },
         sn: { type: "string", description: "Apellido" },
         role: {
@@ -169,7 +170,7 @@ export const TOOL_DEFINITIONS_ANTHROPIC: ToolDefinition[] = [
     input_schema: {
       type: "object",
       properties: {
-        username: { type: "string", description: "Usuario en formato nombre.apellido" },
+        username: { type: "string", description: INSTALLER_USERNAME_DESCRIPTION },
         group: { type: "string", description: "Nombre del grupo LDAP" },
         domain: { type: "string", description: "Dominio interno" },
       },
@@ -182,7 +183,7 @@ export const TOOL_DEFINITIONS_ANTHROPIC: ToolDefinition[] = [
     input_schema: {
       type: "object",
       properties: {
-        username: { type: "string", description: "Usuario en formato nombre.apellido" },
+        username: { type: "string", description: INSTALLER_USERNAME_DESCRIPTION },
         domain: { type: "string", description: "Dominio interno" },
       },
       required: ["username", "domain"],
@@ -215,7 +216,7 @@ export const TOOL_DEFINITIONS_ANTHROPIC: ToolDefinition[] = [
     input_schema: {
       type: "object",
       properties: {
-        username: { type: "string", description: "Usuario en formato nombre.apellido" },
+        username: { type: "string", description: INSTALLER_USERNAME_DESCRIPTION },
         passwordId: {
           type: "string",
           description: "ID de credencial almacenada con la contraseña Samba",
@@ -253,7 +254,7 @@ export const TOOL_DEFINITIONS_ANTHROPIC: ToolDefinition[] = [
     input_schema: {
       type: "object",
       properties: {
-        username: { type: "string", description: "Usuario en formato nombre.apellido" },
+        username: { type: "string", description: INSTALLER_USERNAME_DESCRIPTION },
         clientIp: {
           type: "string",
           description: "IP asignada al cliente en la VPN (ej: 10.10.10.2)",

@@ -12,6 +12,7 @@ import {
   TOOL_DEFINITIONS_OPENAI,
   TOOL_HANDLERS,
 } from "./tools/index.js";
+import { INSTALLER_USERNAME_EXAMPLE } from "./tools/username-policy.js";
 import type {
   AccessModel,
   BootstrapResult,
@@ -978,7 +979,7 @@ async function extractConversationData(
 Devuelve un array JSON. Si no se mencionaron nombres concretos, devuelve []:
 [
   {
-    "username": "<nombre.apellido en minúsculas, ej: ana.garcia>",
+    "username": "<usuario en minúsculas, ej: ${INSTALLER_USERNAME_EXAMPLE}>",
     "role": "<nombre exacto del rol o departamento>",
     "remote": <true si trabaja en remoto habitualmente, false si no>
   }

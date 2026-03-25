@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { retrieveCredential } from "../credential-manager.js";
 import { logToolCall } from "./logger.js";
+import { INVALID_INSTALLER_USERNAME_MESSAGE, isValidInstallerUsername } from "./username-policy.js";
 
 type ToolFailure = { success: false; error: string; retryable: boolean };
 
@@ -40,10 +41,6 @@ function domainToBaseDn(domain: string): string {
     .filter(Boolean)
     .map((label) => `dc=${label}`)
     .join(",");
-}
-
-function validateUsername(username: string): boolean {
-  return /^[a-z]+(?:\.[a-z]+)+$/.test(username);
 }
 
 function shellQuote(value: string): string {
@@ -105,8 +102,8 @@ export async function createLdapUser(params: {
   gidNumber?: number;
 }): Promise<{ success: true; dn: string } | ToolFailure> {
   let result: { success: true; dn: string } | ToolFailure;
-  if (!validateUsername(params.username)) {
-    result = fail("username inválido: debe tener formato nombre.apellido", false);
+  if (!isValidInstallerUsername(params.username)) {
+    result = fail(INVALID_INSTALLER_USERNAME_MESSAGE, false);
     logToolCall("create_ldap_user", params, result);
     return result;
   }
@@ -227,8 +224,8 @@ export async function addUserToGroup(
   const normalizedGroup = normalizeGroupName(group);
   const params = { username, group, normalizedGroup, domain };
   let result: { success: true; dn: string } | ToolFailure;
-  if (!validateUsername(username)) {
-    result = fail("username inválido: debe tener formato nombre.apellido", false);
+  if (!isValidInstallerUsername(username)) {
+    result = fail(INVALID_INSTALLER_USERNAME_MESSAGE, false);
     logToolCall("add_user_to_group", params, result);
     return result;
   }
@@ -279,8 +276,8 @@ export function verifyLdapUser(
 ): { success: true; exists: boolean; groups: string[] } | ToolFailure {
   const params = { username, domain };
   let result: { success: true; exists: boolean; groups: string[] } | ToolFailure;
-  if (!validateUsername(username)) {
-    result = fail("username inválido: debe tener formato nombre.apellido", false);
+  if (!isValidInstallerUsername(username)) {
+    result = fail(INVALID_INSTALLER_USERNAME_MESSAGE, false);
     logToolCall("verify_ldap_user", params, result);
     return result;
   }
