@@ -9,7 +9,13 @@ import * as readline from "node:readline";
 import { laiaTheme as t } from "../cli/laia-arch-theme.js";
 import { extractCredentialValue, retrieveProfileCredential } from "./credential-manager.js";
 import { requestApproval } from "./hitl-controller.js";
-import type { BootstrapResult, InstallerConfig, InstallPlan, InstallStep } from "./types.js";
+import type {
+  BootstrapResult,
+  InstallerConfig,
+  InstallPlan,
+  InstallStep,
+  SystemScan,
+} from "./types.js";
 
 // ── Tipos ─────────────────────────────────────────────────────────────────────
 
@@ -47,6 +53,10 @@ export interface SudoersResult {
 // ── Ruta del archivo de estado ────────────────────────────────────────────────
 
 const STATE_FILE = path.join(os.homedir(), ".laia-arch", "install-progress.json");
+const INSTALLER_CONFIG_FILE = path.join(os.homedir(), ".laia-arch", "installer-config.json");
+const LAST_SCAN_FILE = path.join(os.homedir(), ".laia-arch", "last-scan.json");
+const INSTALL_LOGS_DIR = path.join(os.homedir(), ".laia-arch", "logs");
+const DEFAULT_RESCUE_LOG_PATH = path.join(INSTALL_LOGS_DIR, "install-latest.log");
 const DEFAULT_STEP_TIMEOUT_MS = 10 * 60_000;
 const APT_INSTALL_TIMEOUT_MS = 15 * 60_000;
 const HEAVY_INSTALL_TIMEOUT_MS = 30 * 60_000;
@@ -591,11 +601,11 @@ interface RescueContext {
   totalCount: number;
   planSummary: string;
   /** Ruta al log de instalación para que la IA pueda leerlo. */
-  logPath?: string;
+  logPath: string;
   /** Configuración completa de la instalación. */
-  installerConfig?: InstallerConfig;
+  installerConfig: InstallerConfig;
   /** Resumen del sistema (de last-scan.json). */
-  systemInfo?: string;
+  systemInfo: string;
 }
 
 type RescueDecision = "continue" | "cancel";
@@ -607,6 +617,93 @@ function buildPlanSummary(plan: InstallPlan, completedStepIds: Set<string>): str
       return `  ${status} [${s.id}] ${s.description}`;
     })
     .join("\n");
+}
+
+function createFallbackInstallerConfig(): InstallerConfig {
+  return {
+    company: {
+      name: "(desconocida)",
+      sector: "(desconocido)",
+      teamSize: 0,
+      language: "es",
+      timezone: "UTC",
+    },
+    access: {
+      totalUsers: 0,
+      roles: [],
+      remoteUsers: 0,
+      devices: [],
+      needsVpn: false,
+      needsMfa: false,
+    },
+    services: {
+      dns: false,
+      ldap: false,
+      samba: false,
+      wireguard: false,
+      docker: false,
+      nginx: false,
+      cockpit: false,
+      backups: false,
+    },
+    security: {
+      passwordComplexity: "medium",
+      diskEncryption: false,
+      internetExposed: false,
+      sshKeyOnly: false,
+    },
+    compliance: {
+      gdpr: false,
+      backupRetentionDays: 0,
+      dataTypes: [],
+      jurisdiction: "(desconocida)",
+    },
+  };
+}
+
+function loadInstallerConfigForRescue(): InstallerConfig {
+  try {
+    const raw = fs.readFileSync(INSTALLER_CONFIG_FILE, "utf8");
+    return JSON.parse(raw) as InstallerConfig;
+  } catch {
+    return createFallbackInstallerConfig();
+  }
+}
+
+function loadSystemInfoForRescue(): string {
+  try {
+    const raw = fs.readFileSync(LAST_SCAN_FILE, "utf8");
+    const parsed = JSON.parse(raw) as { timestamp?: string; scan?: SystemScan };
+    const scan = parsed.scan;
+    if (!scan) {
+      throw new Error("scan ausente");
+    }
+    return [
+      `- Hostname     : ${scan.os.hostname}`,
+      `- Sistema      : ${scan.os.distribution} ${scan.os.version} (${scan.os.kernel})`,
+      `- Red          : ${scan.network.localIp} / gw ${scan.network.gateway}`,
+      `- DNS          : ${scan.network.dns}`,
+      `- Hardware     : ${scan.hardware.cores} cores, ${scan.hardware.ramGb} GB RAM`,
+      `- Servicios    : ${scan.services.join(", ") || "(ninguno detectado)"}`,
+      `- Puertos      : ${scan.ports.join(", ") || "(ninguno detectado)"}`,
+      `- Avisos scan  : ${scan.warnings.join(" | ") || "(sin avisos)"}`,
+    ].join("\n");
+  } catch {
+    return `No se pudo leer ${LAST_SCAN_FILE}.`;
+  }
+}
+
+function resolveRescueLogPath(): string {
+  try {
+    const newest = fs
+      .readdirSync(INSTALL_LOGS_DIR)
+      .filter((entry) => /^install-.*\.log$/.test(entry))
+      .map((entry) => path.join(INSTALL_LOGS_DIR, entry))
+      .sort((left, right) => fs.statSync(right).mtimeMs - fs.statSync(left).mtimeMs)[0];
+    return newest ?? DEFAULT_RESCUE_LOG_PATH;
+  } catch {
+    return DEFAULT_RESCUE_LOG_PATH;
+  }
 }
 
 async function callRescueAI(
@@ -714,6 +811,20 @@ function buildErrorDiagnosticHints(error: string, step: InstallStep): string {
       "- Estado servicio: systemctl status docker",
     ].join("\n");
   }
+  if (
+    stepId.includes("net") ||
+    errorLower.includes("network") ||
+    errorLower.includes("ufw") ||
+    errorLower.includes("port") ||
+    errorLower.includes("socket")
+  ) {
+    return [
+      "- Interfaces    : ip addr",
+      "- Puertos       : ss -tlnp",
+      "- Firewall      : ufw status verbose",
+      "- Rutas         : ip route",
+    ].join("\n");
+  }
   if (stepId.includes("wg") || errorLower.includes("wireguard")) {
     return [
       "- Interfaces    : ip link show",
@@ -737,27 +848,14 @@ function buildErrorDiagnosticHints(error: string, step: InstallStep): string {
 }
 
 function buildRescueSystemPrompt(ctx: RescueContext): string {
-  const configSection = ctx.installerConfig
-    ? `\nCONFIGURACIÓN DE LA INSTALACIÓN:\n` +
-      `- Empresa  : ${ctx.installerConfig.company.name} (sector: ${ctx.installerConfig.company.sector})\n` +
-      `- Dominio  : ${ctx.installerConfig.network?.internalDomain ?? "(no configurado)"}\n` +
-      `- Usuarios : ${ctx.installerConfig.users?.map((u) => u.username).join(", ") ?? "ninguno"}\n` +
-      `- Servicios: ${
-        Object.entries(ctx.installerConfig.services)
-          .filter(([, v]) => v)
-          .map(([k]) => k)
-          .join(", ")
-      }`
-    : "";
-
-  const logSection = ctx.logPath
-    ? `\nLOG DE INSTALACIÓN:\nPuedes leer el log completo con read_file en: ${ctx.logPath}`
-    : "";
-
-  const systemSection = ctx.systemInfo
-    ? `\nINFORMACIÓN DEL SISTEMA:\n${ctx.systemInfo}`
-    : "";
-
+  const enabledServices =
+    Object.entries(ctx.installerConfig.services)
+      .filter(([, enabled]) => enabled)
+      .map(([service]) => service)
+      .join(", ") || "ninguno";
+  const configuredUsers =
+    ctx.installerConfig.users?.map((user) => `${user.username} (${user.role})`).join(", ") ??
+    "ninguno";
   const errorHints = buildErrorDiagnosticHints(ctx.error ?? "", ctx.step);
 
   return `Eres una IA de diagnóstico y recuperación para el instalador de Laia Arch.
@@ -775,11 +873,23 @@ ${ctx.step.commands.map((c) => `  $ ${c}`).join("\n")}
 ${ctx.output ? ctx.output.split("\n").slice(-30).join("\n") : "(sin salida)"}
 
 PLAN RESUMIDO:
-${ctx.planSummary}${configSection}${logSection}${systemSection}
+${ctx.planSummary}
+
+CONFIGURACIÓN DE LA INSTALACIÓN:
+- Empresa   : ${ctx.installerConfig.company.name} (sector: ${ctx.installerConfig.company.sector})
+- Dominio   : ${ctx.installerConfig.network?.internalDomain ?? "(no configurado)"}
+- Usuarios  : ${configuredUsers}
+- Servicios : ${enabledServices}
+
+LOG DE INSTALACIÓN:
+Puedes leer el log completo con la tool read_file en la ruta: ${ctx.logPath}
+
+INFORMACIÓN DEL SISTEMA:
+${ctx.systemInfo}
 
 HERRAMIENTAS DISPONIBLES:
 Tienes acceso a las tools del instalador: check_service_status, read_file, install_package
-y otras. Úsalas directamente para diagnosticar y resolver el problema.
+y otras para diagnosticar y resolver el problema.
 NO pidas al administrador que copie y pegue comandos — ejecútalos tú con las tools.
 
 DIAGNÓSTICO SUGERIDO PARA ESTE TIPO DE ERROR:
@@ -787,9 +897,10 @@ ${errorHints}
 
 TU OBJETIVO:
 1. Diagnosticar el problema con las tools disponibles.
-2. Ejecutar las soluciones directamente — no esperes a que el administrador las ejecute.
-3. Cuando el problema esté resuelto, comunícalo y pide que escriba "continuar".
-4. Si la instalación debe abortarse, pide que escriba "cancelar".
+2. Ejecutar las comprobaciones o acciones correctivas directamente con las tools disponibles.
+3. Explicar brevemente qué hiciste y qué resultado obtuviste.
+4. Cuando el problema esté resuelto, comunícalo y pide que escriba "continuar".
+5. Si la instalación debe abortarse, pide que escriba "cancelar".
 
 Responde siempre en español. Sé claro, directo y técnico.`;
 }
@@ -1170,6 +1281,11 @@ export async function executePlan(
   console.log("╚══════════════════════════════════════════════════════════╝\n");
   console.log(`  Pasos totales   : ${plan.steps.length}`);
   console.log(`  Tiempo estimado : ~${plan.estimatedMinutes} minutos\n`);
+  const rescueContextDefaults = {
+    logPath: resolveRescueLogPath(),
+    installerConfig: loadInstallerConfigForRescue(),
+    systemInfo: loadSystemInfoForRescue(),
+  };
 
   // ── 5. Bucle de pasos ─────────────────────────────────────────────────────
 
@@ -1191,6 +1307,7 @@ export async function executePlan(
         if (approvalDecision === "rescue") {
           if (bootstrap) {
             const ctx: RescueContext = {
+              ...rescueContextDefaults,
               step,
               output: "",
               completedCount: completedSteps.size,
@@ -1241,6 +1358,7 @@ export async function executePlan(
           );
           if (activateRescue) {
             const ctx: RescueContext = {
+              ...rescueContextDefaults,
               step,
               output: result.output ?? "",
               error: result.error,

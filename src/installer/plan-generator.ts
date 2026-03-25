@@ -42,6 +42,27 @@ function createLdapAdminPasswordLoadLines(credentialId: string): string[] {
   ];
 }
 
+function normalizeLdapGroupName(value: string): string {
+  return (
+    value
+      .trim()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .replace(/\s+/g, "-")
+      .replace(/[^a-z0-9_-]/g, "")
+      .replace(/^-+|-+$/g, "") || "usuarios"
+  );
+}
+
+function deriveLdapGroupGid(name: string): number {
+  let hash = 0;
+  for (const char of normalizeLdapGroupName(name)) {
+    hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
+  }
+  return 20_000 + (hash % 20_000);
+}
+
 /**
  * Genera un plan de instalación ordenado y reproducible a partir de la configuración
  * recopilada durante la conversación.
@@ -188,7 +209,9 @@ export async function generatePlan(config: InstallerConfig): Promise<InstallPlan
             ...uniqueRoles.flatMap((role) => [
               `dn: cn=${role},ou=groups,${ldapDc}`,
               "objectClass: groupOfNames",
+              "objectClass: posixGroup",
               `cn: ${role}`,
+              `gidNumber: ${deriveLdapGroupGid(role)}`,
               `member: uid=admin,ou=users,${ldapDc}`,
               "",
             ]),
@@ -207,6 +230,7 @@ export async function generatePlan(config: InstallerConfig): Promise<InstallPlan
           const givenName = parts[0] ?? u.username;
           const sn = parts[1] ?? givenName;
           const uidNumber = 10001 + idx;
+          const gidNumber = deriveLdapGroupGid(u.role);
           return [
             `dn: uid=${u.username},ou=users,${ldapDc}`,
             "objectClass: inetOrgPerson",
@@ -217,7 +241,7 @@ export async function generatePlan(config: InstallerConfig): Promise<InstallPlan
             `sn: ${sn}`,
             `givenName: ${givenName}`,
             `uidNumber: ${uidNumber}`,
-            "gidNumber: 10000",
+            `gidNumber: ${gidNumber}`,
             `homeDirectory: /home/${u.username}`,
             "loginShell: /bin/bash",
           ].join("\n");
