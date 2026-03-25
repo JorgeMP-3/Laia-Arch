@@ -155,7 +155,7 @@ function isTransientError(message: string): boolean {
 
 // ── Comprobación de sudo sin contraseña ──────────────────────────────────────
 
-async function checkSudoPasswordless(): Promise<boolean> {
+export async function checkSudoPasswordless(): Promise<boolean> {
   try {
     execSync("sudo -n true", { stdio: "ignore", timeout: 3000 });
     return true;
@@ -166,7 +166,7 @@ async function checkSudoPasswordless(): Promise<boolean> {
 
 // ── Pedir contraseña ocultando caracteres ─────────────────────────────────────
 
-function askSudoPassword(prompt: string): Promise<string> {
+export function askSudoPassword(prompt: string): Promise<string> {
   return new Promise((resolve) => {
     if (typeof process.stdin.setRawMode !== "function") {
       const rl = readline.createInterface({
@@ -223,7 +223,7 @@ function askSudoPassword(prompt: string): Promise<string> {
 
 // ── Validar contraseña sudo ───────────────────────────────────────────────────
 
-async function validateSudoPassword(password: string): Promise<boolean> {
+export async function validateSudoPassword(password: string): Promise<boolean> {
   return new Promise((resolve) => {
     const proc = spawn("sudo", ["-S", "-p", "", "true"], {
       stdio: ["pipe", "ignore", "ignore"],
