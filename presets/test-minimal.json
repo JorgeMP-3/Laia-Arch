@@ -1,0 +1,60 @@
+{
+  "name": "test-minimal",
+  "description": "Instalación mínima para pruebas — solo dns, ldap, docker y backups (rápido)",
+  "createdAt": "2026-01-01T00:00:00.000Z",
+  "config": {
+    "company": {
+      "name": "TestOrg",
+      "sector": "Pruebas",
+      "teamSize": 3,
+      "language": "español",
+      "timezone": "Europe/Madrid"
+    },
+    "access": {
+      "totalUsers": 3,
+      "roles": [
+        { "name": "equipo", "count": 3 }
+      ],
+      "remoteUsers": 0,
+      "devices": ["linux"],
+      "needsVpn": false,
+      "needsMfa": false
+    },
+    "services": {
+      "dns": true,
+      "ldap": true,
+      "samba": false,
+      "wireguard": false,
+      "docker": true,
+      "nginx": false,
+      "cockpit": false,
+      "backups": true
+    },
+    "security": {
+      "passwordComplexity": "basic",
+      "diskEncryption": false,
+      "internetExposed": false,
+      "sshKeyOnly": false
+    },
+    "compliance": {
+      "gdpr": false,
+      "backupRetentionDays": 7,
+      "dataTypes": [],
+      "jurisdiction": ""
+    },
+    "network": {
+      "serverIp": "",
+      "subnet": "",
+      "gateway": "",
+      "internalDomain": "testorg.local",
+      "vpnRange": "",
+      "dhcpRange": ""
+    },
+    "users": [
+      { "username": "usuario1", "role": "equipo", "remote": false },
+      { "username": "usuario2", "role": "equipo", "remote": false },
+      { "username": "usuario3", "role": "equipo", "remote": false }
+    ],
+    "installMode": "guided"
+  }
+}

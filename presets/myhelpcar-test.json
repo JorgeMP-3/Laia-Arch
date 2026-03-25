@@ -1,0 +1,70 @@
+{
+  "name": "myhelpcar-test",
+  "description": "MyHelpCar — Agencia de marketing de automoción (10 personas, 4 roles)",
+  "createdAt": "2026-01-01T00:00:00.000Z",
+  "config": {
+    "company": {
+      "name": "MyHelpCar",
+      "sector": "Agencia de marketing de automoción",
+      "teamSize": 10,
+      "language": "español",
+      "timezone": "Europe/Madrid"
+    },
+    "access": {
+      "totalUsers": 10,
+      "roles": [
+        { "name": "administracion", "count": 2 },
+        { "name": "cuentas-ventas", "count": 3 },
+        { "name": "creativo-contenido", "count": 3 },
+        { "name": "performance-ads", "count": 2 }
+      ],
+      "remoteUsers": 3,
+      "devices": ["linux", "windows", "macos"],
+      "needsVpn": true,
+      "needsMfa": false
+    },
+    "services": {
+      "dns": true,
+      "ldap": true,
+      "samba": true,
+      "wireguard": true,
+      "docker": true,
+      "nginx": true,
+      "cockpit": true,
+      "backups": true
+    },
+    "security": {
+      "passwordComplexity": "high",
+      "diskEncryption": false,
+      "internetExposed": false,
+      "sshKeyOnly": true
+    },
+    "compliance": {
+      "gdpr": true,
+      "backupRetentionDays": 30,
+      "dataTypes": ["contactos-clientes", "datos-empresa"],
+      "jurisdiction": "España"
+    },
+    "network": {
+      "serverIp": "",
+      "subnet": "",
+      "gateway": "",
+      "internalDomain": "myhelpcar.local",
+      "vpnRange": "10.8.0.0/24",
+      "dhcpRange": ""
+    },
+    "users": [
+      { "username": "carlos.sainz",    "role": "administracion",      "remote": false },
+      { "username": "monica.valle",    "role": "administracion",      "remote": false },
+      { "username": "javier.gomez",    "role": "cuentas-ventas",      "remote": true  },
+      { "username": "beatriz.lara",    "role": "cuentas-ventas",      "remote": true  },
+      { "username": "roberto.perez",   "role": "cuentas-ventas",      "remote": true  },
+      { "username": "sofia.ruiz",      "role": "creativo-contenido",  "remote": false },
+      { "username": "daniel.cano",     "role": "creativo-contenido",  "remote": false },
+      { "username": "elena.torres",    "role": "creativo-contenido",  "remote": false },
+      { "username": "marcos.leon",     "role": "performance-ads",     "remote": false },
+      { "username": "lucia.mendez",    "role": "performance-ads",     "remote": false }
+    ],
+    "installMode": "guided"
+  }
+}

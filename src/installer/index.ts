@@ -392,11 +392,11 @@ export async function runInstallerWithPreset(config: InstallerConfig): Promise<v
 export function printPresetList(): void {
   const presets = listPresets();
   if (presets.length === 0) {
-    console.log("\n  " + t.muted("No hay presets guardados."));
+    console.log("\n  " + t.muted("No hay presets disponibles."));
     console.log(
       "  " +
         t.muted(
-          "Los presets se crean al final de una instalación. " +
+          "Los presets de usuario se crean al final de una instalación. " +
             "Ejecuta 'laia-arch install' y guarda la configuración cuando se te ofrezca.\n",
         ),
     );
@@ -405,7 +405,8 @@ export function printPresetList(): void {
   console.log("\n  Presets disponibles:\n");
   for (const p of presets) {
     const date = new Date(p.createdAt).toLocaleDateString("es-ES");
-    console.log(`  ${t.label(p.name)}`);
+    const tag = p.source === "repo" ? t.dim(" [predefinido]") : t.dim(" [guardado]");
+    console.log(`  ${t.label(p.name)}${tag}`);
     console.log(`    ${t.muted(p.description)}`);
     console.log(`    ${t.dim("Creado: " + date)}\n`);
   }
