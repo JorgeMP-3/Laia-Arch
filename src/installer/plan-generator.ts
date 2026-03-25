@@ -218,6 +218,20 @@ export async function generatePlan(config: InstallerConfig): Promise<InstallPlan
           ].join("\n"),
           "EOF",
         ].join("\n"),
+        // Importar base.ldif en LDAP — mismo patrón que ldap-03
+        [
+          "set -euo pipefail",
+          "mkdir -p /tmp/laia-arch-ldap",
+          "cleanup() { rm -f /tmp/laia-arch-ldap/admin.pwd; }",
+          "trap cleanup EXIT",
+          ...createLdapAdminPasswordLoadLines(ldapPasswordCredentialId),
+          "umask 077",
+          'printf "%s" "$LDAP_ADMIN_PASSWORD" > /tmp/laia-arch-ldap/admin.pwd',
+          "chmod 600 /tmp/laia-arch-ldap/admin.pwd",
+          `ldapadd -x -D "cn=admin,${ldapDc}" -y /tmp/laia-arch-ldap/admin.pwd -f /tmp/laia-arch-ldap/base.ldif`,
+          "cleanup",
+          "trap - EXIT",
+        ].join("\n"),
       ],
       requiresApproval: true,
     });
