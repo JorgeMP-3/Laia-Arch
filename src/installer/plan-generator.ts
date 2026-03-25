@@ -10,6 +10,38 @@ function shellQuote(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`;
 }
 
+function createLdapAdminPasswordLoadLines(credentialId: string): string[] {
+  return [
+    `LDAP_ADMIN_PASSWORD_ID=${shellQuote(credentialId)}`,
+    'LDAP_ADMIN_PASSWORD=""',
+    'LAIA_ARCH_CREDENTIAL_HOME="${HOME}"',
+    'if [ -n "${SUDO_USER:-}" ]; then',
+    '  LAIA_ARCH_CREDENTIAL_HOME="$(getent passwd "$SUDO_USER" | cut -d: -f6 || printf "%s" "$HOME")"',
+    "fi",
+    "if command -v secret-tool >/dev/null 2>&1; then",
+    '  if [ -n "${SUDO_USER:-}" ]; then',
+    '    LDAP_ADMIN_PASSWORD="$(sudo -u "$SUDO_USER" secret-tool lookup service laia-arch key "$LDAP_ADMIN_PASSWORD_ID" 2>/dev/null || true)"',
+    "  else",
+    '    LDAP_ADMIN_PASSWORD="$(secret-tool lookup service laia-arch key "$LDAP_ADMIN_PASSWORD_ID" 2>/dev/null || true)"',
+    "  fi",
+    "fi",
+    'if [ -z "$LDAP_ADMIN_PASSWORD" ] && command -v security >/dev/null 2>&1; then',
+    '  if [ -n "${SUDO_USER:-}" ]; then',
+    '    LDAP_ADMIN_PASSWORD="$(sudo -u "$SUDO_USER" security find-generic-password -a laia-arch -s "$LDAP_ADMIN_PASSWORD_ID" -w 2>/dev/null || true)"',
+    "  else",
+    '    LDAP_ADMIN_PASSWORD="$(security find-generic-password -a laia-arch -s "$LDAP_ADMIN_PASSWORD_ID" -w 2>/dev/null || true)"',
+    "  fi",
+    "fi",
+    'if [ -z "$LDAP_ADMIN_PASSWORD" ] && [ -f "$LAIA_ARCH_CREDENTIAL_HOME/.laia-arch/credentials/.$LDAP_ADMIN_PASSWORD_ID" ]; then',
+    '  LDAP_ADMIN_PASSWORD="$(cat "$LAIA_ARCH_CREDENTIAL_HOME/.laia-arch/credentials/.$LDAP_ADMIN_PASSWORD_ID")"',
+    "fi",
+    'if [ -z "$LDAP_ADMIN_PASSWORD" ]; then',
+    `  echo ${shellQuote(`No se pudo recuperar la credencial LDAP ${credentialId}.`)} >&2`,
+    "  exit 1",
+    "fi",
+  ];
+}
+
 /**
  * Genera un plan de instalación ordenado y reproducible a partir de la configuración
  * recopilada durante la conversación.
@@ -116,33 +148,7 @@ export async function generatePlan(config: InstallerConfig): Promise<InstallPlan
     const ldapPasswordCredentialId = "laia-arch-ldap-admin-password";
     const ldapInstallCommand = [
       "set -euo pipefail",
-      `LDAP_ADMIN_PASSWORD_ID=${shellQuote(ldapPasswordCredentialId)}`,
-      'LDAP_ADMIN_PASSWORD=""',
-      'LAIA_ARCH_CREDENTIAL_HOME="${HOME}"',
-      'if [ -n "${SUDO_USER:-}" ]; then',
-      '  LAIA_ARCH_CREDENTIAL_HOME="$(getent passwd "$SUDO_USER" | cut -d: -f6 || printf "%s" "$HOME")"',
-      "fi",
-      "if command -v secret-tool >/dev/null 2>&1; then",
-      '  if [ -n "${SUDO_USER:-}" ]; then',
-      '    LDAP_ADMIN_PASSWORD="$(sudo -u "$SUDO_USER" secret-tool lookup service laia-arch key "$LDAP_ADMIN_PASSWORD_ID" 2>/dev/null || true)"',
-      "  else",
-      '    LDAP_ADMIN_PASSWORD="$(secret-tool lookup service laia-arch key "$LDAP_ADMIN_PASSWORD_ID" 2>/dev/null || true)"',
-      "  fi",
-      "fi",
-      'if [ -z "$LDAP_ADMIN_PASSWORD" ] && command -v security >/dev/null 2>&1; then',
-      '  if [ -n "${SUDO_USER:-}" ]; then',
-      '    LDAP_ADMIN_PASSWORD="$(sudo -u "$SUDO_USER" security find-generic-password -a laia-arch -s "$LDAP_ADMIN_PASSWORD_ID" -w 2>/dev/null || true)"',
-      "  else",
-      '    LDAP_ADMIN_PASSWORD="$(security find-generic-password -a laia-arch -s "$LDAP_ADMIN_PASSWORD_ID" -w 2>/dev/null || true)"',
-      "  fi",
-      "fi",
-      'if [ -z "$LDAP_ADMIN_PASSWORD" ] && [ -f "$LAIA_ARCH_CREDENTIAL_HOME/.laia-arch/credentials/.$LDAP_ADMIN_PASSWORD_ID" ]; then',
-      '  LDAP_ADMIN_PASSWORD="$(cat "$LAIA_ARCH_CREDENTIAL_HOME/.laia-arch/credentials/.$LDAP_ADMIN_PASSWORD_ID")"',
-      "fi",
-      'if [ -z "$LDAP_ADMIN_PASSWORD" ]; then',
-      '  echo "No se pudo recuperar la credencial LDAP laia-arch-ldap-admin-password." >&2',
-      "  exit 1",
-      "fi",
+      ...createLdapAdminPasswordLoadLines(ldapPasswordCredentialId),
       `printf '%s\\n' ${shellQuote("slapd slapd/no_configuration boolean false")} | debconf-set-selections`,
       "printf '%s\\n' \"slapd slapd/internal/generated_adminpw password $LDAP_ADMIN_PASSWORD\" | debconf-set-selections",
       "printf '%s\\n' \"slapd slapd/internal/adminpw password $LDAP_ADMIN_PASSWORD\" | debconf-set-selections",
@@ -217,7 +223,19 @@ export async function generatePlan(config: InstallerConfig): Promise<InstallPlan
         description: `Crear ${config.users.length} usuario(s) en LDAP: ${config.users.map((u) => u.username).join(", ")}`,
         commands: [
           [`cat <<'EOF' > /tmp/laia-arch-ldap/users.ldif`, userLdif, "EOF"].join("\n"),
-          `ldapadd -x -D "cn=admin,${ldapDc}" -W -f /tmp/laia-arch-ldap/users.ldif`,
+          [
+            "set -euo pipefail",
+            "mkdir -p /tmp/laia-arch-ldap",
+            "cleanup() { rm -f /tmp/laia-arch-ldap/admin.pwd; }",
+            "trap cleanup EXIT",
+            ...createLdapAdminPasswordLoadLines(ldapPasswordCredentialId),
+            "umask 077",
+            'printf "%s" "$LDAP_ADMIN_PASSWORD" > /tmp/laia-arch-ldap/admin.pwd',
+            "chmod 600 /tmp/laia-arch-ldap/admin.pwd",
+            `ldapadd -x -D "cn=admin,${ldapDc}" -y /tmp/laia-arch-ldap/admin.pwd -f /tmp/laia-arch-ldap/users.ldif`,
+            "cleanup",
+            "trap - EXIT",
+          ].join("\n"),
         ],
         requiresApproval: true,
       });
