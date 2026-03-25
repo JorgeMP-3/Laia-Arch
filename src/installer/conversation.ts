@@ -743,6 +743,29 @@ async function runOpenConversation(
  * la conversación en datos estructurados JSON.
  * Si la extracción falla, devuelve el fallback sin interrumpir el flujo.
  */
+/**
+ * Limpia una cadena que puede contener bloques markdown (```json...```) u
+ * otro texto antes/después del JSON, y devuelve solo el JSON puro.
+ */
+function stripToJson(raw: string): string {
+  // 1. Extraer contenido de bloque de código markdown si lo hay
+  const mdBlock = raw.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  const text = mdBlock ? mdBlock[1] : raw;
+
+  // 2. Recortar desde el primer { o [ hasta el último } o ]
+  const firstBrace = Math.min(
+    text.indexOf("{") === -1 ? Infinity : text.indexOf("{"),
+    text.indexOf("[") === -1 ? Infinity : text.indexOf("["),
+  );
+  const lastBrace = Math.max(text.lastIndexOf("}"), text.lastIndexOf("]"));
+
+  if (firstBrace === Infinity || lastBrace === -1 || lastBrace < firstBrace) {
+    return text.trim();
+  }
+
+  return text.slice(firstBrace, lastBrace + 1).trim();
+}
+
 async function extractJson<T>(
   bootstrap: BootstrapResult,
   conversationMessages: Message[],
@@ -751,12 +774,22 @@ async function extractJson<T>(
 ): Promise<T> {
   const extractionSystem =
     "Eres un extractor de datos estructurados. " +
-    "Tu única función es devolver JSON válido, sin explicaciones, sin bloques de código markdown, " +
-    "sin texto adicional antes ni después. Solo el objeto JSON.";
+    "IMPORTANTE: responde SOLO con el objeto JSON puro. " +
+    "Sin bloques de código markdown, sin texto antes ni después, sin explicaciones. " +
+    "Empieza directamente con { o [ y termina con } o ].";
 
   const extractionRequest =
     extractionInstruction +
-    "\n\nDevuelve únicamente el JSON. Sin explicaciones. Sin ```json. Solo el objeto.";
+    "\n\nResponde ÚNICAMENTE con el JSON. " +
+    "No uses ```json ni ```. No escribas nada antes ni después del JSON.";
+
+  const attemptParse = (raw: string): T | null => {
+    try {
+      return JSON.parse(stripToJson(raw)) as T;
+    } catch {
+      return null;
+    }
+  };
 
   try {
     const raw = await callAI(bootstrap, extractionSystem, [
@@ -764,14 +797,30 @@ async function extractJson<T>(
       { role: "user", content: extractionRequest },
     ]);
 
-    // Limpiar por si acaso el modelo añade bloques de código
-    const cleaned = raw
-      .replace(/^```json\s*/i, "")
-      .replace(/^```\s*/i, "")
-      .replace(/```\s*$/i, "")
-      .trim();
+    const result = attemptParse(raw);
+    if (result !== null) return result;
 
-    return JSON.parse(cleaned) as T;
+    // Segundo intento con instrucción aún más explícita
+    const raw2 = await callAI(bootstrap, extractionSystem, [
+      ...conversationMessages,
+      { role: "user", content: extractionRequest },
+      { role: "assistant", content: raw },
+      {
+        role: "user",
+        content:
+          "Tu respuesta anterior contiene texto extra o markdown. " +
+          "Devuelve SOLO el JSON, empezando por { y terminando por }. " +
+          "Sin ningún texto adicional.",
+      },
+    ]);
+
+    const result2 = attemptParse(raw2);
+    if (result2 !== null) return result2;
+
+    console.warn(
+      "  Aviso: no se pudo extraer datos estructurados de esta etapa. Usando valores por defecto.",
+    );
+    return fallback;
   } catch {
     console.warn(
       "  Aviso: no se pudo extraer datos estructurados de esta etapa. Usando valores por defecto.",
