@@ -9,6 +9,7 @@ import * as readline from "node:readline";
 import { laiaTheme as t } from "../cli/laia-arch-theme.js";
 import { extractCredentialValue, retrieveProfileCredential } from "./credential-manager.js";
 import { requestApproval } from "./hitl-controller.js";
+import { TOOL_DEFINITIONS_ANTHROPIC, TOOL_DEFINITIONS_OPENAI, TOOL_HANDLERS } from "./tools/index.js";
 import type {
   BootstrapResult,
   InstallerConfig,
@@ -706,11 +707,124 @@ function resolveRescueLogPath(): string {
   }
 }
 
+type RescueAnthropicTextBlock = { type: "text"; text: string };
+type RescueAnthropicToolUseBlock = {
+  type: "tool_use";
+  id: string;
+  name: string;
+  input: Record<string, unknown>;
+};
+type RescueAnthropicToolResultBlock = {
+  type: "tool_result";
+  tool_use_id: string;
+  content: string;
+};
+type RescueAnthropicContentBlock =
+  | RescueAnthropicTextBlock
+  | RescueAnthropicToolUseBlock
+  | RescueAnthropicToolResultBlock;
+type RescueAnthropicMessage = {
+  role: "user" | "assistant";
+  content: string | RescueAnthropicContentBlock[];
+};
+
+type RescueOpenAIToolCall = {
+  id: string;
+  type: "function";
+  function: {
+    name: string;
+    arguments: string;
+  };
+};
+type RescueOpenAISystemOrUserMessage = {
+  role: "system" | "user";
+  content: string;
+};
+type RescueOpenAIAssistantMessage = {
+  role: "assistant";
+  content: string | null;
+  tool_calls?: RescueOpenAIToolCall[];
+};
+type RescueOpenAIToolMessage = {
+  role: "tool";
+  content: string;
+  tool_call_id: string;
+};
+type RescueOpenAIMessage =
+  | RescueOpenAISystemOrUserMessage
+  | RescueOpenAIAssistantMessage
+  | RescueOpenAIToolMessage;
+
+type RescueAIResult =
+  | {
+      kind: "text";
+      text: string;
+      assistantMessage: RescueAnthropicMessage | RescueOpenAIAssistantMessage;
+    }
+  | {
+      kind: "anthropic_tool_use";
+      assistantMessage: RescueAnthropicMessage;
+      toolUses: RescueAnthropicToolUseBlock[];
+    }
+  | {
+      kind: "openai_tool_calls";
+      assistantMessage: RescueOpenAIAssistantMessage;
+      toolCalls: RescueOpenAIToolCall[];
+    };
+
+function isAnthropicToolUseBlock(
+  block: RescueAnthropicContentBlock,
+): block is RescueAnthropicToolUseBlock {
+  return block.type === "tool_use";
+}
+
+function isAnthropicTextBlock(
+  block: RescueAnthropicContentBlock,
+): block is RescueAnthropicTextBlock {
+  return block.type === "text";
+}
+
+async function executeRescueTool(
+  name: string,
+  input: Record<string, unknown>,
+): Promise<string> {
+  console.log(`\n  ${t.muted(`Ejecutando tool: ${name}...`)}`);
+  const handler = TOOL_HANDLERS[name];
+  try {
+    const toolResult = handler
+      ? await handler(input)
+      : { error: `Herramienta desconocida: ${name}` };
+    return JSON.stringify(toolResult);
+  } catch (err) {
+    return JSON.stringify({
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
+
+function parseOpenAIToolArguments(argumentsJson: string): Record<string, unknown> {
+  if (!argumentsJson.trim()) {
+    return {};
+  }
+  const parsed = JSON.parse(argumentsJson) as unknown;
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("Los argumentos de la tool deben ser un objeto JSON.");
+  }
+  return parsed as Record<string, unknown>;
+}
+
+function printRescueAssistantReply(response: string): void {
+  console.log(`\n  ${t.brand("🔧 IA Rescate:")}\n`);
+  for (const line of response.split("\n")) {
+    console.log(`  ${line}`);
+  }
+}
+
 async function callRescueAI(
   bootstrap: BootstrapResult,
   systemPrompt: string,
-  messages: Array<{ role: "user" | "assistant"; content: string }>,
-): Promise<string> {
+  messages: RescueAnthropicMessage[] | RescueOpenAIMessage[],
+): Promise<RescueAIResult> {
   const key =
     bootstrap.providerId !== "ollama"
       ? extractCredentialValue(retrieveProfileCredential(bootstrap.profileId))
@@ -738,6 +852,7 @@ async function callRescueAI(
         max_tokens: 2048,
         system: systemPrompt,
         messages,
+        tools: TOOL_DEFINITIONS_ANTHROPIC,
       }),
     });
     if (!response.ok) {
@@ -745,12 +860,32 @@ async function callRescueAI(
       throw new Error(`Anthropic API ${response.status}: ${body.slice(0, 200)}`);
     }
     const data = (await response.json()) as {
-      content: Array<{ type: string; text: string }>;
+      stop_reason?: string | null;
+      content: RescueAnthropicContentBlock[];
     };
-    return data.content.find((b) => b.type === "text")?.text ?? "";
+    const assistantMessage: RescueAnthropicMessage = {
+      role: "assistant",
+      content: data.content,
+    };
+    const toolUses = data.content.filter(isAnthropicToolUseBlock);
+    if (data.stop_reason === "tool_use" && toolUses.length > 0) {
+      return {
+        kind: "anthropic_tool_use",
+        assistantMessage,
+        toolUses,
+      };
+    }
+    const text = data.content
+      .filter(isAnthropicTextBlock)
+      .map((block) => block.text)
+      .join("\n");
+    return {
+      kind: "text",
+      text,
+      assistantMessage,
+    };
   }
 
-  // OpenAI-compatible providers (openai, deepseek, openrouter, openai-compatible, ollama)
   const baseUrl =
     bootstrap.baseUrl ??
     (bootstrap.providerId === "openrouter"
@@ -761,26 +896,139 @@ async function callRescueAI(
           ? "http://localhost:11434/v1"
           : "https://api.openai.com/v1");
 
-  const response = await fetch(`${baseUrl}/chat/completions`, {
+  const headers = {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${key || "none"}`,
+  };
+  const requestBody = {
+    model: bootstrap.model,
+    max_tokens: 2048,
+    messages,
+    tools: TOOL_DEFINITIONS_OPENAI,
+    tool_choice: "auto" as const,
+  };
+
+  let response = await fetch(`${baseUrl}/chat/completions`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${key || "none"}`,
-    },
-    body: JSON.stringify({
-      model: bootstrap.model,
-      max_tokens: 2048,
-      messages: [{ role: "system", content: systemPrompt }, ...messages],
-    }),
+    headers,
+    body: JSON.stringify(requestBody),
   });
+
+  if (!response.ok && bootstrap.providerId === "ollama") {
+    response = await fetch(`${baseUrl}/chat/completions`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        model: bootstrap.model,
+        max_tokens: 2048,
+        messages,
+      }),
+    });
+  }
+
   if (!response.ok) {
     const body = await response.text().catch(() => "");
     throw new Error(`AI API ${response.status}: ${body.slice(0, 200)}`);
   }
+
   const data = (await response.json()) as {
-    choices: Array<{ message: { content: string } }>;
+    choices: Array<{
+      finish_reason: string;
+      message: {
+        role: string;
+        content: string | null;
+        tool_calls?: RescueOpenAIToolCall[];
+      };
+    }>;
   };
-  return data.choices[0]?.message?.content ?? "";
+  const choice = data.choices[0];
+  if (!choice) {
+    throw new Error("AI API: respuesta vacía");
+  }
+  const assistantMessage: RescueOpenAIAssistantMessage = {
+    role: "assistant",
+    content: choice.message.content,
+    tool_calls: choice.message.tool_calls,
+  };
+  const toolCalls = choice.message.tool_calls ?? [];
+  if (toolCalls.length > 0) {
+    return {
+      kind: "openai_tool_calls",
+      assistantMessage,
+      toolCalls,
+    };
+  }
+  return {
+    kind: "text",
+    text: choice.message.content ?? "",
+    assistantMessage,
+  };
+}
+
+async function resolveAnthropicRescueTurn(
+  bootstrap: BootstrapResult,
+  systemPrompt: string,
+  messages: RescueAnthropicMessage[],
+): Promise<string> {
+  while (true) {
+    const result = await callRescueAI(bootstrap, systemPrompt, messages);
+    if (result.kind === "anthropic_tool_use") {
+      messages.push(result.assistantMessage);
+      const toolResults: RescueAnthropicToolResultBlock[] = [];
+      for (const toolUse of result.toolUses) {
+        const resultContent = await executeRescueTool(toolUse.name, toolUse.input);
+        toolResults.push({
+          type: "tool_result",
+          tool_use_id: toolUse.id,
+          content: resultContent,
+        });
+      }
+      messages.push({ role: "user", content: toolResults });
+      continue;
+    }
+    if (result.kind === "text") {
+      messages.push(result.assistantMessage as RescueAnthropicMessage);
+      return result.text;
+    }
+    throw new Error("La respuesta del proveedor no coincide con el formato Anthropic.");
+  }
+}
+
+async function resolveOpenAIRescueTurn(
+  bootstrap: BootstrapResult,
+  systemPrompt: string,
+  messages: RescueOpenAIMessage[],
+): Promise<string> {
+  while (true) {
+    const result = await callRescueAI(bootstrap, systemPrompt, messages);
+    if (result.kind === "openai_tool_calls") {
+      messages.push(result.assistantMessage);
+      for (const toolCall of result.toolCalls) {
+        let resultContent: string;
+        try {
+          resultContent = await executeRescueTool(
+            toolCall.function.name,
+            parseOpenAIToolArguments(toolCall.function.arguments),
+          );
+        } catch (err) {
+          resultContent = JSON.stringify({
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+        messages.push({
+          role: "tool",
+          tool_call_id: toolCall.id,
+          content: resultContent,
+        });
+      }
+      continue;
+    }
+    if (result.kind === "text") {
+      messages.push(result.assistantMessage as RescueOpenAIAssistantMessage);
+      return result.text;
+    }
+    throw new Error("La respuesta del proveedor no coincide con el formato OpenAI.");
+  }
 }
 
 /** Devuelve comandos de diagnóstico sugeridos según el tipo de error y el paso. */
@@ -913,24 +1161,25 @@ async function runRescueMode(ctx: RescueContext, bootstrap: BootstrapResult): Pr
   console.log(t.muted('  Escribe "cancelar" para abortar la instalación.\n'));
 
   const systemPrompt = buildRescueSystemPrompt(ctx);
-  const messages: Array<{ role: "user" | "assistant"; content: string }> = [];
+  const anthropicMessages: RescueAnthropicMessage[] = [];
+  const openAiMessages: RescueOpenAIMessage[] = [{ role: "system", content: systemPrompt }];
+  const isAnthropicProvider = bootstrap.providerId === "anthropic";
 
   // Primer mensaje: pide diagnóstico inicial
   const initialMessage = ctx.error
     ? `Ha ocurrido un error durante la instalación:\n\n${ctx.error}\n\n¿Qué ha pasado y cómo puedo solucionarlo?`
     : `He activado el modo rescate antes del paso ${ctx.step.id}. ¿Puedes explicarme qué va a hacer este paso y qué debo saber antes de aprobarlo?`;
 
-  messages.push({ role: "user", content: initialMessage });
+  anthropicMessages.push({ role: "user", content: initialMessage });
+  openAiMessages.push({ role: "user", content: initialMessage });
 
   try {
     process.stdout.write(t.muted("  Analizando..."));
-    const response = await callRescueAI(bootstrap, systemPrompt, messages);
+    const response = isAnthropicProvider
+      ? await resolveAnthropicRescueTurn(bootstrap, systemPrompt, anthropicMessages)
+      : await resolveOpenAIRescueTurn(bootstrap, systemPrompt, openAiMessages);
     process.stdout.write("\r  \r");
-    console.log(`\n  ${t.brand("🔧 IA Rescate:")}\n`);
-    for (const line of response.split("\n")) {
-      console.log(`  ${line}`);
-    }
-    messages.push({ role: "assistant", content: response });
+    printRescueAssistantReply(response);
   } catch (err) {
     process.stdout.write("\r  \r");
     console.log(
@@ -964,16 +1213,15 @@ async function runRescueMode(ctx: RescueContext, bootstrap: BootstrapResult): Pr
       }
       if (!input.trim()) continue;
 
-      messages.push({ role: "user", content: input });
+      anthropicMessages.push({ role: "user", content: input });
+      openAiMessages.push({ role: "user", content: input });
       try {
         process.stdout.write(t.muted("  Pensando..."));
-        const response = await callRescueAI(bootstrap, systemPrompt, messages);
+        const response = isAnthropicProvider
+          ? await resolveAnthropicRescueTurn(bootstrap, systemPrompt, anthropicMessages)
+          : await resolveOpenAIRescueTurn(bootstrap, systemPrompt, openAiMessages);
         process.stdout.write("\r  \r");
-        console.log(`\n  ${t.brand("🔧 IA Rescate:")}\n`);
-        for (const line of response.split("\n")) {
-          console.log(`  ${line}`);
-        }
-        messages.push({ role: "assistant", content: response });
+        printRescueAssistantReply(response);
       } catch (err) {
         process.stdout.write("\r  \r");
         console.log(
