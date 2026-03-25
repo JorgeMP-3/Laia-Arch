@@ -13,8 +13,50 @@ import { runConversation } from "./conversation.js";
 import { provisionCredential } from "./credential-manager.js";
 import { executePlan } from "./executor.js";
 import { displayPlan, generatePlan } from "./plan-generator.js";
+import { listPresets, savePreset } from "./presets/index.js";
 import { runScanner } from "./scanner.js";
 import type { BootstrapResult, InstallerConfig, InstallMode, SystemScan } from "./types.js";
+
+/** Pide un texto al usuario. */
+async function askText(prompt: string): Promise<string> {
+  return new Promise((resolve) => {
+    const rl = readline.createInterface({
+      input: process.stdin,
+      output: process.stdout,
+      terminal: true,
+    });
+    rl.question(`  ${prompt}: `, (answer) => {
+      rl.close();
+      resolve(answer.trim());
+    });
+  });
+}
+
+/**
+ * Ofrece guardar la configuración actual como preset.
+ * No es bloqueante: si el usuario rechaza, simplemente continúa.
+ */
+async function offerSavePreset(config: InstallerConfig): Promise<void> {
+  const save = await askConfirmation(
+    "¿Quieres guardar esta configuración como preset para futuras instalaciones?",
+  );
+  if (!save) return;
+
+  const name = await askText("Nombre del preset (p.ej. empresa-base)");
+  if (!name) {
+    console.log("  " + t.muted("Nombre vacío, no se guardó el preset.\n"));
+    return;
+  }
+  const description = await askText("Descripción breve (opcional, Enter para omitir)");
+
+  try {
+    const filePath = savePreset(name, description || name, config);
+    console.log("\n  " + t.good(`Preset guardado en: ${filePath}`));
+    console.log("  " + t.muted(`Para usarlo: laia-arch install --preset "${name}"\n`));
+  } catch (err) {
+    console.warn("  " + t.warn("No se pudo guardar el preset: " + String(err)));
+  }
+}
 
 /** Pide una confirmación explícita al usuario antes de continuar. */
 async function askConfirmation(question: string): Promise<boolean> {
@@ -156,6 +198,9 @@ export async function runInstaller(): Promise<void> {
     process.exit(0);
   }
 
+  // ── Guardar preset (opcional) ─────────────────────────────────────────────
+  await offerSavePreset(config);
+
   // ── Fase 4: Generar credenciales de forma segura ─────────────────────────
   console.log(t.section("FASE 4 — GENERACIÓN DE CREDENCIALES"));
   console.log(t.dim("\n  Las siguientes contraseñas se generan ahora y se almacenan"));
@@ -214,4 +259,154 @@ export async function runInstaller(): Promise<void> {
   console.log(`  ${t.label("IP local:")} ${t.value(systemScan.network.localIp)}\n`);
   console.log("  " + t.good("Laia Arch ha terminado su trabajo."));
   console.log(t.dim("  Lo que construyó queda.\n"));
+}
+
+// ── Ejecución con preset (salta la Fase 2) ────────────────────────────────────
+
+/**
+ * Ejecuta el instalador partiendo de una InstallerConfig ya cargada.
+ * Realiza bootstrap (Fase 0) y escaneo (Fase 1) igualmente, luego
+ * salta directamente a la Fase 3 (generación del plan).
+ */
+export async function runInstallerWithPreset(config: InstallerConfig): Promise<void> {
+  let bootstrapResult: BootstrapResult;
+  let systemScan: SystemScan;
+
+  // ── Fase 0: Configurar proveedor IA ──────────────────────────────────────
+  try {
+    bootstrapResult = await runBootstrap();
+    console.log(
+      "  " + t.good(`Proveedor: ${bootstrapResult.providerId} / ${bootstrapResult.model}\n`),
+    );
+  } catch (err) {
+    console.error("\n  Error en Fase 0 (proveedor IA):");
+    console.error(err instanceof Error ? err.message : String(err));
+    process.exit(1);
+  }
+
+  // ── Fase 1: Escaneo del sistema ───────────────────────────────────────────
+  try {
+    systemScan = await runScanner();
+    console.log("  " + t.good("Escaneo completado.\n"));
+  } catch (err) {
+    console.error("\n  Error en Fase 1 (escaneo del sistema):");
+    console.error(err instanceof Error ? err.message : String(err));
+    process.exit(1);
+  }
+
+  console.log("  " + t.muted("Fase 2 (conversación) omitida — usando preset.\n"));
+
+  // ── Fase 3: Generar el plan ───────────────────────────────────────────────
+  let plan;
+  try {
+    plan = await generatePlan(config);
+    displayPlan(plan);
+  } catch (err) {
+    console.error("\n  Error generando el plan de instalación:");
+    console.error(err instanceof Error ? err.message : String(err));
+    process.exit(1);
+  }
+
+  try {
+    execSync("sudo -n true", { stdio: "ignore", timeout: 2000 });
+  } catch {
+    console.log(
+      t.warn(
+        "\n⚠ AVISO: El usuario actual no tiene permisos sudo sin interacción.\n" +
+          "El instalador puede pedir contraseña más adelante o fallar al ejecutar comandos del sistema.\n\n" +
+          "Si quieres evitar cortes, prepara antes:\n" +
+          "  sudo bash scripts/setup-sudoers.sh\n",
+      ),
+    );
+  }
+
+  const confirmed = await askConfirmation(
+    "¿Apruebas este plan y quieres continuar con la instalación?",
+  );
+  if (!confirmed) {
+    console.log("\n  Instalación cancelada.");
+    process.exit(0);
+  }
+
+  // ── Fase 4: Generar credenciales de forma segura ─────────────────────────
+  console.log(t.section("FASE 4 — GENERACIÓN DE CREDENCIALES"));
+  console.log(t.dim("\n  Las siguientes contraseñas se generan ahora y se almacenan"));
+  console.log(t.dim("  de forma segura. NUNCA pasan por el contexto de la IA.\n"));
+
+  const passwordComplexityLength: Record<string, number> = {
+    basic: 16,
+    medium: 24,
+    high: 32,
+  };
+  const pwLength = passwordComplexityLength[config.security.passwordComplexity] ?? 24;
+
+  try {
+    for (const credId of plan.requiredCredentials) {
+      await provisionCredential(credId, credId.replace(/^laia-arch-/, "").replace(/-/g, " "), {
+        length: pwLength,
+        symbols: config.security.passwordComplexity !== "basic",
+      });
+      console.log();
+    }
+  } catch (err) {
+    console.error("\n  Error generando credenciales:");
+    console.error(err instanceof Error ? err.message : String(err));
+    process.exit(1);
+  }
+
+  const readyToExecute = await askConfirmation(
+    "¿Has guardado todas las contraseñas? ¿Listo para ejecutar la instalación?",
+  );
+  if (!readyToExecute) {
+    console.log("\n  Instalación pospuesta. Ejecuta 'laia-arch install' cuando estés listo.");
+    process.exit(0);
+  }
+
+  // ── Fase 5: Ejecutar el plan ──────────────────────────────────────────────
+  let results;
+  try {
+    results = await executePlan(plan);
+  } catch (err) {
+    console.error("\n  Error durante la ejecución:");
+    console.error(err instanceof Error ? err.message : String(err));
+    process.exit(1);
+  }
+
+  const failed = results.filter((r) => r.status === "failed" || r.status === "skipped").length;
+  if (failed > 0) {
+    console.error(`\n  La instalación terminó con ${failed} pasos fallidos o rechazados.`);
+    process.exit(1);
+  }
+
+  console.log(t.section("INSTALACIÓN COMPLETADA"));
+  console.log(`\n  ${t.label("Servidor:")} ${t.value(systemScan.os.hostname)}`);
+  console.log(
+    `  ${t.label("Sistema: ")} ${t.value(`${systemScan.os.distribution} ${systemScan.os.version}`)}`,
+  );
+  console.log(`  ${t.label("IP local:")} ${t.value(systemScan.network.localIp)}\n`);
+  console.log("  " + t.good("Laia Arch ha terminado su trabajo."));
+  console.log(t.dim("  Lo que construyó queda.\n"));
+}
+
+/** Muestra la lista de presets disponibles en consola. */
+export function printPresetList(): void {
+  const presets = listPresets();
+  if (presets.length === 0) {
+    console.log("\n  " + t.muted("No hay presets guardados."));
+    console.log(
+      "  " +
+        t.muted(
+          "Los presets se crean al final de una instalación. " +
+            "Ejecuta 'laia-arch install' y guarda la configuración cuando se te ofrezca.\n",
+        ),
+    );
+    return;
+  }
+  console.log("\n  Presets disponibles:\n");
+  for (const p of presets) {
+    const date = new Date(p.createdAt).toLocaleDateString("es-ES");
+    console.log(`  ${t.label(p.name)}`);
+    console.log(`    ${t.muted(p.description)}`);
+    console.log(`    ${t.dim("Creado: " + date)}\n`);
+  }
 }
