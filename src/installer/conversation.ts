@@ -739,11 +739,6 @@ async function runOpenConversation(
 // ── Extracción de datos estructurados ────────────────────────────────────
 
 /**
- * Tras cada etapa, hace una llamada de extracción separada para convertir
- * la conversación en datos estructurados JSON.
- * Si la extracción falla, devuelve el fallback sin interrumpir el flujo.
- */
-/**
  * Limpia una cadena que puede contener bloques markdown (```json...```) u
  * otro texto antes/después del JSON, y devuelve solo el JSON puro.
  */
