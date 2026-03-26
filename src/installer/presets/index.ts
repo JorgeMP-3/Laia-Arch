@@ -46,7 +46,12 @@ function ensureUserPresetsDir(): void {
 
 /** Convierte un nombre libre en un nombre de archivo seguro. */
 function toFileName(name: string): string {
-  return name.trim().toLowerCase().replace(/[^a-z0-9_-]+/g, "_") + ".json";
+  return (
+    name
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9_-]+/g, "_") + ".json"
+  );
 }
 
 /** Lee la IP del servidor del último escaneo guardado, o devuelve undefined. */
@@ -63,7 +68,9 @@ function readLastScanIp(): string | undefined {
 /** Lee todos los archivos .json de un directorio como presets. */
 function readPresetsFromDir(dir: string, source: "repo" | "user"): SavedPreset[] {
   try {
-    if (!fs.existsSync(dir)) return [];
+    if (!fs.existsSync(dir)) {
+      return [];
+    }
     return fs
       .readdirSync(dir)
       .filter((f) => f.endsWith(".json"))
@@ -86,7 +93,9 @@ function readPresetsFromDir(dir: string, source: "repo" | "user"): SavedPreset[]
  * la rellena con la IP del último escaneo.
  */
 function fillServerIp(preset: SavedPreset): SavedPreset {
-  if (preset.source !== "repo") return preset;
+  if (preset.source !== "repo") {
+    return preset;
+  }
   if (preset.config.network && !preset.config.network.serverIp) {
     const ip = readLastScanIp();
     if (ip) {
@@ -108,11 +117,7 @@ function fillServerIp(preset: SavedPreset): SavedPreset {
  * Guarda un preset en el directorio del usuario (~/.laia-arch/presets/).
  * Devuelve la ruta absoluta del archivo creado.
  */
-export function savePreset(
-  name: string,
-  description: string,
-  config: InstallerConfig,
-): string {
+export function savePreset(name: string, description: string, config: InstallerConfig): string {
   ensureUserPresetsDir();
   const preset: SavedPreset = {
     name,
@@ -132,7 +137,7 @@ export function savePreset(
  */
 export function listPresets(): SavedPreset[] {
   const repoPresets = readPresetsFromDir(REPO_PRESETS_DIR, "repo");
-  const userPresets = readPresetsFromDir(USER_PRESETS_DIR, "user").sort((a, b) =>
+  const userPresets = readPresetsFromDir(USER_PRESETS_DIR, "user").toSorted((a, b) =>
     b.createdAt.localeCompare(a.createdAt),
   );
   return [...repoPresets, ...userPresets];
@@ -152,9 +157,10 @@ export function loadPreset(name: string): SavedPreset | undefined {
   const lower = name.toLowerCase();
 
   const match =
-    all.find((p) => p.name === name) ??
-    all.find((p) => p.name.toLowerCase().includes(lower));
+    all.find((p) => p.name === name) ?? all.find((p) => p.name.toLowerCase().includes(lower));
 
-  if (!match) return undefined;
+  if (!match) {
+    return undefined;
+  }
   return fillServerIp(match);
 }

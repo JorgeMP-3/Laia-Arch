@@ -1,6 +1,7 @@
 // tools/index.ts — Definiciones y handlers de herramientas para el modo tool-driven
 // Las herramientas son expuestas a la IA a través de la API de Anthropic (tool use).
 
+import type { ToolResultEnvelope } from "../types.js";
 import { generateAndStorePassword } from "./credential-tools.js";
 import { addUserToGroup, createLdapGroup, createLdapUser, verifyLdapUser } from "./ldap-tools.js";
 import { addDnsRecord, configureHostname, configureWireguardPeer } from "./network-tools.js";
@@ -11,6 +12,11 @@ import {
   configureSysctl,
   enableService,
   installPackage,
+  readLogs,
+  repairDpkg,
+  restartService,
+  runCommand,
+  runDiagnostic,
 } from "./service-tools.js";
 import {
   checkInternet,
@@ -403,6 +409,74 @@ export const TOOL_DEFINITIONS_ANTHROPIC: ToolDefinition[] = [
       required: ["repoUrl", "gpgKeyUrl", "listFileName"],
     },
   },
+  {
+    name: "run_diagnostic",
+    description:
+      "Ejecuta un comando de solo lectura para diagnóstico, sin sudo y sin aprobación. Úsalo para: named-checkconf, named-checkzone, dpkg -l, grep en /etc/, cat, ls, ss, ip, df, etc. NO uses esta tool para comandos que modifican el sistema.",
+    input_schema: {
+      type: "object",
+      properties: {
+        command: {
+          type: "string",
+          description: "Comando de diagnóstico de solo lectura a ejecutar",
+        },
+      },
+      required: ["command"],
+    },
+  },
+  {
+    name: "run_command",
+    description:
+      "Ejecuta un comando de sistema con sudo. Úsalo SOLO para comandos que modifican el sistema (editar archivos, configurar servicios, etc.) cuando las otras tools no sean suficientes. SIEMPRE requiere aprobación del administrador. Para diagnóstico, usa run_diagnostic.",
+    input_schema: {
+      type: "object",
+      properties: {
+        command: {
+          type: "string",
+          description: "Comando a ejecutar (se ejecuta con: sudo bash -c '...')",
+        },
+        reason: {
+          type: "string",
+          description: "Por qué es necesario ejecutar este comando concreto",
+        },
+      },
+      required: ["command", "reason"],
+    },
+  },
+  {
+    name: "repair_dpkg",
+    description:
+      "Repara dpkg cuando queda en estado inconsistente tras un fallo de apt. Ejecuta: dpkg --configure -a → apt-get -f install → apt-get autoremove. Requiere aprobación del administrador.",
+    input_schema: { type: "object", properties: {}, required: [] },
+  },
+  {
+    name: "restart_service",
+    description:
+      "Reinicia un servicio systemd (systemctl restart). Útil para forzar recarga de configuración tras un fallo. Requiere aprobación del administrador.",
+    input_schema: {
+      type: "object",
+      properties: {
+        service: { type: "string", description: "Nombre del servicio systemd (ej: bind9, slapd)" },
+      },
+      required: ["service"],
+    },
+  },
+  {
+    name: "read_logs",
+    description:
+      "Lee las últimas líneas del log de un servicio systemd con journalctl. Solo lectura, no requiere aprobación.",
+    input_schema: {
+      type: "object",
+      properties: {
+        service: { type: "string", description: "Nombre del servicio systemd (ej: bind9, slapd)" },
+        lines: {
+          type: "integer",
+          description: "Número de líneas a leer (1-300, por defecto 60)",
+        },
+      },
+      required: ["service"],
+    },
+  },
 ];
 
 // ── Formato OpenAI (para OpenAI, OpenRouter, openai-compatible) ──────────
@@ -435,27 +509,134 @@ export const TOOL_DEFINITIONS_OPENAI: ToolDefinitionOpenAI[] = TOOL_DEFINITIONS_
 
 export type ToolHandler = (input: Record<string, unknown>) => Promise<unknown>;
 
+function extractObservedState(result: unknown): Record<string, unknown> {
+  if (!result || typeof result !== "object" || Array.isArray(result)) {
+    return {};
+  }
+
+  const record = { ...(result as Record<string, unknown>) };
+  delete record["success"];
+  delete record["retryable"];
+  delete record["error"];
+  return record;
+}
+
+function inferChangedFiles(name: string, input: Record<string, unknown>): string[] {
+  switch (name) {
+    case "write_file":
+      return typeof input.path === "string" ? [input.path] : [];
+    case "add_dns_record":
+      return typeof input.domain === "string" ? [`/etc/bind/db.${input.domain}`] : [];
+    case "configure_hostname":
+      return ["/etc/hostname", "/etc/hosts"];
+    case "configure_wireguard_peer":
+      return ["/etc/wireguard/wg0.conf"];
+    case "create_samba_share":
+      return ["/etc/samba/smb.conf"];
+    case "configure_sysctl":
+      return input.persistent ? ["/etc/sysctl.conf"] : [];
+    case "add_apt_repository":
+      return typeof input.listFileName === "string"
+        ? [`/etc/apt/sources.list.d/${input.listFileName}`]
+        : [];
+    default:
+      return [];
+  }
+}
+
+function inferServicesTouched(name: string, input: Record<string, unknown>): string[] {
+  switch (name) {
+    case "check_service_status":
+    case "enable_service":
+      return typeof input.service === "string" ? [input.service] : [];
+    case "configure_ufw":
+      return ["ufw"];
+    case "create_ldap_user":
+    case "create_ldap_group":
+    case "add_user_to_group":
+    case "verify_ldap_user":
+      return ["slapd"];
+    case "create_samba_share":
+    case "register_samba_user":
+    case "verify_samba_share":
+      return ["smbd", "nmbd"];
+    case "add_dns_record":
+    case "verify_dns_resolution":
+      return ["bind9"];
+    case "configure_wireguard_peer":
+      return ["wg-quick@wg0"];
+    case "verify_service_chain":
+      return ["bind9", "slapd", "smbd", "docker", "nginx", "wg-quick@wg0", "cockpit"];
+    case "run_backup_test":
+      return ["cron"];
+    case "install_package":
+      return Array.isArray(input.packages) ? ["apt"] : [];
+    default:
+      return [];
+  }
+}
+
+function normalizeToolResult(
+  name: string,
+  input: Record<string, unknown>,
+  result: unknown,
+): ToolResultEnvelope {
+  if (!result || typeof result !== "object" || Array.isArray(result)) {
+    return {
+      success: false,
+      retryable: true,
+      observed_state: {},
+      changed_files: inferChangedFiles(name, input),
+      services_touched: inferServicesTouched(name, input),
+      error: "resultado de herramienta inválido",
+      output: result,
+    };
+  }
+
+  const record = result as Record<string, unknown>;
+  return {
+    success: record["success"] === true,
+    retryable: record["retryable"] === true,
+    observed_state: extractObservedState(record),
+    changed_files: inferChangedFiles(name, input),
+    services_touched: inferServicesTouched(name, input),
+    rollback_hint:
+      typeof record["rollback_hint"] === "string" ? record["rollback_hint"] : undefined,
+    error: typeof record["error"] === "string" ? record["error"] : undefined,
+    output: record,
+  };
+}
+
+function wrapToolHandler(
+  name: string,
+  handler: (input: Record<string, unknown>) => Promise<unknown>,
+): ToolHandler {
+  return async (input) => normalizeToolResult(name, input, await handler(input));
+}
+
 export const TOOL_HANDLERS: Record<string, ToolHandler> = {
-  get_system_info: async () => getSystemInfo(),
-
-  check_port_available: async (input) => checkPortAvailable(input.port as number),
-
-  check_service_status: async (input) => checkServiceStatus(input.service as string),
-
-  read_file: async (input) => readFile(input.path as string),
-
-  install_package: async (input) => installPackage(input.packages as string[]),
-
-  enable_service: async (input) => enableService(input.service as string),
-
-  configure_ufw: async (input) =>
+  get_system_info: wrapToolHandler("get_system_info", async () => getSystemInfo()),
+  check_port_available: wrapToolHandler("check_port_available", async (input) =>
+    checkPortAvailable(input.port as number),
+  ),
+  check_service_status: wrapToolHandler("check_service_status", async (input) =>
+    checkServiceStatus(input.service as string),
+  ),
+  read_file: wrapToolHandler("read_file", async (input) => readFile(input.path as string)),
+  install_package: wrapToolHandler("install_package", async (input) =>
+    installPackage(input.packages as string[]),
+  ),
+  enable_service: wrapToolHandler("enable_service", async (input) =>
+    enableService(input.service as string),
+  ),
+  configure_ufw: wrapToolHandler("configure_ufw", async (input) =>
     configureUfw(
       input.port as number,
       input.protocol as "tcp" | "udp",
       input.action as "allow" | "deny",
     ),
-
-  create_ldap_user: async (input) =>
+  ),
+  create_ldap_user: wrapToolHandler("create_ldap_user", async (input) =>
     createLdapUser({
       username: input.username as string,
       givenName: input.givenName as string,
@@ -466,21 +647,21 @@ export const TOOL_HANDLERS: Record<string, ToolHandler> = {
       passwordId: input.passwordId as string,
       domain: input.domain as string,
     }),
-
-  create_ldap_group: async (input) =>
+  ),
+  create_ldap_group: wrapToolHandler("create_ldap_group", async (input) =>
     createLdapGroup(
       input.name as string,
       input.gidNumber as number | undefined,
       input.domain as string,
     ),
-
-  add_user_to_group: async (input) =>
+  ),
+  add_user_to_group: wrapToolHandler("add_user_to_group", async (input) =>
     addUserToGroup(input.username as string, input.group as string, input.domain as string),
-
-  verify_ldap_user: async (input) =>
+  ),
+  verify_ldap_user: wrapToolHandler("verify_ldap_user", async (input) =>
     verifyLdapUser(input.username as string, input.domain as string),
-
-  create_samba_share: async (input) =>
+  ),
+  create_samba_share: wrapToolHandler("create_samba_share", async (input) =>
     createSambaShare({
       name: input.name as string,
       path: (input.path as string) ?? `/srv/samba/${input.name as string}`,
@@ -488,16 +669,17 @@ export const TOOL_HANDLERS: Record<string, ToolHandler> = {
       readOnly: input.readOnly as boolean,
       browseable: input.browseable as boolean,
     }),
-
-  register_samba_user: async (input) =>
+  ),
+  register_samba_user: wrapToolHandler("register_samba_user", async (input) =>
     registerSambaUser(input.username as string, input.passwordId as string),
-
-  verify_samba_share: async (input) => verifySambaShare(input.share as string),
-
-  configure_hostname: async (input) =>
+  ),
+  verify_samba_share: wrapToolHandler("verify_samba_share", async (input) =>
+    verifySambaShare(input.share as string),
+  ),
+  configure_hostname: wrapToolHandler("configure_hostname", async (input) =>
     configureHostname(input.hostname as string, input.domain as string),
-
-  configure_wireguard_peer: async (input) =>
+  ),
+  configure_wireguard_peer: wrapToolHandler("configure_wireguard_peer", async (input) =>
     configureWireguardPeer({
       username: input.username as string,
       clientIp: input.clientIp as string,
@@ -505,44 +687,54 @@ export const TOOL_HANDLERS: Record<string, ToolHandler> = {
       serverPort: input.serverPort as number,
       serverPublicKey: input.serverPublicKey as string,
     }),
-
-  add_dns_record: async (input) =>
+  ),
+  add_dns_record: wrapToolHandler("add_dns_record", async (input) =>
     addDnsRecord(input.name as string, input.ip as string, input.domain as string),
-
-  generate_and_store_password: async (input) =>
+  ),
+  generate_and_store_password: wrapToolHandler("generate_and_store_password", async (input) =>
     generateAndStorePassword({
       id: input.id as string,
       complexity: input.complexity as "medium" | "high",
       description: input.description as string,
     }),
-
-  verify_dns_resolution: async (input) => verifyDnsResolution(input.hostname as string),
-
-  verify_service_chain: async () => verifyServiceChain(),
-
-  run_backup_test: async () => runBackupTest(),
-
-  check_internet: async () => checkInternet(),
-
-  write_file: async (input) =>
+  ),
+  verify_dns_resolution: wrapToolHandler("verify_dns_resolution", async (input) =>
+    verifyDnsResolution(input.hostname as string),
+  ),
+  verify_service_chain: wrapToolHandler("verify_service_chain", async () => verifyServiceChain()),
+  run_backup_test: wrapToolHandler("run_backup_test", async () => runBackupTest()),
+  check_internet: wrapToolHandler("check_internet", async () => checkInternet()),
+  write_file: wrapToolHandler("write_file", async (input) =>
     writeFile({
       path: input.path as string,
       content: input.content as string,
       append: input.append as boolean | undefined,
     }),
-
-  configure_sysctl: async (input) =>
+  ),
+  configure_sysctl: wrapToolHandler("configure_sysctl", async (input) =>
     configureSysctl({
       key: input.key as string,
       value: input.value as string,
       persistent: input.persistent as boolean | undefined,
     }),
-
-  add_apt_repository: async (input) =>
+  ),
+  add_apt_repository: wrapToolHandler("add_apt_repository", async (input) =>
     addAptRepository({
       repoUrl: input.repoUrl as string,
       gpgKeyUrl: input.gpgKeyUrl as string,
       listFileName: input.listFileName as string,
       distribution: input.distribution as string | undefined,
     }),
+  ),
+  run_diagnostic: wrapToolHandler("run_diagnostic", async (input) =>
+    runDiagnostic(input.command as string),
+  ),
+  run_command: wrapToolHandler("run_command", async (input) => runCommand(input.command as string)),
+  repair_dpkg: wrapToolHandler("repair_dpkg", async () => repairDpkg()),
+  restart_service: wrapToolHandler("restart_service", async (input) =>
+    restartService(input.service as string),
+  ),
+  read_logs: wrapToolHandler("read_logs", async (input) =>
+    readLogs(input.service as string, input.lines as number | undefined),
+  ),
 };

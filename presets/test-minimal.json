@@ -12,9 +12,7 @@
     },
     "access": {
       "totalUsers": 3,
-      "roles": [
-        { "name": "equipo", "count": 3 }
-      ],
+      "roles": [{ "name": "equipo", "count": 3 }],
       "remoteUsers": 0,
       "devices": ["linux"],
       "needsVpn": false,

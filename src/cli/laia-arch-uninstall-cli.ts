@@ -1,5 +1,5 @@
-import type { Command } from "commander";
 import { isCancel, select } from "@clack/prompts";
+import type { Command } from "commander";
 import { runBootstrap } from "../installer/bootstrap.js";
 import { runGenericUninstall, runGuidedUninstall } from "../installer/uninstaller.js";
 import { laiaTheme as theme } from "./laia-arch-theme.js";

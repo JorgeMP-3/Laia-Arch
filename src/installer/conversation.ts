@@ -6,6 +6,10 @@ import * as os from "node:os";
 import * as path from "node:path";
 import * as readline from "node:readline";
 import { laiaTheme as t } from "../cli/laia-arch-theme.js";
+import {
+  buildArchAgoraOutcomeMessage,
+  buildConversationArtifacts,
+} from "./conversation-semantics.js";
 import { extractCredentialValue, retrieveProfileCredential } from "./credential-manager.js";
 import {
   TOOL_DEFINITIONS_ANTHROPIC,
@@ -17,7 +21,13 @@ import type {
   AccessModel,
   BootstrapResult,
   CompanyProfile,
+  ConversationContradiction,
+  ConversationFact,
+  ConversationGap,
+  ConversationIntent,
+  ConversationResult,
   DataCompliance,
+  InstallationGoal,
   InstallMode,
   InstallerConfig,
   ModeConfig,
@@ -157,6 +167,12 @@ PRIORIDAD ABSOLUTA — ENTENDER AL ADMINISTRADOR:
 Tu objetivo no es hacer preguntas. Es entender qué necesita
 esta organización y configurar el servidor de forma óptima.
 
+CONDICIÓN DE CIERRE:
+No cierres la conversación si queda una contradicción relevante
+sin resolver o si falta algún dato que cambie la instalación.
+Si algo puede resolverse con un valor por defecto seguro, dilo
+brevemente y sigue.
+
 REGLAS DE ADAPTACIÓN:
 
 Si dan mucha información a la vez:
@@ -204,7 +220,7 @@ Sector no técnico (legal, salud, educación, administración):
 SERVICIOS DISPONIBLES Y CUÁNDO RECOMENDARLOS:
 - DNS (BIND9): siempre, es la base
 - OpenLDAP: siempre, es la base
-- Docker: siempre, necesario para Laia Agora y Nemo
+- Docker: siempre, necesario para desplegar Laia Agora base
 - Backups rsync: siempre, esencial
 - Samba: si comparten archivos entre equipos
 - WireGuard: SOLO si hay remotos — añadir sin preguntar si ya lo confirmaron
@@ -215,7 +231,11 @@ NUNCA:
 - Asumir el sector ni los roles de la organización
 - Avanzar sin entender completamente lo que quieren
 - Simular acciones — solo ejecutar tools reales
-- Generar el plan sin tener toda la información necesaria`;
+- Generar el plan sin tener toda la información necesaria
+
+RESULTADO QUE DEBES TENER EN MENTE:
+La instalación debe dejar preparado el host y el despliegue base
+de Laia Agora en Docker con validación en el puerto 18789.`;
 }
 
 /**
@@ -794,7 +814,9 @@ async function extractJson<T>(
     ]);
 
     const result = attemptParse(raw);
-    if (result !== null) return result;
+    if (result !== null) {
+      return result;
+    }
 
     // Segundo intento con instrucción aún más explícita
     const raw2 = await callAI(bootstrap, extractionSystem, [
@@ -811,7 +833,9 @@ async function extractJson<T>(
     ]);
 
     const result2 = attemptParse(raw2);
-    if (result2 !== null) return result2;
+    if (result2 !== null) {
+      return result2;
+    }
 
     console.warn(
       "  Aviso: no se pudo extraer datos estructurados de esta etapa. Usando valores por defecto.",
@@ -1055,17 +1079,130 @@ Devuelve un array JSON. Si no se mencionaron nombres concretos, devuelve []:
   return next;
 }
 
+// ── Extracción de intención agentic ──────────────────────────────────────
+
+/**
+ * Extrae los metadatos agenticos de la conversación:
+ * objetivo, hechos confirmados, huecos y contradicciones.
+ * Devuelve un ConversationIntent que puede alimentar tanto el motor
+ * agentic como el plan-generator de fallback.
+ */
+async function extractConversationIntent(
+  bootstrap: BootstrapResult,
+  allMessages: Message[],
+  data: ConversationData,
+  scan: SystemScan,
+  mode: InstallMode,
+): Promise<ConversationIntent> {
+  // Reutilizar la extracción existente para el InstallerConfig de fallback
+  const finalData = await extractConversationData(bootstrap, allMessages, data, scan);
+  const installerConfig: InstallerConfig = {
+    company: finalData.company,
+    access: finalData.access,
+    services: finalData.services,
+    security: finalData.security,
+    compliance: finalData.compliance,
+    network: finalData.network,
+    users: finalData.users,
+    installMode: mode,
+  };
+
+  const goal: InstallationGoal = {
+    companyName: finalData.company.name,
+    installMode: mode,
+    targetHostname: scan.os.hostname,
+    targetDomain: finalData.network.internalDomain,
+    desiredServices: Object.entries(finalData.services)
+      .filter(([, enabled]) => enabled)
+      .map(([service]) => service),
+    remoteAccessRequired:
+      finalData.access.remoteUsers > 0 || finalData.access.needsVpn || finalData.services.wireguard,
+    desiredUsers: finalData.users,
+  };
+
+  const aiConfirmedFacts = await extractJson<ConversationFact[]>(
+    bootstrap,
+    allMessages,
+    `Lista los datos que el administrador confirmó explícitamente durante la conversación.
+Devuelve un array JSON. Si no hay ninguno, devuelve []:
+[
+  {
+    "key": "<nombre del dato, ej: company.name>",
+    "value": "<valor confirmado>",
+    "confidence": "confirmed",
+    "source": "<cita textual o paráfrasis de cómo lo dijo el administrador>"
+  }
+]
+Solo incluye datos que el administrador dijo directamente, no deducidos.`,
+    [],
+  );
+
+  const aiPendingGaps = await extractJson<ConversationGap[]>(
+    bootstrap,
+    allMessages,
+    `Lista los datos que quedaron sin confirmar o sin respuesta en la conversación.
+Devuelve un array JSON. Si todo quedó cubierto, devuelve []:
+[
+  {
+    "key": "<nombre del dato faltante>",
+    "description": "<qué falta saber>",
+    "blocking": <true si bloquea la instalación, false si tiene default seguro>
+  }
+]`,
+    [],
+  );
+
+  const aiContradictions = await extractJson<ConversationContradiction[]>(
+    bootstrap,
+    allMessages,
+    `Lista las contradicciones detectadas en la conversación.
+Devuelve un array JSON. Si no hubo contradicciones, devuelve []:
+[
+  {
+    "key": "<dato afectado>",
+    "firstStatement": "<lo que se dijo primero>",
+    "laterStatement": "<lo que se dijo después y contradice>",
+    "resolution": "<cómo quedó resuelto, o cadena vacía si no se resolvió>"
+  }
+]`,
+    [],
+  );
+
+  const artifacts = buildConversationArtifacts({
+    messages: allMessages,
+    data: finalData,
+    scan,
+    mode,
+    aiFacts: aiConfirmedFacts,
+    aiGaps: aiPendingGaps,
+    aiContradictions: aiContradictions,
+  });
+
+  return {
+    mode,
+    goal,
+    summary: artifacts.summary,
+    confirmedFacts: artifacts.confirmedFacts,
+    pendingGaps: artifacts.pendingGaps,
+    contradictions: artifacts.contradictions,
+    decisions: artifacts.decisions,
+    installerConfig,
+    conversationMessages: allMessages,
+    completedAt: new Date().toISOString(),
+  };
+}
+
 /**
  * Ejecuta la configuración conversacional completa: 7 etapas con la IA.
  * Navega hacia adelante con 'continuar'/'siguiente' y hacia atrás con 'atrás'/'volver'.
  * La única forma de salir es Ctrl+C.
- * Devuelve InstallerConfig con todos los datos recopilados.
+ * Devuelve ConversationIntent con la configuración y los metadatos agenticos.
  */
 export async function runConversation(
   bootstrap: BootstrapResult,
   scan: SystemScan,
   mode: InstallMode = "adaptive",
-): Promise<InstallerConfig> {
+): Promise<ConversationResult> {
   console.log(t.section("CONFIGURACIÓN CON LAIA ARCH"));
   const rl = readline.createInterface({
     input: process.stdin,
@@ -1159,7 +1296,7 @@ export async function runConversation(
       const trigger =
         mode === "tool-driven"
           ? 'Empieza con la pregunta 1 exactamente como está escrita. Haz una sola pregunta cada vez. Cuando tengas las 5 respuestas, resume lo entendido y termina con "[ETAPA_COMPLETA]".'
-          : "Empieza confirmando el servidor o preguntando por el dato más importante que falte. Haz una sola pregunta cada vez. Cuando tengas toda la información necesaria para el plan, resume lo entendido y termina con [ETAPA_COMPLETA].";
+          : "Empieza confirmando el servidor o preguntando por el dato más importante que falte. Haz una sola pregunta cada vez. No cierres si queda una contradiccion relevante o un hueco bloqueante sin resolver. Cuando tengas la informacion necesaria para el plan, resume organizacion, roles, servicios y el resultado esperado host + Agora base, y termina con [ETAPA_COMPLETA].";
 
       const messages = await runOpenConversation(rl, bootstrap, systemPrompt, trigger, modeConfig);
       allMessages.push(...messages);
@@ -1170,25 +1307,22 @@ export async function runConversation(
 
     data = await extractConversationData(bootstrap, allMessages, data, scan);
 
-    const config: InstallerConfig = {
-      company: data.company,
-      access: data.access,
-      services: data.services,
-      security: data.security,
-      compliance: data.compliance,
-      network: data.network,
-      users: data.users,
-      installMode: mode,
-    };
+    const intent = await extractConversationIntent(bootstrap, allMessages, data, scan, mode);
+    const config = intent.installerConfig;
 
     // Guardar la configuración en ~/.laia-arch/
     const configDir = path.join(os.homedir(), ".laia-arch");
     fs.mkdirSync(configDir, { recursive: true });
     const configPath = path.join(configDir, "installer-config.json");
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2), { mode: 0o600 });
+    const intentPath = path.join(configDir, "installer-intent.json");
+    fs.writeFileSync(intentPath, JSON.stringify(intent, null, 2), { mode: 0o600 });
     console.log(`\n  Configuración guardada en ${configPath}`);
+    console.log(`  ${t.muted(`Intención guardada en ${intentPath}`)}`);
+    console.log();
+    console.log(t.dim(buildArchAgoraOutcomeMessage(intent)));
 
-    return config;
+    return { config, intent };
   } catch (err) {
     rl.close();
     throw err;

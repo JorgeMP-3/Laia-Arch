@@ -1,15 +1,46 @@
 // plan-generator.ts — Generación determinista del plan de instalación
-// El plan se genera por código, no por la IA. La IA solo recopila la config.
+//
+// El plan se genera por código (NO por la IA). La IA solo recopila la config
+// durante la conversación; este módulo la convierte en pasos ejecutables.
+//
+// Orden de fases:
+//  Fase 0 — init (hostname, utilidades base)
+//  Fase 1 — prep (apt update/upgrade)
+//  Fase 2 — DNS (BIND9)            solo si config.services.dns
+//  Fase 3 — LDAP (OpenLDAP/slapd)  solo si config.services.ldap
+//  Fase 4 — Samba                   solo si config.services.samba
+//  Fase 5 — WireGuard VPN          solo si config.services.wireguard
+//  Fase 6 — Docker + Laia Agora    solo si config.services.docker
+//  Fase 7 — Nginx                  solo si config.services.nginx
+//  Fase 8 — Cockpit                solo si config.services.cockpit
+//  Fase 9 — Backups rsync          solo si config.services.backups
+//
+// Las credenciales LDAP nunca se pasan en claro por argumentos CLI;
+// se leen desde el keyring (secret-tool / macOS security) o desde
+// ~/.laia-arch/credentials/ y se escriben en un fichero temporal chmod 600
+// que se borra tras su uso (ver createLdapAdminPasswordFileCommand).
 
 import { laiaTheme as t } from "../cli/laia-arch-theme.js";
 import type { InstallerConfig, InstallPlan, InstallStep } from "./types.js";
 
 export type PlanStatus = "draft" | "approved" | "executing";
 
+// Escapa un valor para incluirlo de forma segura dentro de comillas simples en bash.
 function shellQuote(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`;
 }
 
+// Devuelve value si no está vacío tras trim, o fallback en caso contrario.
+function coalesceNonEmpty(value: string | undefined, fallback: string): string {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : fallback;
+}
+
+// Genera las líneas de shell que recuperan la contraseña LDAP desde el keyring.
+// Intenta en orden: secret-tool (Linux) → security (macOS) → fichero plano en
+// ~/.laia-arch/credentials/. Si ninguno funciona, aborta con exit 1.
+// Maneja el caso sudo: si SUDO_USER está definido, lee el keyring del usuario
+// original (no de root) porque el keyring es por sesión de usuario.
 function createLdapAdminPasswordLoadLines(credentialId: string): string[] {
   return [
     `LDAP_ADMIN_PASSWORD_ID=${shellQuote(credentialId)}`,
@@ -42,6 +73,13 @@ function createLdapAdminPasswordLoadLines(credentialId: string): string[] {
   ];
 }
 
+// Envuelve un comando ldap* en un bloque shell que:
+//  1. Crea /tmp/laia-arch-ldap/ y registra un trap EXIT para limpiar
+//  2. Carga la contraseña LDAP desde el keyring
+//  3. La escribe en un fichero temporal con chmod 600
+//  4. Ejecuta el comando pasado (que usa -y /tmp/.../admin.pwd)
+//  5. Limpia el fichero al salir (trap garantiza esto incluso con error)
+// Esto evita que la contraseña aparezca en ps aux, en logs o en el contexto IA.
 function createLdapAdminPasswordFileCommand(credentialId: string, command: string): string {
   return [
     "set -euo pipefail",
@@ -58,6 +96,9 @@ function createLdapAdminPasswordFileCommand(credentialId: string, command: strin
   ].join("\n");
 }
 
+// Convierte un nombre de rol libre ("Diseño Gráfico") en un nombre válido
+// para LDAP/POSIX: minúsculas, sin acentos, guiones en lugar de espacios,
+// solo a-z0-9_-. Fallback "usuarios" si el resultado queda vacío.
 function normalizeLdapGroupName(value: string): string {
   return (
     value
@@ -71,6 +112,10 @@ function normalizeLdapGroupName(value: string): string {
   );
 }
 
+// Deriva un GID reproducible para un grupo LDAP a partir de su nombre.
+// Usa un hash djb2 simple (hash * 31 + charCode) y lo mapea al rango 20000-39999.
+// Esto garantiza que reinstalaciones con el mismo nombre de rol asignen el mismo GID,
+// lo que es crítico para consistencia entre Samba y LDAP.
 function deriveLdapGroupGid(name: string): number {
   let hash = 0;
   for (const char of normalizeLdapGroupName(name)) {
@@ -117,7 +162,7 @@ export async function generatePlan(config: InstallerConfig): Promise<InstallPlan
     description: `Configurar hostname (${fqdn}) y entradas base de /etc/hosts`,
     commands: [
       `hostnamectl set-hostname ${hostname}`,
-      `echo "127.0.1.1 ${fqdn} ${hostname}" >> /etc/hosts`,
+      `grep -qF '${fqdn}' /etc/hosts || echo "127.0.1.1 ${fqdn} ${hostname}" >> /etc/hosts`,
     ],
     requiresApproval: true,
     rollback: undefined,
@@ -155,7 +200,7 @@ export async function generatePlan(config: InstallerConfig): Promise<InstallPlan
   // ── Fase 2: DNS interno (BIND9) ──────────────────────────────────────────
   if (config.services.dns) {
     const dnsDomain = config.network?.internalDomain ?? `${hostname}.local`;
-    const dnsServerIp = config.network?.serverIp ?? "127.0.0.1";
+    const dnsServerIp = coalesceNonEmpty(config.network?.serverIp, "127.0.0.1");
 
     steps.push({
       id: "dns-01",
@@ -163,8 +208,8 @@ export async function generatePlan(config: InstallerConfig): Promise<InstallPlan
       description: `Instalar BIND9 y configurar zona DNS para ${dnsDomain}`,
       commands: [
         "apt-get install -y bind9 bind9utils bind9-doc",
-        `echo 'zone "${dnsDomain}" { type master; file "/etc/bind/db.${dnsDomain}"; };' >> /etc/bind/named.conf.local`,
-        `printf '@\tIN SOA\tns1.${dnsDomain}. admin.${dnsDomain}. (1 604800 86400 2419200 604800)\n@\tIN NS\tns1.${dnsDomain}.\nns1\tIN A\t${dnsServerIp}\n' > /etc/bind/db.${dnsDomain}`,
+        `grep -qF 'zone "${dnsDomain}"' /etc/bind/named.conf.local 2>/dev/null || echo 'zone "${dnsDomain}" { type master; file "/etc/bind/db.${dnsDomain}"; };' >> /etc/bind/named.conf.local`,
+        `printf '$TTL 3600\n@\tIN SOA\tns1.${dnsDomain}. admin.${dnsDomain}. (1 604800 86400 2419200 604800)\n@\tIN NS\tns1.${dnsDomain}.\n@\tIN A\t${dnsServerIp}\nns1\tIN A\t${dnsServerIp}\n' > /etc/bind/db.${dnsDomain}`,
         "systemctl enable named",
         "systemctl start named",
       ],
@@ -195,7 +240,7 @@ export async function generatePlan(config: InstallerConfig): Promise<InstallPlan
       "set -euo pipefail",
       ...createLdapAdminPasswordLoadLines(ldapPasswordCredentialId),
       'SLAPD_ALREADY_INSTALLED="false"',
-      'if dpkg-query -W -f=\'${Status}\' slapd 2>/dev/null | grep -q "install ok installed"; then',
+      "if dpkg-query -W -f='${Status}' slapd 2>/dev/null | grep -q \"install ok installed\"; then",
       '  SLAPD_ALREADY_INSTALLED="true"',
       "fi",
       `printf '%s\\n' ${shellQuote("slapd slapd/no_configuration boolean false")} | debconf-set-selections`,
@@ -436,6 +481,7 @@ export async function generatePlan(config: InstallerConfig): Promise<InstallPlan
         `bash -c 'echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null'`,
         "apt-get update",
         "apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin",
+        'if [ -n "${SUDO_USER:-}" ]; then usermod -aG docker "$SUDO_USER"; fi',
         "systemctl enable docker",
         "systemctl start docker",
       ],
@@ -444,6 +490,151 @@ export async function generatePlan(config: InstallerConfig): Promise<InstallPlan
         "apt-get remove -y --purge docker-ce docker-ce-cli containerd.io && rm -f /etc/apt/sources.list.d/docker.list",
     });
     estimatedMinutes += 12;
+
+    steps.push({
+      id: "agora-01",
+      phase: 6,
+      description: "Preparar directorios persistentes y plantillas base de Laia Agora",
+      commands: [
+        "install -d -m 0755 /opt/laia-agora",
+        "install -d -m 0755 /srv/laia-agora/config /srv/laia-agora/workspace /srv/laia-agora/templates",
+        [
+          "set -euo pipefail",
+          'SOURCE_DIR="$(pwd)"',
+          'if [ -d "$SOURCE_DIR/workspace-templates" ]; then',
+          "  rm -rf /srv/laia-agora/templates/laia-arch /srv/laia-agora/templates/laia-agora /srv/laia-agora/templates/laia-nemo",
+          '  cp -R "$SOURCE_DIR/workspace-templates/laia-arch" /srv/laia-agora/templates/',
+          '  cp -R "$SOURCE_DIR/workspace-templates/laia-agora" /srv/laia-agora/templates/',
+          '  cp -R "$SOURCE_DIR/workspace-templates/laia-nemo" /srv/laia-agora/templates/',
+          "else",
+          "  install -d -m 0755 /srv/laia-agora/templates/laia-arch /srv/laia-agora/templates/laia-agora /srv/laia-agora/templates/laia-nemo",
+          "fi",
+        ].join("\n"),
+      ],
+      requiresApproval: true,
+      rollback: "rm -rf /opt/laia-agora /srv/laia-agora",
+    });
+
+    steps.push({
+      id: "agora-02",
+      phase: 6,
+      description: "Generar el despliegue Docker Compose base de Laia Agora",
+      commands: [
+        [
+          "set -euo pipefail",
+          "if [ ! -f /opt/laia-agora/.env ]; then",
+          '  GATEWAY_TOKEN="$(python3 -c \'import secrets, string; alphabet = string.ascii_letters + string.digits; print("".join(secrets.choice(alphabet) for _ in range(48)))\')"',
+          "  cat <<EOF > /opt/laia-agora/.env",
+          "OPENCLAW_IMAGE=ghcr.io/openclaw/openclaw:latest",
+          "OPENCLAW_CONFIG_DIR=/srv/laia-agora/config",
+          "OPENCLAW_WORKSPACE_DIR=/srv/laia-agora/workspace",
+          "OPENCLAW_GATEWAY_PORT=18789",
+          "OPENCLAW_BRIDGE_PORT=18790",
+          "OPENCLAW_GATEWAY_BIND=lan",
+          "OPENCLAW_TZ=UTC",
+          "OPENCLAW_GATEWAY_TOKEN=${GATEWAY_TOKEN}",
+          "EOF",
+          "fi",
+          "set -a",
+          ". /opt/laia-agora/.env",
+          "set +a",
+          "if [ ! -f /srv/laia-agora/config/openclaw.json ]; then",
+          "  cat <<EOF > /srv/laia-agora/config/openclaw.json",
+          "{",
+          '  "gateway": {',
+          '    "mode": "local",',
+          '    "bind": "${OPENCLAW_GATEWAY_BIND}",',
+          '    "controlUi": {',
+          '      "allowedOrigins": ["http://127.0.0.1:${OPENCLAW_GATEWAY_PORT}", "http://localhost:${OPENCLAW_GATEWAY_PORT}"]',
+          "    }",
+          "  }",
+          "}",
+          "EOF",
+          "fi",
+          "chmod 755 /srv/laia-agora/config",
+          "chmod 644 /srv/laia-agora/config/openclaw.json",
+        ].join("\n"),
+        [
+          "cat <<'EOF' > /opt/laia-agora/docker-compose.yml",
+          "services:",
+          "  laia-agora-gateway:",
+          "    image: ${OPENCLAW_IMAGE}",
+          "    environment:",
+          "      HOME: /home/node",
+          "      TERM: xterm-256color",
+          "      OPENCLAW_GATEWAY_TOKEN: ${OPENCLAW_GATEWAY_TOKEN}",
+          "      TZ: ${OPENCLAW_TZ}",
+          "    volumes:",
+          "      - ${OPENCLAW_CONFIG_DIR}:/home/node/.openclaw",
+          "      - ${OPENCLAW_WORKSPACE_DIR}:/home/node/.openclaw/workspace",
+          "    ports:",
+          "      - 127.0.0.1:${OPENCLAW_GATEWAY_PORT}:18789",
+          "      - 127.0.0.1:${OPENCLAW_BRIDGE_PORT}:18790",
+          "    init: true",
+          "    restart: unless-stopped",
+          '    command: ["node", "dist/index.js", "gateway", "--allow-unconfigured", "--bind", "${OPENCLAW_GATEWAY_BIND}", "--port", "18789"]',
+          "    healthcheck:",
+          '      test: ["CMD", "node", "-e", "fetch(\'http://127.0.0.1:18789/healthz\').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]',
+          "      interval: 30s",
+          "      timeout: 5s",
+          "      retries: 5",
+          "      start_period: 20s",
+          "EOF",
+        ].join("\n"),
+      ],
+      requiresApproval: true,
+      rollback: "rm -f /opt/laia-agora/.env /opt/laia-agora/docker-compose.yml",
+    });
+
+    steps.push({
+      id: "agora-03",
+      phase: 6,
+      description: "Levantar Laia Agora base en Docker y validar el gateway en el puerto 18789",
+      commands: [
+        [
+          "set -euo pipefail",
+          "set -a",
+          ". /opt/laia-agora/.env",
+          "set +a",
+          "if [ ! -f /srv/laia-agora/config/openclaw.json ]; then",
+          "  cat <<EOF > /srv/laia-agora/config/openclaw.json",
+          "{",
+          '  "gateway": {',
+          '    "mode": "local",',
+          '    "bind": "${OPENCLAW_GATEWAY_BIND}",',
+          '    "controlUi": {',
+          '      "allowedOrigins": ["http://127.0.0.1:${OPENCLAW_GATEWAY_PORT}", "http://localhost:${OPENCLAW_GATEWAY_PORT}"]',
+          "    }",
+          "  }",
+          "}",
+          "EOF",
+          "fi",
+          "chmod 755 /srv/laia-agora/config",
+          "chmod 644 /srv/laia-agora/config/openclaw.json",
+        ].join("\n"),
+        "docker compose --env-file /opt/laia-agora/.env -f /opt/laia-agora/docker-compose.yml up -d",
+        // El container tiene start_period: 20s — esperar hasta 90 s con reintentos de 5 s
+        [
+          "set -euo pipefail",
+          "AGORA_URL=http://127.0.0.1:18789/healthz",
+          'echo "  Esperando a que Laia Agora responda en ${AGORA_URL}..."',
+          "for i in $(seq 1 18); do",
+          '  if curl -fsS "$AGORA_URL" >/dev/null 2>&1; then',
+          "    echo '  Laia Agora lista.'",
+          "    break",
+          "  fi",
+          "  [ \"$i\" -eq 18 ] && { echo 'ERROR: Agora gateway no respondió tras 90 s' >&2; exit 1; }",
+          "  sleep 5",
+          "done",
+          // Mostrar respuesta final para confirmar que es un JSON válido
+          'curl -fsS "$AGORA_URL"',
+        ].join("\n"),
+      ],
+      requiresApproval: true,
+      rollback:
+        "docker compose --env-file /opt/laia-agora/.env -f /opt/laia-agora/docker-compose.yml down || true",
+    });
+    estimatedMinutes += 8;
   }
 
   // ── Fase 7: Proxy inverso (Nginx) ────────────────────────────────────────
@@ -483,7 +674,7 @@ export async function generatePlan(config: InstallerConfig): Promise<InstallPlan
         "mkdir -p /var/backups/laia-arch",
         "chmod 700 /var/backups/laia-arch",
         // Cron diario a las 3am
-        `bash -c 'echo "0 3 * * * root rsync -a --delete /etc/ /var/backups/laia-arch/etc/ && find /var/backups/laia-arch/ -mtime +${config.compliance.backupRetentionDays} -delete" > /etc/cron.d/laia-arch-backup'`,
+        `bash -c 'echo "0 3 * * * root rsync -a --delete /etc/ /var/backups/laia-arch/etc/ && find /var/backups/laia-arch/ -type f -mtime +${config.compliance.backupRetentionDays} -delete" > /etc/cron.d/laia-arch-backup'`,
         "chmod 644 /etc/cron.d/laia-arch-backup",
       ],
       requiresApproval: true,

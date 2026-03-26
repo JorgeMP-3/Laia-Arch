@@ -54,16 +54,16 @@
       "dhcpRange": ""
     },
     "users": [
-      { "username": "carlos.sainz",    "role": "administracion",      "remote": false },
-      { "username": "monica.valle",    "role": "administracion",      "remote": false },
-      { "username": "javier.gomez",    "role": "cuentas-ventas",      "remote": true  },
-      { "username": "beatriz.lara",    "role": "cuentas-ventas",      "remote": true  },
-      { "username": "roberto.perez",   "role": "cuentas-ventas",      "remote": true  },
-      { "username": "sofia.ruiz",      "role": "creativo-contenido",  "remote": false },
-      { "username": "daniel.cano",     "role": "creativo-contenido",  "remote": false },
-      { "username": "elena.torres",    "role": "creativo-contenido",  "remote": false },
-      { "username": "marcos.leon",     "role": "performance-ads",     "remote": false },
-      { "username": "lucia.mendez",    "role": "performance-ads",     "remote": false }
+      { "username": "carlos.sainz", "role": "administracion", "remote": false },
+      { "username": "monica.valle", "role": "administracion", "remote": false },
+      { "username": "javier.gomez", "role": "cuentas-ventas", "remote": true },
+      { "username": "beatriz.lara", "role": "cuentas-ventas", "remote": true },
+      { "username": "roberto.perez", "role": "cuentas-ventas", "remote": true },
+      { "username": "sofia.ruiz", "role": "creativo-contenido", "remote": false },
+      { "username": "daniel.cano", "role": "creativo-contenido", "remote": false },
+      { "username": "elena.torres", "role": "creativo-contenido", "remote": false },
+      { "username": "marcos.leon", "role": "performance-ads", "remote": false },
+      { "username": "lucia.mendez", "role": "performance-ads", "remote": false }
     ],
     "installMode": "guided"
   }

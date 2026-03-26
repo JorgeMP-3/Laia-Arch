@@ -5,9 +5,13 @@ import { execSync } from "node:child_process";
 import * as readline from "node:readline";
 import { isCancel, select } from "@clack/prompts";
 import { laiaTheme as t } from "../cli/laia-arch-theme.js";
-import { extractCredentialValue, retrieveProfileCredential } from "./credential-manager.js";
 import { runBootstrap } from "./bootstrap.js";
-import { TOOL_DEFINITIONS_ANTHROPIC, TOOL_DEFINITIONS_OPENAI, TOOL_HANDLERS } from "./tools/index.js";
+import { extractCredentialValue, retrieveProfileCredential } from "./credential-manager.js";
+import {
+  TOOL_DEFINITIONS_ANTHROPIC,
+  TOOL_DEFINITIONS_OPENAI,
+  TOOL_HANDLERS,
+} from "./tools/index.js";
 import type { BootstrapResult } from "./types.js";
 
 // ── Helpers internos ──────────────────────────────────────────────────────
@@ -117,7 +121,7 @@ async function callUpdaterAI(
           try {
             content = JSON.stringify(
               handler
-                ? await handler((block.input ?? {}) as Record<string, unknown>)
+                ? await handler(block.input ?? {})
                 : { error: `Herramienta desconocida: ${block.name}` },
             );
           } catch (err) {
@@ -204,7 +208,9 @@ async function callUpdaterAI(
           }>;
         };
         const choice = data.choices[0];
-        if (!choice) throw new Error("OpenAI API: respuesta vacía");
+        if (!choice) {
+          throw new Error("OpenAI API: respuesta vacía");
+        }
         if (choice.finish_reason !== "tool_calls" || !choice.message.tool_calls?.length) {
           return choice.message.content ?? "";
         }
@@ -215,7 +221,9 @@ async function callUpdaterAI(
           try {
             const input = JSON.parse(tc.function.arguments) as Record<string, unknown>;
             content = JSON.stringify(
-              handler ? await handler(input) : { error: `Herramienta desconocida: ${tc.function.name}` },
+              handler
+                ? await handler(input)
+                : { error: `Herramienta desconocida: ${tc.function.name}` },
             );
           } catch (err) {
             content = JSON.stringify({ error: err instanceof Error ? err.message : String(err) });
@@ -254,7 +262,9 @@ async function callUpdaterAI(
         options: { temperature: 0.3 },
       }),
     });
-    if (!response.ok) throw new Error(`Ollama API ${response.status}`);
+    if (!response.ok) {
+      throw new Error(`Ollama API ${response.status}`);
+    }
     const data = (await response.json()) as { message: { content: string } };
     return data.message?.content ?? "";
   }
@@ -291,7 +301,9 @@ export async function runGenericUpdate(): Promise<void> {
 
   const pendingCommits = execSilent("git log HEAD..origin/laia-arch-dev --oneline");
   if (!pendingCommits) {
-    console.log(t.good("\n  Ya tienes la versión más reciente. No hay actualizaciones disponibles.\n"));
+    console.log(
+      t.good("\n  Ya tienes la versión más reciente. No hay actualizaciones disponibles.\n"),
+    );
     return;
   }
 
@@ -371,9 +383,7 @@ export async function runOpenClawSync(): Promise<void> {
     for (const f of conflicted.split("\n").filter(Boolean)) {
       console.log(`    ${t.muted(f)}`);
     }
-    console.log(
-      t.dim("\n  Resuelve los conflictos manualmente y ejecuta: git merge --continue\n"),
-    );
+    console.log(t.dim("\n  Resuelve los conflictos manualmente y ejecuta: git merge --continue\n"));
   }
 }
 
@@ -431,7 +441,7 @@ export async function runAiImprove(bootstrap: BootstrapResult): Promise<void> {
   let serviceStatusText = "";
   try {
     const { verifyServiceChain } = await import("./tools/verify-tools.js");
-    const status = await verifyServiceChain();
+    const status = verifyServiceChain();
     serviceStatusText = `\nEstado actual de servicios:\n${JSON.stringify(status, null, 2)}`;
   } catch {
     serviceStatusText = "\n(No se pudo obtener el estado de los servicios)";

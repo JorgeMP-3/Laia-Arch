@@ -22,9 +22,7 @@ export async function generateAndStorePassword(params: {
 
   try {
     const options =
-      params.complexity === "high"
-        ? { length: 32, symbols: true }
-        : { length: 24, symbols: true };
+      params.complexity === "high" ? { length: 32, symbols: true } : { length: 24, symbols: true };
     let password = generatePassword(options);
     const credentialId = await storeCredential(params.id.trim(), "password", password);
     password = password.replace(/./g, "\0");

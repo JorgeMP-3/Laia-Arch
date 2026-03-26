@@ -78,5 +78,4 @@ export function registerMaintenanceCommands(program: Command) {
         });
       });
     });
-
 }

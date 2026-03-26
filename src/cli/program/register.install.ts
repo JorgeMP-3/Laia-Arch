@@ -21,9 +21,8 @@ export function registerInstallCommand(program: Command) {
         // ── Cargar preset y saltar conversación ─────────────────────────────
         if (opts.preset) {
           const { loadPreset } = await import("../../installer/presets/index.js");
-          const { printPresetList, runInstallerWithPreset } = await import(
-            "../../installer/index.js"
-          );
+          const { printPresetList, runInstallerWithPreset } =
+            await import("../../installer/index.js");
 
           const preset = loadPreset(opts.preset);
           if (!preset) {

@@ -5,8 +5,8 @@ import path from "node:path";
 import readline from "node:readline";
 import { laiaTheme as theme } from "../cli/laia-arch-theme.js";
 import { extractCredentialValue, retrieveProfileCredential } from "./credential-manager.js";
-import type { BootstrapResult } from "./types.js";
 import { checkServiceStatus } from "./tools/system-tools.js";
+import type { BootstrapResult } from "./types.js";
 
 export interface InstalledServices {
   bind9: boolean;
@@ -41,6 +41,17 @@ type RemovalResult = {
   skipped?: boolean;
   error?: string;
 };
+
+const LAIA_HOME_DIR = path.join(os.homedir(), ".laia-arch");
+const LAIA_SUDOERS_FILE = "/etc/sudoers.d/laia-arch";
+const BACKUP_ROOT_DIR = "/backup";
+const BACKUP_ARCHIVE_DIR = "/var/backups/laia-arch";
+const BACKUP_CRON_FILE = "/etc/cron.d/laia-arch-backup";
+const DOCKER_APT_SOURCE_FILE = "/etc/apt/sources.list.d/docker.list";
+const DOCKER_APT_KEYRING_FILE = "/etc/apt/keyrings/docker.asc";
+const DOCKER_DATA_DIRS = ["/var/lib/docker", "/var/lib/containerd", "/etc/docker"] as const;
+const BIND_ZONE_DIR = "/etc/bind/zones";
+const BIND_ZONE_GLOB = "/etc/bind/db.*";
 
 const UNINSTALL_SERVICE_KEYS: UninstallServiceKey[] = [
   "cockpit",
@@ -108,15 +119,15 @@ function dirHasEntries(targetPath: string): boolean {
   }
 }
 
-function isServiceActive(status: Awaited<ReturnType<typeof checkServiceStatus>>): boolean {
-  return status.success && status.status === "active";
+function isServiceInstalled(status: Awaited<ReturnType<typeof checkServiceStatus>>): boolean {
+  return status.success && status.status !== "not-installed";
 }
 
 function runShell(command: string): void {
   execSync(command, {
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
-    shell: true,
+    shell: "/bin/bash",
   });
 }
 
@@ -167,14 +178,17 @@ async function confirmDangerousUninstall(
           "  se eliminarán permanentemente. Asegúrate de tener una copia de seguridad si la necesitas.",
       ),
   );
-  console.log("  " + theme.dim(`Se eliminará: ${[...selected].map((entry) => SERVICE_LABELS[entry]).join(", ")}`));
+  console.log(
+    "  " +
+      theme.dim(`Se eliminará: ${[...selected].map((entry) => SERVICE_LABELS[entry]).join(", ")}`),
+  );
 
   const first = await askYesNo(rl, "¿Quieres continuar? (s/n):");
   if (!first) {
     return false;
   }
 
-  const confirmText = await ask(rl, '  Escribe CONFIRMAR para proceder: ');
+  const confirmText = await ask(rl, "  Escribe CONFIRMAR para proceder: ");
   return confirmText.trim() === "CONFIRMAR";
 }
 
@@ -185,6 +199,61 @@ async function confirmContinueOnError(rl: readline.Interface, error: string): Pr
 
 function selectedHas(selected: Set<UninstallServiceKey>, service: UninstallServiceKey): boolean {
   return selected.has(service);
+}
+
+export function buildRemovalCommands(
+  homeDir = os.homedir(),
+): Record<UninstallServiceKey, string[]> {
+  return {
+    cockpit: [
+      "sudo systemctl disable --now cockpit.socket || true",
+      "sudo systemctl stop cockpit || true",
+      "sudo apt-get remove --purge cockpit -y",
+    ],
+    nginx: [
+      "sudo systemctl disable --now nginx || true",
+      "sudo apt-get remove --purge nginx nginx-common -y",
+    ],
+    docker: [
+      "sudo systemctl disable --now docker docker.socket containerd || true",
+      "sudo apt-get remove --purge docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin docker-ce-rootless-extras -y",
+      `sudo rm -f ${DOCKER_APT_SOURCE_FILE} ${DOCKER_APT_KEYRING_FILE}`,
+      `sudo rm -rf ${DOCKER_DATA_DIRS.join(" ")}`,
+    ],
+    wireguard: [
+      "sudo systemctl disable --now wg-quick@wg0 || true",
+      "sudo apt-get remove --purge wireguard wireguard-tools -y",
+      "sudo rm -rf /etc/wireguard/",
+    ],
+    samba: [
+      "sudo systemctl disable --now smbd nmbd || true",
+      "sudo apt-get remove --purge samba samba-common samba-common-bin -y",
+      "sudo rm -rf /srv/samba/ /etc/samba/",
+    ],
+    ldap: [
+      "sudo systemctl disable --now slapd || true",
+      "sudo apt-get remove --purge slapd ldap-utils -y",
+      "sudo rm -rf /var/lib/ldap/ /etc/ldap/",
+    ],
+    bind9: [
+      "sudo systemctl disable --now bind9 named || true",
+      "sudo apt-get remove --purge bind9 bind9utils bind9-doc -y",
+      'sudo sed -i -E \'/^[[:space:]]*zone "[^"]+" \\{ type master; file "\\/etc\\/bind\\/db\\.[^"]+"; \\};[[:space:]]*$/d\' /etc/bind/named.conf.local 2>/dev/null || true',
+      `sudo rm -rf ${BIND_ZONE_DIR}`,
+      `sudo find /etc/bind -maxdepth 1 -type f -name '${path.posix.basename(BIND_ZONE_GLOB)}' -delete 2>/dev/null || true`,
+    ],
+    backups: [
+      `sudo rm -rf ${BACKUP_ROOT_DIR}/ ${BACKUP_ARCHIVE_DIR}/`,
+      "sudo rm -f /usr/local/bin/backup-laia.sh /usr/local/bin/laia-arch-backup",
+      "crontab -l 2>/dev/null | grep -v 'backup-laia\\|laia-arch-backup' | crontab - || true",
+      `sudo rm -f ${BACKUP_CRON_FILE}`,
+    ],
+    logs: ["sudo rm -rf /var/log/laia-arch/"],
+    config: [
+      `rm -rf ${JSON.stringify(path.join(homeDir, ".laia-arch"))}`,
+      `sudo rm -f ${LAIA_SUDOERS_FILE}`,
+    ],
+  };
 }
 
 async function removeService(
@@ -201,10 +270,7 @@ async function removeService(
     return { step: label, success: true };
   } catch (error) {
     const message = summarizeError(error);
-    const shouldContinue = await confirmContinueOnError(
-      rl,
-      `${label}: ${message}`,
-    );
+    const shouldContinue = await confirmContinueOnError(rl, `${label}: ${message}`);
     return { step: label, success: false, error: message + (shouldContinue ? "" : " (abortado)") };
   }
 }
@@ -282,13 +348,18 @@ async function callUninstallAI(
         model: bootstrap.model,
         max_tokens: 2048,
         temperature: 0.3,
-        messages: [{ role: "system", content: systemPrompt }, ...messages.filter((m) => m.role !== "system")],
+        messages: [
+          { role: "system", content: systemPrompt },
+          ...messages.filter((m) => m.role !== "system"),
+        ],
       }),
     });
     if (!response.ok) {
       throw new Error(`OpenAI-compatible API ${response.status}: ${await response.text()}`);
     }
-    const data = (await response.json()) as { choices?: Array<{ message?: { content?: string | null } }> };
+    const data = (await response.json()) as {
+      choices?: Array<{ message?: { content?: string | null } }>;
+    };
     return data.choices?.[0]?.message?.content ?? "";
   }
 
@@ -299,7 +370,10 @@ async function callUninstallAI(
       body: JSON.stringify({
         model: bootstrap.model,
         stream: false,
-        messages: [{ role: "system", content: systemPrompt }, ...messages.filter((m) => m.role !== "system")],
+        messages: [
+          { role: "system", content: systemPrompt },
+          ...messages.filter((m) => m.role !== "system"),
+        ],
         options: { temperature: 0.3 },
       }),
     });
@@ -332,30 +406,40 @@ function extractServicePlan(raw: string): UninstallServiceKey[] {
 }
 
 export async function detectInstalledServices(): Promise<InstalledServices> {
-  const [bind9, ldap, samba, wireguard, docker, nginx, cockpit] = await Promise.all([
-    Promise.resolve(checkServiceStatus("bind9")),
-    Promise.resolve(checkServiceStatus("slapd")),
-    Promise.resolve(checkServiceStatus("smbd")),
-    Promise.resolve(checkServiceStatus("wg-quick@wg0")),
-    Promise.resolve(checkServiceStatus("docker")),
-    Promise.resolve(checkServiceStatus("nginx")),
-    Promise.resolve(checkServiceStatus("cockpit")),
-  ]);
+  const [bind9, named, ldap, samba, nmbd, wireguard, docker, nginx, cockpit, cockpitSocket] =
+    await Promise.all([
+      Promise.resolve(checkServiceStatus("bind9")),
+      Promise.resolve(checkServiceStatus("named")),
+      Promise.resolve(checkServiceStatus("slapd")),
+      Promise.resolve(checkServiceStatus("smbd")),
+      Promise.resolve(checkServiceStatus("nmbd")),
+      Promise.resolve(checkServiceStatus("wg-quick@wg0")),
+      Promise.resolve(checkServiceStatus("docker")),
+      Promise.resolve(checkServiceStatus("nginx")),
+      Promise.resolve(checkServiceStatus("cockpit")),
+      Promise.resolve(checkServiceStatus("cockpit.socket")),
+    ]);
 
   return {
-    bind9: isServiceActive(bind9),
-    ldap: isServiceActive(ldap),
-    samba: isServiceActive(samba),
-    wireguard: isServiceActive(wireguard),
-    docker: isServiceActive(docker),
-    nginx: isServiceActive(nginx),
-    cockpit: isServiceActive(cockpit),
+    bind9: isServiceInstalled(bind9) || isServiceInstalled(named) || pathExists(BIND_ZONE_DIR),
+    ldap: isServiceInstalled(ldap) || pathExists("/etc/ldap") || pathExists("/var/lib/ldap"),
+    samba: isServiceInstalled(samba) || isServiceInstalled(nmbd) || pathExists("/etc/samba"),
+    wireguard: isServiceInstalled(wireguard) || pathExists("/etc/wireguard"),
+    docker:
+      isServiceInstalled(docker) ||
+      pathExists(DOCKER_APT_SOURCE_FILE) ||
+      pathExists(DOCKER_APT_KEYRING_FILE) ||
+      DOCKER_DATA_DIRS.some((targetPath) => pathExists(targetPath)),
+    nginx: isServiceInstalled(nginx) || pathExists("/etc/nginx"),
+    cockpit: isServiceInstalled(cockpit) || isServiceInstalled(cockpitSocket),
     sambaData: pathExists("/srv/samba") && dirHasEntries("/srv/samba"),
     backupScript:
       pathExists("/usr/local/bin/backup-laia.sh") ||
       pathExists("/usr/local/bin/laia-arch-backup") ||
-      pathExists("/backup"),
-    laiaConfig: pathExists(path.join(os.homedir(), ".laia-arch")),
+      pathExists(BACKUP_ROOT_DIR) ||
+      pathExists(BACKUP_ARCHIVE_DIR) ||
+      pathExists(BACKUP_CRON_FILE),
+    laiaConfig: pathExists(LAIA_HOME_DIR) || pathExists(LAIA_SUDOERS_FILE),
     ldapData: pathExists("/var/lib/ldap") && dirHasEntries("/var/lib/ldap"),
     logs: pathExists("/var/log/laia-arch"),
   };
@@ -364,6 +448,7 @@ export async function detectInstalledServices(): Promise<InstalledServices> {
 export async function runGenericUninstall(services?: string[]): Promise<void> {
   const installed = await detectInstalledServices();
   const selected = normalizeSelection(services);
+  const removalCommands = buildRemovalCommands();
 
   printDetectedServices(installed);
 
@@ -382,100 +467,45 @@ export async function runGenericUninstall(services?: string[]): Promise<void> {
 
     const results: RemovalResult[] = [];
 
-    if (selectedHas(selected, "cockpit") && installed.cockpit) {
-      results.push(
-        await removeService(rl, "Cockpit", [
-          "sudo systemctl stop cockpit || true",
-          "sudo systemctl stop cockpit.socket || true",
-          "sudo apt-get remove --purge cockpit -y",
-        ]),
-      );
+    if (selectedHas(selected, "cockpit")) {
+      results.push(await removeService(rl, "Cockpit", removalCommands.cockpit));
     }
 
-    if (selectedHas(selected, "nginx") && installed.nginx) {
-      results.push(
-        await removeService(rl, "Nginx", [
-          "sudo systemctl stop nginx || true",
-          "sudo apt-get remove --purge nginx -y",
-        ]),
-      );
+    if (selectedHas(selected, "nginx")) {
+      results.push(await removeService(rl, "Nginx", removalCommands.nginx));
     }
 
-    if (selectedHas(selected, "docker") && installed.docker) {
-      results.push(
-        await removeService(rl, "Docker", [
-          "sudo systemctl stop docker || true",
-          "sudo apt-get remove --purge docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin -y",
-          "sudo rm -f /etc/apt/sources.list.d/docker.list",
-        ]),
-      );
+    if (selectedHas(selected, "docker")) {
+      results.push(await removeService(rl, "Docker", removalCommands.docker));
     }
 
-    if (selectedHas(selected, "wireguard") && installed.wireguard) {
-      results.push(
-        await removeService(rl, "WireGuard", [
-          "sudo systemctl stop wg-quick@wg0 || true",
-          "sudo apt-get remove --purge wireguard wireguard-tools -y",
-          "sudo rm -rf /etc/wireguard/",
-        ]),
-      );
+    if (selectedHas(selected, "wireguard")) {
+      results.push(await removeService(rl, "WireGuard", removalCommands.wireguard));
     }
 
-    if (selectedHas(selected, "samba") && installed.samba) {
-      results.push(
-        await removeService(rl, "Samba", [
-          "sudo systemctl stop smbd || true",
-          "sudo systemctl stop nmbd || true",
-          "sudo apt-get remove --purge samba -y",
-          "sudo rm -rf /srv/samba/",
-        ]),
-      );
-    } else if (selectedHas(selected, "samba") && installed.sambaData) {
-      results.push(await removeService(rl, "Datos de Samba", ["sudo rm -rf /srv/samba/"]));
+    if (selectedHas(selected, "samba")) {
+      results.push(await removeService(rl, "Samba", removalCommands.samba));
     }
 
-    if (selectedHas(selected, "ldap") && installed.ldap) {
-      results.push(
-        await removeService(rl, "OpenLDAP", [
-          "sudo systemctl stop slapd || true",
-          "sudo apt-get remove --purge slapd ldap-utils -y",
-          "sudo rm -rf /var/lib/ldap/ /etc/ldap/",
-        ]),
-      );
-    } else if (selectedHas(selected, "ldap") && installed.ldapData) {
-      results.push(await removeService(rl, "Datos LDAP", ["sudo rm -rf /var/lib/ldap/ /etc/ldap/"]));
+    if (selectedHas(selected, "ldap")) {
+      results.push(await removeService(rl, "OpenLDAP", removalCommands.ldap));
     }
 
-    if (selectedHas(selected, "bind9") && installed.bind9) {
-      results.push(
-        await removeService(rl, "BIND9", [
-          "sudo systemctl stop bind9 || true",
-          "sudo apt-get remove --purge bind9 bind9utils bind9-doc -y",
-          "sudo rm -rf /etc/bind/zones/",
-        ]),
-      );
+    if (selectedHas(selected, "bind9")) {
+      results.push(await removeService(rl, "BIND9", removalCommands.bind9));
     }
 
-    if (selectedHas(selected, "backups") && installed.backupScript) {
-      results.push(
-        await removeService(rl, "Backups", [
-          "sudo rm -rf /backup/",
-          "sudo rm -f /usr/local/bin/backup-laia.sh /usr/local/bin/laia-arch-backup",
-          "crontab -l 2>/dev/null | grep -v 'backup-laia\\|laia-arch-backup' | crontab - || true",
-          "sudo rm -f /etc/cron.d/laia-arch-backup",
-        ]),
-      );
+    if (selectedHas(selected, "backups")) {
+      results.push(await removeService(rl, "Backups", removalCommands.backups));
     }
 
-    if (selectedHas(selected, "logs") && installed.logs) {
-      results.push(await removeService(rl, "Logs de Laia Arch", ["sudo rm -rf /var/log/laia-arch/"]));
+    if (selectedHas(selected, "logs")) {
+      results.push(await removeService(rl, "Logs de Laia Arch", removalCommands.logs));
     }
 
-    if (selectedHas(selected, "config") && installed.laiaConfig) {
+    if (selectedHas(selected, "config")) {
       results.push(
-        await removeService(rl, "Configuración local de Laia Arch", [
-          `rm -rf ${JSON.stringify(path.join(os.homedir(), ".laia-arch"))}`,
-        ]),
+        await removeService(rl, "Configuración local de Laia Arch", removalCommands.config),
       );
     }
 
@@ -484,10 +514,14 @@ export async function runGenericUninstall(services?: string[]): Promise<void> {
 
     console.log();
     if (succeeded.length > 0) {
-      console.log("  " + theme.good(`Eliminado: ${succeeded.map((entry) => entry.step).join(", ")}`));
+      console.log(
+        "  " + theme.good(`Eliminado: ${succeeded.map((entry) => entry.step).join(", ")}`),
+      );
     }
     if (failed.length > 0) {
-      console.log("  " + theme.warn(`Con incidencias: ${failed.map((entry) => entry.step).join(", ")}`));
+      console.log(
+        "  " + theme.warn(`Con incidencias: ${failed.map((entry) => entry.step).join(", ")}`),
+      );
       for (const entry of failed) {
         console.log("    " + theme.dim(`${entry.step}: ${entry.error ?? "error desconocido"}`));
       }
@@ -554,10 +588,7 @@ export async function runGuidedUninstall(bootstrapResult: BootstrapResult): Prom
 
       messages.push({ role: "assistant", content: reply });
 
-      const input = await ask(
-        rl,
-        '  Tú: ',
-      );
+      const input = await ask(rl, "  Tú: ");
       const normalized = input.trim().toLowerCase();
 
       if (normalized === "terminar") {
@@ -585,7 +616,9 @@ export async function runGuidedUninstall(bootstrapResult: BootstrapResult): Prom
 
         console.log(
           "\n  " +
-            theme.step(`Plan aprobado: ${services.map((entry) => SERVICE_LABELS[entry]).join(", ")}`),
+            theme.step(
+              `Plan aprobado: ${services.map((entry) => SERVICE_LABELS[entry]).join(", ")}`,
+            ),
         );
         rl.close();
         await runGenericUninstall(services);

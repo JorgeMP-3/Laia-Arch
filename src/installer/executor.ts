@@ -6,17 +6,46 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import * as readline from "node:readline";
+import { upsertAuthProfile } from "../agents/auth-profiles/profiles.js";
+import type { AuthProfileCredential } from "../agents/auth-profiles/types.js";
 import { laiaTheme as t } from "../cli/laia-arch-theme.js";
-import { extractCredentialValue, retrieveProfileCredential } from "./credential-manager.js";
+import {
+  buildActionProposalsFromPlan,
+  buildConversationIntent,
+  createInstallSessionState,
+} from "./agentic.js";
+import {
+  extractCredentialValue,
+  retrieveCredential,
+  retrieveProfileCredential,
+  storeCredential,
+} from "./credential-manager.js";
 import { requestApproval } from "./hitl-controller.js";
-import { TOOL_DEFINITIONS_ANTHROPIC, TOOL_DEFINITIONS_OPENAI, TOOL_HANDLERS } from "./tools/index.js";
+import {
+  TOOL_DEFINITIONS_ANTHROPIC,
+  TOOL_DEFINITIONS_OPENAI,
+  TOOL_HANDLERS,
+} from "./tools/index.js";
+import { checkServiceStatus } from "./tools/system-tools.js";
+import { runBackupTest, verifyDnsResolution, verifyServiceChain } from "./tools/verify-tools.js";
 import type {
+  ActionExecution,
+  ActionProposal,
   BootstrapResult,
+  ConversationIntent,
+  InstallSessionState,
   InstallerConfig,
+  InstallationGoal,
+  InstallationSnapshot,
   InstallPlan,
   InstallStep,
+  RepairAttempt,
   SystemScan,
+  VerificationCheckResult,
+  VerificationReport,
+  VerificationRequirement,
 } from "./types.js";
+import { runGenericUninstall } from "./uninstaller.js";
 
 // ── Tipos ─────────────────────────────────────────────────────────────────────
 
@@ -27,6 +56,7 @@ export interface StepResult {
   status: ExecutionStatus;
   output?: string;
   error?: string;
+  verification?: VerificationReport;
 }
 
 /** Contexto de sudo para la sesión de instalación. */
@@ -46,6 +76,20 @@ interface InstallProgressState {
   steps: Record<string, PersistedStepState>;
 }
 
+type ResumeDecision = "resume" | "restart" | "clean-restart";
+
+type PreservedInstallSecrets = {
+  generatedCredentials: Array<{ id: string; value: string }>;
+  bootstrapProfile?: { profileId: string; credential: AuthProfileCredential };
+};
+
+type InstallSecretDeps = {
+  readGeneratedCredential: (id: string) => Promise<string>;
+  writeGeneratedCredential: (id: string, value: string) => Promise<void>;
+  readBootstrapProfile: (profileId: string) => AuthProfileCredential;
+  writeBootstrapProfile: (profileId: string, credential: AuthProfileCredential) => void;
+};
+
 export interface SudoersResult {
   ok: boolean;
   message: string;
@@ -54,7 +98,9 @@ export interface SudoersResult {
 // ── Ruta del archivo de estado ────────────────────────────────────────────────
 
 const STATE_FILE = path.join(os.homedir(), ".laia-arch", "install-progress.json");
+const SESSION_FILE = path.join(os.homedir(), ".laia-arch", "install-session.json");
 const INSTALLER_CONFIG_FILE = path.join(os.homedir(), ".laia-arch", "installer-config.json");
+const INSTALLER_INTENT_FILE = path.join(os.homedir(), ".laia-arch", "installer-intent.json");
 const LAST_SCAN_FILE = path.join(os.homedir(), ".laia-arch", "last-scan.json");
 const INSTALL_LOGS_DIR = path.join(os.homedir(), ".laia-arch", "logs");
 const DEFAULT_RESCUE_LOG_PATH = path.join(INSTALL_LOGS_DIR, "install-latest.log");
@@ -117,6 +163,17 @@ laia-arch ALL=(root) NOPASSWD: /bin/chmod +x /usr/local/bin/*
 laia-arch ALL=(root) NOPASSWD: /usr/bin/gpg *
 laia-arch ALL=(root) NOPASSWD: /usr/bin/curl *
 `;
+
+const DEFAULT_INSTALL_SECRET_DEPS: InstallSecretDeps = {
+  readGeneratedCredential: retrieveCredential,
+  writeGeneratedCredential: async (id, value) => {
+    await storeCredential(id, "password", value);
+  },
+  readBootstrapProfile: retrieveProfileCredential,
+  writeBootstrapProfile: (profileId, credential) => {
+    upsertAuthProfile({ profileId, credential });
+  },
+};
 
 function buildPlanSignature(plan: InstallPlan): string {
   const fingerprint = plan.steps.map((step) => ({
@@ -592,6 +649,172 @@ function clearStepState(): void {
   }
 }
 
+function readInstallSessionState(): InstallSessionState | undefined {
+  try {
+    return JSON.parse(fs.readFileSync(SESSION_FILE, "utf8")) as InstallSessionState;
+  } catch {
+    return undefined;
+  }
+}
+
+function writeInstallSessionState(state: InstallSessionState): void {
+  try {
+    fs.mkdirSync(path.dirname(SESSION_FILE), { recursive: true });
+    state.updatedAt = new Date().toISOString();
+    fs.writeFileSync(SESSION_FILE, JSON.stringify(state, null, 2), { mode: 0o600 });
+  } catch {
+    /* no bloquear */
+  }
+}
+
+function clearInstallSessionState(): void {
+  try {
+    fs.unlinkSync(SESSION_FILE);
+  } catch {
+    /* ya no existía */
+  }
+}
+
+export function parseResumeDecision(answer: string): ResumeDecision {
+  const normalized = answer.trim().toLowerCase();
+  if (["d", "desinstalar", "limpiar", "borrar"].includes(normalized)) {
+    return "clean-restart";
+  }
+  if (["s", "si", "sí", "resume", "reanudar"].includes(normalized)) {
+    return "resume";
+  }
+  return "restart";
+}
+
+export async function captureInstallSecrets(
+  plan: InstallPlan,
+  bootstrap?: BootstrapResult,
+  deps: InstallSecretDeps = DEFAULT_INSTALL_SECRET_DEPS,
+): Promise<PreservedInstallSecrets> {
+  const generatedCredentials: Array<{ id: string; value: string }> = [];
+
+  for (const credentialId of plan.requiredCredentials) {
+    try {
+      generatedCredentials.push({
+        id: credentialId,
+        value: await deps.readGeneratedCredential(credentialId),
+      });
+    } catch {
+      // Si aún no existe alguna credencial, no bloqueamos el flujo.
+    }
+  }
+
+  let bootstrapProfile: PreservedInstallSecrets["bootstrapProfile"];
+  if (bootstrap?.profileId) {
+    try {
+      bootstrapProfile = {
+        profileId: bootstrap.profileId,
+        credential: deps.readBootstrapProfile(bootstrap.profileId),
+      };
+    } catch {
+      // El bootstrap puede no requerir restauración si aún no había perfil persistido.
+    }
+  }
+
+  return { generatedCredentials, bootstrapProfile };
+}
+
+export async function restoreInstallSecrets(
+  snapshot: PreservedInstallSecrets,
+  deps: InstallSecretDeps = DEFAULT_INSTALL_SECRET_DEPS,
+): Promise<void> {
+  for (const credential of snapshot.generatedCredentials) {
+    await deps.writeGeneratedCredential(credential.id, credential.value);
+  }
+
+  if (snapshot.bootstrapProfile) {
+    deps.writeBootstrapProfile(
+      snapshot.bootstrapProfile.profileId,
+      snapshot.bootstrapProfile.credential,
+    );
+  }
+}
+
+function loadInstallerIntentForExecution(scan?: SystemScan): ConversationIntent | undefined {
+  try {
+    return JSON.parse(fs.readFileSync(INSTALLER_INTENT_FILE, "utf8")) as ConversationIntent;
+  } catch {
+    try {
+      const config = JSON.parse(fs.readFileSync(INSTALLER_CONFIG_FILE, "utf8")) as InstallerConfig;
+      return buildConversationIntent(config, config.installMode ?? "adaptive", [], scan);
+    } catch {
+      return undefined;
+    }
+  }
+}
+
+function buildInstallationSnapshot(
+  planSignature: string,
+  scan: SystemScan | undefined,
+): InstallationSnapshot {
+  const watchedServices = [
+    "bind9",
+    "slapd",
+    "smbd",
+    "nmbd",
+    "wg-quick@wg0",
+    "docker",
+    "nginx",
+    "cockpit.socket",
+  ];
+  const observedServices: InstallationSnapshot["observedServices"] = {};
+  for (const service of watchedServices) {
+    const status = checkServiceStatus(service);
+    observedServices[service] = status.success ? status.status : "unknown";
+  }
+
+  const chain = verifyServiceChain();
+  let gateway = {
+    url: "http://127.0.0.1:18789/healthz",
+    reachable: false,
+    healthzOk: false,
+  };
+  try {
+    execSync("curl -fsS http://127.0.0.1:18789/healthz >/dev/null", {
+      stdio: ["ignore", "ignore", "ignore"],
+      timeout: 5000,
+    });
+    gateway = {
+      url: "http://127.0.0.1:18789/healthz",
+      reachable: true,
+      healthzOk: true,
+    };
+  } catch {
+    gateway = {
+      url: "http://127.0.0.1:18789/healthz",
+      reachable: false,
+      healthzOk: false,
+    };
+  }
+
+  return {
+    timestamp: new Date().toISOString(),
+    planSignature,
+    scan,
+    observedServices,
+    serviceChain: chain.success ? chain : undefined,
+    gateway,
+    warnings: scan?.warnings ?? [],
+  };
+}
+
+function upsertExecution(state: InstallSessionState, execution: ActionExecution): void {
+  const current = state.executions[execution.proposalId] ?? [];
+  current.push(execution);
+  state.executions[execution.proposalId] = current;
+}
+
+function upsertRepair(state: InstallSessionState, repair: RepairAttempt): void {
+  const current = state.repairs[repair.proposalId] ?? [];
+  current.push(repair);
+  state.repairs[repair.proposalId] = current;
+}
+
 // ── Modo rescate ──────────────────────────────────────────────────────────────
 
 interface RescueContext {
@@ -700,7 +923,7 @@ function resolveRescueLogPath(): string {
       .readdirSync(INSTALL_LOGS_DIR)
       .filter((entry) => /^install-.*\.log$/.test(entry))
       .map((entry) => path.join(INSTALL_LOGS_DIR, entry))
-      .sort((left, right) => fs.statSync(right).mtimeMs - fs.statSync(left).mtimeMs)[0];
+      .toSorted((left, right) => fs.statSync(right).mtimeMs - fs.statSync(left).mtimeMs)[0];
     return newest ?? DEFAULT_RESCUE_LOG_PATH;
   } catch {
     return DEFAULT_RESCUE_LOG_PATH;
@@ -784,10 +1007,37 @@ function isAnthropicTextBlock(
   return block.type === "text";
 }
 
-async function executeRescueTool(
-  name: string,
-  input: Record<string, unknown>,
-): Promise<string> {
+/**
+ * Tools que modifican el sistema de forma significativa y requieren aprobación explícita.
+ * restart_service y enable_service no están aquí — son operaciones seguras y reversibles.
+ */
+const RESCUE_TOOLS_REQUIRING_APPROVAL = new Set([
+  "install_package",
+  "repair_dpkg",
+  "write_file",
+  "run_command",
+  "configure_ufw",
+  "configure_sysctl",
+  "add_apt_repository",
+]);
+
+async function executeRescueTool(name: string, input: Record<string, unknown>): Promise<string> {
+  if (RESCUE_TOOLS_REQUIRING_APPROVAL.has(name)) {
+    const inputPreview = JSON.stringify(input, null, 2)
+      .split("\n")
+      .map((l) => `    ${l}`)
+      .join("\n");
+    console.log(`\n  ${t.warn(`⚠ La IA quiere ejecutar: ${name}`)}`);
+    console.log(inputPreview);
+    const approved = await askConfirmationInline("¿Aprobar esta acción?");
+    if (!approved) {
+      return JSON.stringify({
+        success: false,
+        error: "Acción rechazada por el administrador.",
+        retryable: true,
+      });
+    }
+  }
   console.log(`\n  ${t.muted(`Ejecutando tool: ${name}...`)}`);
   const handler = TOOL_HANDLERS[name];
   try {
@@ -826,6 +1076,15 @@ function printRescueToolResult(resultJson: string): void {
   console.log(`  ${t.muted(`↳ ${display}`)}`);
 }
 
+/** Muestra cuenta atrás en consola y espera `seconds` segundos. */
+async function waitWithCountdown(seconds: number, label: string): Promise<void> {
+  for (let i = seconds; i > 0; i--) {
+    process.stdout.write(`\r  ${t.muted(`${label} ${i}s...`)}  `);
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+  process.stdout.write("\r  \r");
+}
+
 async function callRescueAI(
   bootstrap: BootstrapResult,
   systemPrompt: string,
@@ -850,7 +1109,7 @@ async function callRescueAI(
             "anthropic-version": "2023-06-01",
           };
 
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
+    let response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers,
       body: JSON.stringify({
@@ -861,6 +1120,28 @@ async function callRescueAI(
         tools: TOOL_DEFINITIONS_ANTHROPIC,
       }),
     });
+
+    // Retry automático en rate limit (429)
+    if (response.status === 429) {
+      const retryAfter = parseInt(response.headers.get("retry-after") ?? "60", 10);
+      const waitSecs = Math.min(Math.max(retryAfter, 15), 120);
+      console.log(
+        `\n  ${t.warn(`⏳ Límite de tokens alcanzado. Reintentando en ${waitSecs}s...`)}`,
+      );
+      await waitWithCountdown(waitSecs, "Reintentando en");
+      response = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          model: bootstrap.model,
+          max_tokens: 2048,
+          system: systemPrompt,
+          messages,
+          tools: TOOL_DEFINITIONS_ANTHROPIC,
+        }),
+      });
+    }
+
     if (!response.ok) {
       const body = await response.text().catch(() => "");
       throw new Error(`Anthropic API ${response.status}: ${body.slice(0, 200)}`);
@@ -929,6 +1210,19 @@ async function callRescueAI(
         max_tokens: 2048,
         messages,
       }),
+    });
+  }
+
+  // Retry automático en rate limit (429)
+  if (response.status === 429) {
+    const retryAfter = parseInt(response.headers.get("retry-after") ?? "60", 10);
+    const waitSecs = Math.min(Math.max(retryAfter, 15), 120);
+    console.log(`\n  ${t.warn(`⏳ Límite de tokens alcanzado. Reintentando en ${waitSecs}s...`)}`);
+    await waitWithCountdown(waitSecs, "Reintentando en");
+    response = await fetch(`${baseUrl}/chat/completions`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(requestBody),
     });
   }
 
@@ -1069,10 +1363,11 @@ function buildErrorDiagnosticHints(error: string, step: InstallStep): string {
   }
   if (stepId.includes("dns") || errorLower.includes("named") || errorLower.includes("bind")) {
     return [
-      "- Estado named  : systemctl status named",
-      "- Verificar cfg : named-checkconf",
-      "- Test DNS      : dig @localhost localhost",
-      "- Logs named    : journalctl -u named -n 50",
+      "PRIMER PASO OBLIGATORIO: llama a read_logs('named') para ver el error exacto de bind9.",
+      "- Logs named    : read_logs({ service: 'named', lines: 80 })",
+      "- Verificar cfg : leer /etc/bind/named.conf.local con read_file para detectar zonas duplicadas",
+      "- Estado named  : check_service_status({ service: 'named' })",
+      "ATENCIÓN: las zonas duplicadas en named.conf.local son un error frecuente en re-instalaciones.",
     ].join("\n");
   }
   if (stepId.includes("docker") || errorLower.includes("docker")) {
@@ -1119,6 +1414,23 @@ function buildErrorDiagnosticHints(error: string, step: InstallStep): string {
   ].join("\n");
 }
 
+function summarizeSystemInfoForRescue(raw: string): string {
+  try {
+    const scan = JSON.parse(raw) as {
+      os?: unknown;
+      network?: unknown;
+      hardware?: { diskFreeGb?: number };
+    };
+    return JSON.stringify(
+      { os: scan.os, network: scan.network, diskFreeGb: scan.hardware?.diskFreeGb },
+      null,
+      2,
+    );
+  } catch {
+    return raw.slice(0, 500);
+  }
+}
+
 function buildRescueSystemPrompt(ctx: RescueContext): string {
   const enabledServices =
     Object.entries(ctx.installerConfig.services)
@@ -1130,7 +1442,8 @@ function buildRescueSystemPrompt(ctx: RescueContext): string {
     "ninguno";
   const errorHints = buildErrorDiagnosticHints(ctx.error ?? "", ctx.step);
 
-  return `Eres una IA de diagnóstico y recuperación para el instalador de Laia Arch.
+  return `Eres Laia Arch en modo de diagnostico y recuperacion.
+No eres otro agente distinto: sigues la misma instalacion con mas contexto y mas libertad para diagnosticar.
 
 CONTEXTO ACTUAL:
 - Paso: ${ctx.step.id} — ${ctx.step.description}
@@ -1157,12 +1470,29 @@ LOG DE INSTALACIÓN:
 Puedes leer el log completo con la tool read_file en la ruta: ${ctx.logPath}
 
 INFORMACIÓN DEL SISTEMA:
-${ctx.systemInfo}
+${summarizeSystemInfoForRescue(ctx.systemInfo)}
 
 HERRAMIENTAS DISPONIBLES:
-Tienes acceso a las tools del instalador: check_service_status, read_file, install_package
-y otras para diagnosticar y resolver el problema.
-NO pidas al administrador que copie y pegue comandos — ejecútalos tú con las tools.
+Tienes acceso completo a las tools del instalador para diagnosticar y reparar:
+
+Diagnóstico (sin aprobación — úsalas libremente):
+- read_logs — journalctl de un servicio. EMPIEZA SIEMPRE POR AQUÍ cuando un servicio falla.
+- run_diagnostic — cualquier comando de solo lectura: named-checkconf, grep, cat, dpkg -l, ss, ip...
+- read_file — leer archivos en /etc/ o /srv/
+- get_system_info — estado del hardware, OS y red
+- check_service_status — estado de un servicio systemd
+- check_internet — conectividad a internet
+
+Reparación (requiere aprobación del administrador — se mostrará ⚠ y pedirá s/n):
+- repair_dpkg — repara dpkg inconsistente: dpkg --configure -a + apt-get -f install + autoremove
+- install_package — instala paquetes con apt-get
+- restart_service — reinicia un servicio systemd (systemctl restart)
+- enable_service — activa e inicia un servicio (systemctl enable + start)
+- write_file — escribe o sobreescribe un archivo en /etc/ o /srv/
+- run_command — ejecuta cualquier comando con sudo (usa esto cuando las otras tools no lleguen)
+
+NUNCA pidas al administrador que copie y pegue comandos — ejecútalos tú directamente con estas tools.
+Si necesitas editar un archivo del sistema, usa write_file o run_command, no le pidas al usuario que lo haga.
 
 DIAGNÓSTICO SUGERIDO PARA ESTE TIPO DE ERROR:
 ${errorHints}
@@ -1170,14 +1500,17 @@ ${errorHints}
 TU OBJETIVO:
 1. Diagnosticar el problema con las tools disponibles.
 2. Ejecutar las comprobaciones o acciones correctivas directamente con las tools disponibles.
-3. Explicar brevemente qué hiciste y qué resultado obtuviste.
+3. Explicar brevemente que observaste, que hiciste y que resultado obtuviste.
 4. Cuando el problema esté resuelto, comunícalo y pide que escriba "continuar".
 5. Si la instalación debe abortarse, pide que escriba "cancelar".
 
 Responde siempre en español. Sé claro, directo y técnico.`;
 }
 
-async function runRescueMode(ctx: RescueContext, bootstrap: BootstrapResult): Promise<RescueDecision> {
+async function runRescueMode(
+  ctx: RescueContext,
+  bootstrap: BootstrapResult,
+): Promise<RescueDecision> {
   console.log(`\n${"═".repeat(62)}`);
   console.log(t.warn("  MODO RESCATE ACTIVADO"));
   console.log(`${"═".repeat(62)}\n`);
@@ -1235,7 +1568,9 @@ async function runRescueMode(ctx: RescueContext, bootstrap: BootstrapResult): Pr
         console.log(`\n  ${t.warn("Instalación cancelada desde el modo rescate.")}\n`);
         return "cancel";
       }
-      if (!input.trim()) continue;
+      if (!input.trim()) {
+        continue;
+      }
 
       anthropicMessages.push({ role: "user", content: input });
       openAiMessages.push({ role: "user", content: input });
@@ -1248,9 +1583,7 @@ async function runRescueMode(ctx: RescueContext, bootstrap: BootstrapResult): Pr
         printRescueAssistantReply(response);
       } catch (err) {
         process.stdout.write("\r  \r");
-        console.log(
-          t.error(`  Error: ${err instanceof Error ? err.message : String(err)}`),
-        );
+        console.log(t.error(`  Error: ${err instanceof Error ? err.message : String(err)}`));
       }
     }
   } finally {
@@ -1275,7 +1608,9 @@ async function askApprovalWithRescue(
 
     let settled = false;
     const settle = (result: "approved" | "rejected" | "timeout" | "rescue") => {
-      if (settled) return;
+      if (settled) {
+        return;
+      }
       settled = true;
       clearTimeout(timer);
       rl.close();
@@ -1326,6 +1661,208 @@ async function askConfirmationInline(question: string): Promise<boolean> {
       resolve(norm === "s" || norm === "si" || norm === "sí");
     });
   });
+}
+
+function createVerificationReport(
+  proposalId: string,
+  checks: VerificationCheckResult[],
+): VerificationReport {
+  const success = checks.every((check) => check.success);
+  return {
+    proposalId,
+    success,
+    retryable: checks.some((check) => !check.success),
+    summary: success
+      ? "All verification checks passed."
+      : checks
+          .filter((check) => !check.success)
+          .map((check) => check.details ?? check.requirement.description)
+          .join(" | "),
+    checks,
+    observedState: Object.fromEntries(
+      checks.map((check) => [
+        check.requirement.kind,
+        check.details ?? (check.success ? "ok" : "failed"),
+      ]),
+    ),
+  };
+}
+
+function verifySingleRequirement(requirement: VerificationRequirement): VerificationCheckResult {
+  switch (requirement.kind) {
+    case "service-active": {
+      const service = requirement.service ?? "";
+      const status = checkServiceStatus(service);
+      return {
+        requirement,
+        success: status.success && status.status === "active",
+        details: status.success ? `service ${service}: ${status.status}` : status.error,
+      };
+    }
+    case "dns-resolution": {
+      const hostname = requirement.hostname ?? "localhost";
+      const result = verifyDnsResolution(hostname);
+      return {
+        requirement,
+        success: result.success && result.resolves,
+        details: result.success
+          ? result.resolves
+            ? `resolved ${hostname} -> ${result.ip ?? "(no IP)"}`
+            : `${hostname} did not resolve`
+          : result.error,
+      };
+    }
+    case "ldap-bind": {
+      const chain = verifyServiceChain();
+      return {
+        requirement,
+        success: chain.success && chain.ldap && chain.ldap_responds,
+        details: chain.success
+          ? `ldap active=${chain.ldap} responds=${chain.ldap_responds}`
+          : chain.error,
+      };
+    }
+    case "samba-share": {
+      const chain = verifyServiceChain();
+      return {
+        requirement,
+        success: chain.success && chain.samba && chain.samba_shares > 0,
+        details: chain.success
+          ? `samba active=${chain.samba} shares=${chain.samba_shares}`
+          : chain.error,
+      };
+    }
+    case "wireguard-active": {
+      const status = checkServiceStatus(requirement.service ?? "wg-quick@wg0");
+      return {
+        requirement,
+        success: status.success && status.status === "active",
+        details: status.success ? `wireguard status=${status.status}` : status.error,
+      };
+    }
+    case "docker-operational": {
+      const chain = verifyServiceChain();
+      return {
+        requirement,
+        success: chain.success && chain.docker && chain.docker_operational,
+        details: chain.success
+          ? `docker active=${chain.docker} operational=${chain.docker_operational}`
+          : chain.error,
+      };
+    }
+    case "nginx-config": {
+      try {
+        execSync("nginx -t", {
+          encoding: "utf8",
+          stdio: ["ignore", "pipe", "pipe"],
+        });
+        return {
+          requirement,
+          success: true,
+          details: "nginx -t passed",
+        };
+      } catch (error) {
+        try {
+          execSync("sudo -n nginx -t", {
+            encoding: "utf8",
+            stdio: ["ignore", "pipe", "pipe"],
+            shell: "/bin/bash",
+          });
+          return {
+            requirement,
+            success: true,
+            details: "sudo nginx -t passed",
+          };
+        } catch {
+          return {
+            requirement,
+            success: false,
+            details: error instanceof Error ? error.message : String(error),
+          };
+        }
+      }
+    }
+    case "backup-test": {
+      const result = runBackupTest();
+      return {
+        requirement,
+        success: result.success,
+        details: result.success ? `backup size=${result.sizeKb}KB` : result.error,
+      };
+    }
+    case "gateway-health": {
+      const url = requirement.url ?? "http://127.0.0.1:18789/healthz";
+      try {
+        execSync(`curl -fsS ${JSON.stringify(url)} >/dev/null`, {
+          stdio: ["ignore", "ignore", "ignore"],
+          timeout: 5000,
+          shell: "/bin/bash",
+        });
+        return {
+          requirement,
+          success: true,
+          details: `${url} reachable`,
+        };
+      } catch (error) {
+        return {
+          requirement,
+          success: false,
+          details: error instanceof Error ? error.message : String(error),
+        };
+      }
+    }
+  }
+}
+
+function verifyProposal(proposal: ActionProposal): VerificationReport | undefined {
+  if (proposal.verification.length === 0) {
+    return undefined;
+  }
+  return createVerificationReport(
+    proposal.id,
+    proposal.verification.map((requirement) => verifySingleRequirement(requirement)),
+  );
+}
+
+async function attemptAutomaticRepair(
+  proposal: ActionProposal,
+  sudoContext: SudoContext | undefined,
+): Promise<RepairAttempt[]> {
+  const repairs: RepairAttempt[] = [];
+  if (proposal.servicesTouched.length === 0) {
+    return repairs;
+  }
+
+  const env: NodeJS.ProcessEnv = { ...process.env, DEBIAN_FRONTEND: "noninteractive" };
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    const repair: RepairAttempt = {
+      proposalId: proposal.id,
+      attempt,
+      strategy: "verification-retry",
+      status: "pending",
+      notes: `Restart touched services: ${proposal.servicesTouched.join(", ")}`,
+      startedAt: new Date().toISOString(),
+    };
+    try {
+      for (const service of proposal.servicesTouched) {
+        const command = `systemctl restart ${service}`;
+        if (sudoContext) {
+          await execAsSudo(command, sudoContext.password, env, 60_000);
+        } else {
+          await execAsUser(command, env, 60_000);
+        }
+      }
+      repair.status = "succeeded";
+      repair.finishedAt = new Date().toISOString();
+    } catch (error) {
+      repair.status = "failed";
+      repair.finishedAt = new Date().toISOString();
+      repair.error = error instanceof Error ? error.message : String(error);
+    }
+    repairs.push(repair);
+  }
+
+  return repairs;
 }
 
 // ── Ejecutar un solo paso ─────────────────────────────────────────────────────
@@ -1431,12 +1968,49 @@ export async function executeStep(
  */
 export async function executePlan(
   plan: InstallPlan,
-  options?: { bootstrap?: BootstrapResult },
+  options?: {
+    bootstrap?: BootstrapResult;
+    intent?: ConversationIntent;
+    scan?: SystemScan;
+    config?: InstallerConfig;
+  },
 ): Promise<StepResult[]> {
   const bootstrap = options?.bootstrap;
   const results: StepResult[] = [];
   const planSignature = buildPlanSignature(plan);
   const previousState = readProgressState();
+  const resolvedIntent = options?.intent ?? loadInstallerIntentForExecution(options?.scan);
+  const resolvedConfig =
+    options?.config ?? resolvedIntent?.installerConfig ?? loadInstallerConfigForRescue();
+  const proposals = buildActionProposalsFromPlan(plan, resolvedConfig);
+  const proposalByStepId = new Map(proposals.map((proposal) => [proposal.sourceStepId, proposal]));
+  const resolvedGoal: InstallationGoal =
+    resolvedIntent?.goal ??
+    buildConversationIntent(
+      resolvedConfig,
+      resolvedConfig.installMode ?? "adaptive",
+      [],
+      options?.scan,
+    ).goal;
+  let session =
+    readInstallSessionState()?.planSignature === planSignature
+      ? (readInstallSessionState() as InstallSessionState)
+      : createInstallSessionState({
+          planSignature,
+          config: resolvedConfig,
+          goal: resolvedGoal,
+          fallbackPlan: plan,
+          intent: resolvedIntent,
+          proposals,
+          snapshot: buildInstallationSnapshot(planSignature, options?.scan),
+        });
+  session.goal = resolvedGoal;
+  session.config = resolvedConfig;
+  session.intent = resolvedIntent;
+  session.fallbackPlan = plan;
+  session.proposals = proposals;
+  session.snapshot = buildInstallationSnapshot(planSignature, options?.scan);
+  writeInstallSessionState(session);
 
   // ── 1. Resolver acceso sudo ───────────────────────────────────────────────
 
@@ -1509,12 +2083,16 @@ export async function executePlan(
       `\n  ${t.muted("Se ha ignorado un estado de instalación anterior porque pertenece a otro plan.")}`,
     );
     clearStepState();
+    clearInstallSessionState();
   }
 
   const completedSteps = loadCompletedSteps(planSignature);
   if (completedSteps.size > 0) {
     console.log(
       `\n  ${t.warn(`⚠ Instalación previa detectada: ${completedSteps.size} pasos ya completados.`)}`,
+    );
+    console.log(
+      `  ${t.muted("s = reanudar | n = empezar de cero | d = desinstalar todo y reiniciar")}`,
     );
 
     const rl = readline.createInterface({
@@ -1523,16 +2101,47 @@ export async function executePlan(
       terminal: true,
     });
     const answer = await new Promise<string>((resolve) => {
-      rl.question(
-        `  ¿Reanudar desde donde se dejó? (s = reanudar, n = empezar de cero): `,
-        resolve,
-      );
+      rl.question(`  ¿Cómo quieres continuar? (s/n/d): `, resolve);
     });
     rl.close();
 
-    if (!["s", "si", "sí"].includes(answer.toLowerCase().trim())) {
+    const resumeDecision = parseResumeDecision(answer);
+
+    if (resumeDecision === "clean-restart") {
+      const preservedSecrets = await captureInstallSecrets(plan, options?.bootstrap);
+      console.log(
+        `  ${t.warn("Se ejecutará una desinstalación completa antes de reiniciar la instalación.")}`,
+      );
+      await runGenericUninstall();
+      await restoreInstallSecrets(preservedSecrets);
       clearStepState();
+      clearInstallSessionState();
       completedSteps.clear();
+      session = createInstallSessionState({
+        planSignature,
+        config: resolvedConfig,
+        goal: resolvedGoal,
+        fallbackPlan: plan,
+        intent: resolvedIntent,
+        proposals,
+        snapshot: buildInstallationSnapshot(planSignature, options?.scan),
+      });
+      writeInstallSessionState(session);
+      console.log(`  ${t.muted("Sistema limpiado. Empezando desde el principio.\n")}`);
+    } else if (resumeDecision === "restart") {
+      clearStepState();
+      clearInstallSessionState();
+      completedSteps.clear();
+      session = createInstallSessionState({
+        planSignature,
+        config: resolvedConfig,
+        goal: resolvedGoal,
+        fallbackPlan: plan,
+        intent: resolvedIntent,
+        proposals,
+        snapshot: buildInstallationSnapshot(planSignature, options?.scan),
+      });
+      writeInstallSessionState(session);
       console.log(`  ${t.muted("Empezando desde el principio.\n")}`);
     } else {
       console.log(`  ${t.good("Reanudando instalación.\n")}`);
@@ -1555,7 +2164,7 @@ export async function executePlan(
   console.log(`  Tiempo estimado : ~${plan.estimatedMinutes} minutos\n`);
   const rescueContextDefaults = {
     logPath: resolveRescueLogPath(),
-    installerConfig: loadInstallerConfigForRescue(),
+    installerConfig: resolvedConfig,
     systemInfo: loadSystemInfoForRescue(),
   };
 
@@ -1563,6 +2172,13 @@ export async function executePlan(
 
   try {
     for (const step of plan.steps) {
+      const proposal = proposalByStepId.get(step.id);
+      if (!proposal) {
+        throw new Error(`No se encontró propuesta para el paso ${step.id}`);
+      }
+      session.currentProposalId = proposal.id;
+      writeInstallSessionState(session);
+
       // Saltar pasos ya completados al reanudar
       if (completedSteps.has(step.id)) {
         console.log(`\n  ⏭  [${step.id}] ${step.description} ${t.muted("(reanudado — omitido)")}`);
@@ -1594,6 +2210,11 @@ export async function executePlan(
             approvalDecision = "rejected";
           }
         }
+        session.approvals[proposal.id] = {
+          status: approvalDecision,
+          timestamp: new Date().toISOString(),
+        };
+        writeInstallSessionState(session);
 
         if (approvalDecision === "rejected") {
           console.log(`\n  Paso ${step.id} rechazado. Deteniendo ejecución.`);
@@ -1619,16 +2240,72 @@ export async function executePlan(
         }
       }
 
-      const result = await executeStep(step, sudoCtx);
-      results.push(result);
-      saveStepStateForPlan(planSignature, result.stepId, result.status, result.error);
+      const execution: ActionExecution = {
+        proposalId: proposal.id,
+        status: "running",
+        startedAt: new Date().toISOString(),
+        attempt: (session.executions[proposal.id]?.length ?? 0) + 1,
+      };
+      const enrichExecutionWithVerification = async (
+        currentResult: StepResult,
+        currentExecution: ActionExecution,
+      ): Promise<StepResult> => {
+        if (currentResult.status !== "done") {
+          return currentResult;
+        }
 
+        let verification = verifyProposal(proposal);
+        if (verification && !verification.success) {
+          const repairs = await attemptAutomaticRepair(proposal, sudoCtx);
+          for (const repair of repairs) {
+            upsertRepair(session, repair);
+            writeInstallSessionState(session);
+            if (repair.status === "succeeded") {
+              verification = verifyProposal(proposal);
+              if (verification?.success) {
+                break;
+              }
+            }
+          }
+        }
+        if (verification) {
+          currentExecution.verification = verification;
+          currentResult.verification = verification;
+          if (!verification.success) {
+            currentResult.status = "failed";
+            currentResult.error = verification.summary;
+            currentExecution.status = "failed";
+            currentExecution.error = verification.summary;
+          }
+        }
+        return currentResult;
+      };
+
+      let result = await executeStep(step, sudoCtx);
+      execution.finishedAt = new Date().toISOString();
+      execution.status = result.status;
+      execution.output = result.output;
+      execution.error = result.error;
+      result = await enrichExecutionWithVerification(result, execution);
+
+      upsertExecution(session, execution);
+
+      let stopAfterFailure = false;
       if (result.status === "failed") {
+        let rescuedAndRetried = false;
         if (bootstrap) {
           const activateRescue = await askConfirmationInline(
             "¿Activar el modo rescate para diagnosticar el error?",
           );
           if (activateRescue) {
+            const repairAttempt: RepairAttempt = {
+              proposalId: proposal.id,
+              attempt: (session.repairs[proposal.id]?.length ?? 0) + 1,
+              strategy: "ai-rescue",
+              status: "pending",
+              notes: result.error ?? "AI rescue requested after failed execution.",
+              startedAt: new Date().toISOString(),
+            };
             const ctx: RescueContext = {
               ...rescueContextDefaults,
               step,
@@ -1638,16 +2315,65 @@ export async function executePlan(
               totalCount: plan.steps.length,
               planSummary: buildPlanSummary(plan, completedSteps),
             };
-            await runRescueMode(ctx, bootstrap);
+            const rescueDecision = await runRescueMode(ctx, bootstrap);
+            repairAttempt.status = rescueDecision === "continue" ? "succeeded" : "cancelled";
+            repairAttempt.finishedAt = new Date().toISOString();
+            upsertRepair(session, repairAttempt);
+            writeInstallSessionState(session);
+
+            if (rescueDecision === "continue") {
+              // Un único reintento tras el rescate
+              console.log(`\n  ${t.muted("Reintentando paso " + step.id + " tras rescate...")}\n`);
+              const retryResult = await executeStep(step, sudoCtx);
+              const retryExecution: ActionExecution = {
+                proposalId: proposal.id,
+                status: retryResult.status,
+                startedAt: new Date().toISOString(),
+                finishedAt: new Date().toISOString(),
+                attempt: (session.executions[proposal.id]?.length ?? 0) + 1,
+                output: retryResult.output,
+                error: retryResult.error,
+              };
+              const verifiedRetryResult = await enrichExecutionWithVerification(
+                retryResult,
+                retryExecution,
+              );
+              retryExecution.status = verifiedRetryResult.status;
+              retryExecution.error = verifiedRetryResult.error;
+              upsertExecution(session, retryExecution);
+              writeInstallSessionState(session);
+              if (verifiedRetryResult.status === "done") {
+                result = verifiedRetryResult;
+                rescuedAndRetried = true;
+              } else {
+                console.error(`\n  El reintento del paso ${step.id} también ha fallado.`);
+              }
+            }
           }
         }
-        console.error(`\n  El paso ${step.id} ha fallado. Deteniendo ejecución.`);
-        console.log(
-          `  ${t.muted("Vuelve a ejecutar 'laia-arch install' para retomar desde aquí.")}`,
-        );
+        if (!rescuedAndRetried) {
+          console.error(`\n  El paso ${step.id} ha fallado. Deteniendo ejecución.`);
+          console.log(
+            `  ${t.muted("Vuelve a ejecutar 'laia-arch install' para retomar desde aquí.")}`,
+          );
+          stopAfterFailure = true;
+        }
+      }
+
+      results.push(result);
+      saveStepStateForPlan(planSignature, result.stepId, result.status, result.error);
+
+      if (stopAfterFailure) {
         break;
       }
 
+      if (!session.completedProposalIds.includes(proposal.id)) {
+        session.completedProposalIds.push(proposal.id);
+      }
+      completedSteps.add(step.id);
+      session.currentProposalId = undefined;
+      session.snapshot = buildInstallationSnapshot(planSignature, options?.scan);
+      writeInstallSessionState(session);
       console.log(`  ✓ Paso ${step.id} completado.`);
     }
   } finally {
@@ -1669,6 +2395,7 @@ export async function executePlan(
   // Si todo fue bien, limpiar el archivo de estado
   if (failed === 0 && skipped === 0 && done === plan.steps.length) {
     clearStepState();
+    clearInstallSessionState();
   }
 
   return results;

@@ -15,6 +15,26 @@ function summarizeExecError(error: unknown): string {
   return String(error);
 }
 
+function execWithSudoFallback(command: string): string {
+  try {
+    return execSync(command, {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+      shell: "/bin/bash",
+    });
+  } catch (error) {
+    try {
+      return execSync(`sudo -n bash -lc ${JSON.stringify(command)}`, {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+        shell: "/bin/bash",
+      });
+    } catch {
+      throw error;
+    }
+  }
+}
+
 function serviceActive(service: string): boolean {
   const status = execSync(`systemctl is-active ${JSON.stringify(service)} 2>/dev/null || true`, {
     encoding: "utf8",
@@ -94,7 +114,7 @@ export function verifyServiceChain():
       execSync('ldapsearch -x -H ldap://localhost -b "" -s base', {
         encoding: "utf8",
         stdio: ["ignore", "pipe", "pipe"],
-        shell: true,
+        shell: "/bin/bash",
       });
       ldapResponds = true;
     } catch {
@@ -106,25 +126,26 @@ export function verifyServiceChain():
       const smbList = execSync("smbclient -L localhost -N 2>/dev/null", {
         encoding: "utf8",
         stdio: ["ignore", "pipe", "pipe"],
-        shell: true,
+        shell: "/bin/bash",
       });
       sambaShares = smbList
         .split("\n")
         .map((line) => line.trim())
-        .filter((line) => line && !line.startsWith("Sharename") && !line.startsWith("Server") && !line.startsWith("Workgroup"))
-        .filter((line) => /\s+Disk(\s|$)/.test(line))
-        .length;
+        .filter(
+          (line) =>
+            line &&
+            !line.startsWith("Sharename") &&
+            !line.startsWith("Server") &&
+            !line.startsWith("Workgroup"),
+        )
+        .filter((line) => /\s+Disk(\s|$)/.test(line)).length;
     } catch {
       sambaShares = 0;
     }
 
     let dockerOperational = false;
     try {
-      execSync("docker info 2>/dev/null", {
-        encoding: "utf8",
-        stdio: ["ignore", "pipe", "pipe"],
-        shell: true,
-      });
+      execWithSudoFallback("docker info 2>/dev/null");
       dockerOperational = true;
     } catch {
       dockerOperational = false;
@@ -158,7 +179,10 @@ export function verifyServiceChain():
       backup_script: backupScript,
     };
   } catch (error) {
-    result = fail(`no se pudo verificar la cadena de servicios: ${summarizeExecError(error)}`, true);
+    result = fail(
+      `no se pudo verificar la cadena de servicios: ${summarizeExecError(error)}`,
+      true,
+    );
   }
 
   logToolCall("verify_service_chain", params, result);
@@ -189,9 +213,7 @@ function resolveBackupCommand(): { command: string; logPath: string } | null {
   return { command: parts.slice(6).join(" "), logPath: cronPath };
 }
 
-export function runBackupTest():
-  | { success: true; sizeKb: number; logPath: string }
-  | ToolFailure {
+export function runBackupTest(): { success: true; sizeKb: number; logPath: string } | ToolFailure {
   const params = {};
   let result: { success: true; sizeKb: number; logPath: string } | ToolFailure;
   try {
@@ -201,15 +223,10 @@ export function runBackupTest():
       logToolCall("run_backup_test", params, result);
       return result;
     }
-    execSync(resolved.command, {
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"],
-      shell: true,
-    });
-    const sizeOutput = execSync("du -sk /var/backups/laia-arch 2>/dev/null | awk '{print $1}' || echo 0", {
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"],
-    }).trim();
+    execWithSudoFallback(resolved.command);
+    const sizeOutput = execWithSudoFallback(
+      "du -sk /var/backups/laia-arch 2>/dev/null | awk '{print $1}' || echo 0",
+    ).trim();
     result = {
       success: true,
       sizeKb: Number.parseInt(sizeOutput, 10) || 0,

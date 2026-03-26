@@ -1,5 +1,4 @@
-import { execFileSync, spawnSync } from "node:child_process";
-import fs from "node:fs";
+import { execFileSync, execSync, spawnSync } from "node:child_process";
 import path from "node:path";
 import { retrieveCredential } from "../credential-manager.js";
 import { logToolCall } from "./logger.js";
@@ -76,9 +75,13 @@ export function createSambaShare(params: {
         ...(params.validUsers ? [`valid users = ${params.validUsers}`] : []),
         "",
       ].join("\n");
-      execFileSync("sudo", ["sh", "-c", `printf '%s\n' ${shellQuote(lines)} >> ${shellQuote(smbConf)}`], {
-        stdio: "ignore",
-      });
+      execFileSync(
+        "sudo",
+        ["sh", "-c", `printf '%s\n' ${shellQuote(lines)} >> ${shellQuote(smbConf)}`],
+        {
+          stdio: "ignore",
+        },
+      );
     }
     result = { success: true };
   } catch (error) {
@@ -103,15 +106,11 @@ export async function registerSambaUser(
 
   try {
     const password = await retrieveCredential(passwordId);
-    const proc = spawnSync(
-      "sudo",
-      ["smbpasswd", "-s", "-a", username],
-      {
-        input: `${password}\n${password}\n`,
-        encoding: "utf8",
-        stdio: ["pipe", "pipe", "pipe"],
-      },
-    );
+    const proc = spawnSync("sudo", ["smbpasswd", "-s", "-a", username], {
+      input: `${password}\n${password}\n`,
+      encoding: "utf8",
+      stdio: ["pipe", "pipe", "pipe"],
+    });
     if (proc.status !== 0) {
       throw new Error(proc.stderr || proc.stdout || `smbpasswd falló (${proc.status})`);
     }

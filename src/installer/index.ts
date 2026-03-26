@@ -7,6 +7,7 @@ import * as path from "node:path";
 import * as readline from "node:readline";
 import { isCancel, select } from "@clack/prompts";
 import { laiaTheme as t } from "../cli/laia-arch-theme.js";
+import { buildConversationIntent } from "./agentic.js";
 import { runBootstrap } from "./bootstrap.js";
 import { runConversation } from "./conversation.js";
 import { provisionCredential } from "./credential-manager.js";
@@ -21,7 +22,13 @@ import {
 import { displayPlan, generatePlan } from "./plan-generator.js";
 import { listPresets, savePreset } from "./presets/index.js";
 import { runScanner } from "./scanner.js";
-import type { BootstrapResult, InstallerConfig, InstallMode, SystemScan } from "./types.js";
+import type {
+  BootstrapResult,
+  ConversationIntent,
+  InstallerConfig,
+  InstallMode,
+  SystemScan,
+} from "./types.js";
 
 // ── PASO 0: Configurar sudo al arrancar ───────────────────────────────────────
 
@@ -62,7 +69,9 @@ async function initializeSudo(): Promise<string> {
     const valid = await validateSudoPassword(candidate);
     process.stdout.write("\r  \r");
 
-    if (!valid) continue;
+    if (!valid) {
+      continue;
+    }
 
     console.log(`  ${t.good("✓ Contraseña verificada. Configurando permisos...")}`);
     const result = await setupSudoers(candidate);
@@ -85,7 +94,9 @@ async function initializeSudo(): Promise<string> {
     const cont = await askConfirmation(
       "No se pudo configurar sudo. ¿Continuar de todas formas? (los pasos del sistema pueden fallar)",
     );
-    if (!cont) process.exit(0);
+    if (!cont) {
+      process.exit(0);
+    }
   }
 
   return sudoPassword;
@@ -146,7 +157,9 @@ async function offerSavePreset(config: InstallerConfig): Promise<void> {
   const save = await askConfirmation(
     "¿Quieres guardar esta configuración como preset para futuras instalaciones?",
   );
-  if (!save) return;
+  if (!save) {
+    return;
+  }
 
   const name = await askText("Nombre del preset (p.ej. empresa-base)");
   if (!name) {
@@ -184,6 +197,7 @@ export async function runInstaller(): Promise<void> {
   let bootstrapResult: BootstrapResult;
   let systemScan: SystemScan;
   let config: InstallerConfig;
+  let intent: ConversationIntent | undefined;
 
   // ── Paso 0: Configurar sudo ───────────────────────────────────────────────
   const sudoPassword = await initializeSudo();
@@ -265,7 +279,9 @@ export async function runInstaller(): Promise<void> {
 
   // ── Fase 2: Conversación con la IA ───────────────────────────────────────
   try {
-    config = await runConversation(bootstrapResult, systemScan, installMode);
+    const conversation = await runConversation(bootstrapResult, systemScan, installMode);
+    config = conversation.config;
+    intent = conversation.intent;
   } catch (err) {
     console.error("\n  Error en Fase 2 (conversación):");
     console.error(err instanceof Error ? err.message : String(err));
@@ -334,7 +350,12 @@ export async function runInstaller(): Promise<void> {
   // ── Fase 5: Ejecutar el plan ──────────────────────────────────────────────
   let results;
   try {
-    results = await executePlan(plan, { bootstrap: bootstrapResult });
+    results = await executePlan(plan, {
+      bootstrap: bootstrapResult,
+      intent,
+      scan: systemScan,
+      config,
+    });
   } catch (err) {
     console.error("\n  Error durante la ejecución:");
     console.error(err instanceof Error ? err.message : String(err));
@@ -370,6 +391,7 @@ export async function runInstaller(): Promise<void> {
 export async function runInstallerWithPreset(config: InstallerConfig): Promise<void> {
   let bootstrapResult: BootstrapResult;
   let systemScan: SystemScan;
+  let intent: ConversationIntent | undefined;
 
   // ── Paso 0: Configurar sudo ───────────────────────────────────────────────
   const sudoPassword = await initializeSudo();
@@ -397,6 +419,7 @@ export async function runInstallerWithPreset(config: InstallerConfig): Promise<v
   }
 
   console.log("  " + t.muted("Fase 2 (conversación) omitida — usando preset.\n"));
+  intent = buildConversationIntent(config, config.installMode ?? "guided", [], systemScan);
 
   // ── Fase 3: Generar el plan ───────────────────────────────────────────────
   let plan;
@@ -454,7 +477,12 @@ export async function runInstallerWithPreset(config: InstallerConfig): Promise<v
   // ── Fase 5: Ejecutar el plan ──────────────────────────────────────────────
   let results;
   try {
-    results = await executePlan(plan, { bootstrap: bootstrapResult });
+    results = await executePlan(plan, {
+      bootstrap: bootstrapResult,
+      intent,
+      scan: systemScan,
+      config,
+    });
   } catch (err) {
     console.error("\n  Error durante la ejecución:");
     console.error(err instanceof Error ? err.message : String(err));

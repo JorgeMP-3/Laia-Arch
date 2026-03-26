@@ -44,12 +44,12 @@ export const laiaTheme = {
 
   // Banner principal del instalador — red neuronal de tres agentes
   banner: () => {
-    const gold   = (s: string) => c.hex("#FFC45A").bold(s);
-    const dim    = (s: string) => c.hex("#E0A830")(s);
-    const grey   = (s: string) => c.hex("#A0A0A0")(s);
-    const white  = (s: string) => c.hex("#FFFFFF")(s);
-    const blue   = (s: string) => c.hex("#3B82F6")(s);
-    const green  = (s: string) => c.hex("#22C55E")(s);
+    const gold = (s: string) => c.hex("#FFC45A").bold(s);
+    const dim = (s: string) => c.hex("#E0A830")(s);
+    const grey = (s: string) => c.hex("#A0A0A0")(s);
+    const white = (s: string) => c.hex("#FFFFFF")(s);
+    const blue = (s: string) => c.hex("#3B82F6")(s);
+    const green = (s: string) => c.hex("#22C55E")(s);
 
     // nodos y conexiones:
     //
@@ -65,25 +65,106 @@ export const laiaTheme = {
 
     const lines = [
       "",
-      grey  ("  ╔══════════════════════════════════════════════════════════╗"),
-      grey  ("  ║") + "                                                          " + grey("║"),
-      grey  ("  ║") + "           " + gold("⚡ L A I A   A R C H") + "                        " + grey("║"),
-      grey  ("  ║") + "       " + grey("El arquitecto que construye tu servidor") + "       " + grey("║"),
-      grey  ("  ║") + "                                                          " + grey("║"),
-      grey  ("  ╠══════════════════════════════════════════════════════════╣"),
-      grey  ("  ║") + "                                                          " + grey("║"),
-      grey  ("  ║") + "         " + gold("┌─────────────────────────────┐") + "             " + grey("║"),
-      grey  ("  ║") + "         " + gold("│") + "  " + gold("◈") + " " + white("Laia Arch") + dim("  [host-only]") + "       " + gold("│") + "             " + grey("║"),
-      grey  ("  ║") + "         " + gold("└──────────────┬──────────────┘") + "             " + grey("║"),
-      grey  ("  ║") + "                        " + dim("│") + "                              " + grey("║"),
-      grey  ("  ║") + "               " + dim("╔═════════╩══════════╗") + "                  " + grey("║"),
-      grey  ("  ║") + "               " + dim("║") + "                    " + dim("║") + "                  " + grey("║"),
-      grey  ("  ║") + "    " + blue("┌──────────────┐") + "     " + green("┌───────────────┐") + "      " + grey("║"),
-      grey  ("  ║") + "    " + blue("│") + " " + blue("◈") + " " + white("Laia Agora") + "    " + blue("│") + "     " + green("│") + " " + green("◈") + " " + white("Laia Nemo") + "     " + green("│") + "      " + grey("║"),
-      grey  ("  ║") + "    " + blue("│") + grey(" docker:18789  ") + blue("│") + "     " + green("│") + grey(" WA · TG · Slack ") + green("│") + "      " + grey("║"),
-      grey  ("  ║") + "    " + blue("└──────────────┘") + "     " + green("└───────────────┘") + "      " + grey("║"),
-      grey  ("  ║") + "                                                          " + grey("║"),
-      grey  ("  ╚══════════════════════════════════════════════════════════╝"),
+      grey("  ╔══════════════════════════════════════════════════════════╗"),
+      grey("  ║") + "                                                          " + grey("║"),
+      grey("  ║") +
+        "           " +
+        gold("⚡ L A I A   A R C H") +
+        "                        " +
+        grey("║"),
+      grey("  ║") +
+        "       " +
+        grey("El arquitecto que construye tu servidor") +
+        "       " +
+        grey("║"),
+      grey("  ║") + "                                                          " + grey("║"),
+      grey("  ╠══════════════════════════════════════════════════════════╣"),
+      grey("  ║") + "                                                          " + grey("║"),
+      grey("  ║") +
+        "         " +
+        gold("┌─────────────────────────────┐") +
+        "             " +
+        grey("║"),
+      grey("  ║") +
+        "         " +
+        gold("│") +
+        "  " +
+        gold("◈") +
+        " " +
+        white("Laia Arch") +
+        dim("  [host-only]") +
+        "       " +
+        gold("│") +
+        "             " +
+        grey("║"),
+      grey("  ║") +
+        "         " +
+        gold("└──────────────┬──────────────┘") +
+        "             " +
+        grey("║"),
+      grey("  ║") +
+        "                        " +
+        dim("│") +
+        "                              " +
+        grey("║"),
+      grey("  ║") +
+        "               " +
+        dim("╔═════════╩══════════╗") +
+        "                  " +
+        grey("║"),
+      grey("  ║") +
+        "               " +
+        dim("║") +
+        "                    " +
+        dim("║") +
+        "                  " +
+        grey("║"),
+      grey("  ║") +
+        "    " +
+        blue("┌──────────────┐") +
+        "     " +
+        green("┌───────────────┐") +
+        "      " +
+        grey("║"),
+      grey("  ║") +
+        "    " +
+        blue("│") +
+        " " +
+        blue("◈") +
+        " " +
+        white("Laia Agora") +
+        "    " +
+        blue("│") +
+        "     " +
+        green("│") +
+        " " +
+        green("◈") +
+        " " +
+        white("Laia Nemo") +
+        "     " +
+        green("│") +
+        "      " +
+        grey("║"),
+      grey("  ║") +
+        "    " +
+        blue("│") +
+        grey(" docker:18789  ") +
+        blue("│") +
+        "     " +
+        green("│") +
+        grey(" WA · TG · Slack ") +
+        green("│") +
+        "      " +
+        grey("║"),
+      grey("  ║") +
+        "    " +
+        blue("└──────────────┘") +
+        "     " +
+        green("└───────────────┘") +
+        "      " +
+        grey("║"),
+      grey("  ║") + "                                                          " + grey("║"),
+      grey("  ╚══════════════════════════════════════════════════════════╝"),
       "",
     ];
 

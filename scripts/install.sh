@@ -32,11 +32,65 @@ cleanup_tmpfiles() {
 }
 trap cleanup_tmpfiles EXIT
 
+on_install_error() {
+    local exit_code=$?
+    local line_no="${1:-}"
+    echo "" >&2
+    echo -e "\033[38;2;230;57;70m✗ Installation failed\033[0m" >&2
+    if [[ -n "$line_no" ]]; then
+        echo "  (script line ${line_no}, exit code ${exit_code})" >&2
+    fi
+    echo "" >&2
+    echo "  To resume from where it stopped, re-run with:" >&2
+    echo "    bash install.sh --resume" >&2
+    echo "" >&2
+    echo "  To start fresh:" >&2
+    echo "    bash install.sh --reset" >&2
+    echo "" >&2
+    echo "  For more detail add --verbose to see exactly what failed." >&2
+}
+trap 'on_install_error $LINENO' ERR
+
 mktempfile() {
     local f
     f="$(mktemp)"
     TMPFILES+=("$f")
     echo "$f"
+}
+
+INSTALL_STATE_FILE="${OPENCLAW_INSTALL_STATE:-${HOME}/.openclaw-install.state}"
+RESUME_MODE=0
+RESET_STATE=0
+
+# --- Checkpoint helpers ---
+# Each major install step writes its name to INSTALL_STATE_FILE on success.
+# On re-run with --resume, steps already in that file are skipped.
+
+step_done() {
+    local step="$1"
+    [[ "$RESUME_MODE" == "1" ]] && grep -qx "$step" "$INSTALL_STATE_FILE" 2>/dev/null
+}
+
+mark_step_done() {
+    local step="$1"
+    echo "$step" >> "$INSTALL_STATE_FILE"
+}
+
+clear_install_state() {
+    rm -f "$INSTALL_STATE_FILE"
+}
+
+# Runs a named install step, skipping it if already completed (resume mode).
+# Usage: run_step <step-name> <function-or-command> [args...]
+run_step() {
+    local step="$1"
+    shift
+    if step_done "$step"; then
+        ui_success "Skipping already-completed step: ${step}"
+        return 0
+    fi
+    "$@"
+    mark_step_done "$step"
 }
 
 DOWNLOADER=""
@@ -1020,6 +1074,8 @@ Options:
   --verify                              Run a post-install smoke verify
   --dry-run                             Print what would happen (no changes)
   --verbose                             Print debug output (set -x, npm verbose)
+  --resume                              Resume a previously failed install (skip completed steps)
+  --reset                               Clear saved install state and start fresh
   --help, -h                            Show this help
 
 Environment variables:
@@ -1035,6 +1091,8 @@ Environment variables:
   OPENCLAW_VERBOSE=1
   OPENCLAW_NPM_LOGLEVEL=error|warn|notice  Default: error (hide npm deprecation noise)
   SHARP_IGNORE_GLOBAL_LIBVIPS=0|1    Default: 1 (avoid sharp building against global libvips)
+  OPENCLAW_SUDO_PASSWORD=...          Pre-supply sudo password (avoids interactive prompt)
+  OPENCLAW_INSTALL_STATE=...          Path to install state file (default: ~/.openclaw-install.state)
 
 Examples:
   curl -fsSL --proto '=https' --tlsv1.2 https://openclaw.ai/install.sh | bash
@@ -1102,6 +1160,14 @@ parse_args() {
                 ;;
             --no-git-update)
                 GIT_UPDATE=0
+                shift
+                ;;
+            --resume)
+                RESUME_MODE=1
+                shift
+                ;;
+            --reset)
+                RESET_STATE=1
                 shift
                 ;;
             *)
@@ -1529,16 +1595,35 @@ require_sudo() {
     if is_root; then
         return 0
     fi
-    if command -v sudo &> /dev/null; then
-        if ! sudo -n true >/dev/null 2>&1; then
-            ui_info "Administrator privileges required; enter your password"
-            sudo -v
+    if ! command -v sudo &> /dev/null; then
+        ui_error "sudo is required for system installs on Linux"
+        echo "  Install sudo or re-run as root."
+        exit 1
+    fi
+    # Already have a cached sudo token — nothing to do
+    if sudo -n true >/dev/null 2>&1; then
+        return 0
+    fi
+    # Support pre-supplied password via env var (useful in non-interactive setups)
+    if [[ -n "${OPENCLAW_SUDO_PASSWORD:-}" ]]; then
+        if ! echo "$OPENCLAW_SUDO_PASSWORD" | sudo -S -v >/dev/null 2>&1; then
+            ui_error "sudo authentication failed with OPENCLAW_SUDO_PASSWORD"
+            echo "  Double-check the password and try again."
+            exit 1
         fi
         return 0
     fi
-    ui_error "sudo is required for system installs on Linux"
-    echo "  Install sudo or re-run as root."
-    exit 1
+    # Interactive prompt
+    ui_info "Administrator privileges required; enter your sudo password"
+    if ! sudo -v < /dev/tty; then
+        ui_error "sudo authentication failed"
+        echo ""
+        echo "  Options to fix this:"
+        echo "    1) Re-run the installer as root (sudo bash install.sh)"
+        echo "    2) Set OPENCLAW_SUDO_PASSWORD=<your-password> before running"
+        echo "    3) Ensure your user is in the sudoers file"
+        exit 1
+    fi
 }
 
 install_git() {
@@ -2286,6 +2371,21 @@ main() {
     print_gum_status
     detect_os_or_die
 
+    # Handle --reset: wipe saved state before doing anything else
+    if [[ "$RESET_STATE" == "1" ]]; then
+        clear_install_state
+        ui_success "Install state cleared; starting fresh"
+    fi
+
+    # Show resume status
+    if [[ "$RESUME_MODE" == "1" ]]; then
+        if [[ -f "$INSTALL_STATE_FILE" ]]; then
+            ui_info "Resume mode: re-using completed steps from ${INSTALL_STATE_FILE}"
+        else
+            ui_info "Resume mode active but no saved state found; running full install"
+        fi
+    fi
+
     local detected_checkout=""
     detected_checkout="$(detect_openclaw_checkout "$PWD" || true)"
 
@@ -2337,11 +2437,11 @@ main() {
     ui_stage "Preparing environment"
 
     # Step 1: Homebrew (macOS only)
-    install_homebrew
+    run_step "homebrew" install_homebrew
 
     # Step 2: Node.js
     if ! check_node; then
-        install_node
+        run_step "install_node" install_node
     fi
     if ! ensure_default_node_active_shell; then
         exit 1
@@ -2363,7 +2463,7 @@ main() {
             repo_dir="$detected_checkout"
         fi
         final_git_dir="$repo_dir"
-        install_openclaw_from_git "$repo_dir"
+        run_step "install_openclaw" install_openclaw_from_git "$repo_dir"
     else
         # Clean up git wrapper if switching to npm
         if [[ -x "$HOME/.local/bin/openclaw" ]]; then
@@ -2374,14 +2474,14 @@ main() {
 
         # Step 3: Git (required for npm installs that may fetch from git or apply patches)
         if ! check_git; then
-            install_git
+            run_step "install_git" install_git
         fi
 
         # Step 4: npm permissions (Linux)
-        fix_npm_permissions
+        run_step "fix_npm_permissions" fix_npm_permissions
 
         # Step 5: OpenClaw
-        install_openclaw
+        run_step "install_openclaw" install_openclaw
     fi
 
     ui_stage "Finalizing setup"

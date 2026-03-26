@@ -34,9 +34,7 @@ function isAllowedWritePath(candidatePath: string): boolean {
   return isAllowedReadPath(candidatePath);
 }
 
-export function getSystemInfo():
-  | { success: true; scan: SystemScan }
-  | ToolFailure {
+export function getSystemInfo(): { success: true; scan: SystemScan } | ToolFailure {
   const params = {};
   let result: { success: true; scan: SystemScan } | ToolFailure;
   try {
@@ -55,9 +53,9 @@ export function getSystemInfo():
   return result;
 }
 
-export function checkPortAvailable(port: number):
-  | { success: true; available: boolean; process?: string }
-  | ToolFailure {
+export function checkPortAvailable(
+  port: number,
+): { success: true; available: boolean; process?: string } | ToolFailure {
   const params = { port };
   let result: { success: true; available: boolean; process?: string } | ToolFailure;
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
@@ -89,9 +87,9 @@ export function checkPortAvailable(port: number):
   return result;
 }
 
-export function checkServiceStatus(service: string):
-  | { success: true; status: "active" | "inactive" | "not-installed" }
-  | ToolFailure {
+export function checkServiceStatus(
+  service: string,
+): { success: true; status: "active" | "inactive" | "not-installed" } | ToolFailure {
   const params = { service };
   let result: { success: true; status: "active" | "inactive" | "not-installed" } | ToolFailure;
   const normalized = service.trim();
@@ -102,10 +100,13 @@ export function checkServiceStatus(service: string):
   }
 
   try {
-    const active = execSync(`systemctl is-active ${JSON.stringify(normalized)} 2>/dev/null || true`, {
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"],
-    })
+    const active = execSync(
+      `systemctl is-active ${JSON.stringify(normalized)} 2>/dev/null || true`,
+      {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+      },
+    )
       .trim()
       .toLowerCase();
     if (active === "active") {
@@ -130,9 +131,9 @@ export function checkServiceStatus(service: string):
   return result;
 }
 
-export function readFile(filePath: string):
-  | { success: true; content: string; exists: boolean }
-  | ToolFailure {
+export function readFile(
+  filePath: string,
+): { success: true; content: string; exists: boolean } | ToolFailure {
   const params = { path: filePath };
   let result: { success: true; content: string; exists: boolean } | ToolFailure;
   if (!isAllowedReadPath(filePath)) {
@@ -175,12 +176,12 @@ export function writeFile(params: {
 
   try {
     const resolved = path.resolve(params.path);
-    fs.mkdirSync(path.dirname(resolved), { recursive: true });
-    if (params.append) {
-      fs.appendFileSync(resolved, params.content, "utf8");
-    } else {
-      fs.writeFileSync(resolved, params.content, "utf8");
-    }
+    execSync(`sudo mkdir -p ${JSON.stringify(path.dirname(resolved))}`);
+    // Usar sudo tee para poder escribir en rutas del sistema (/etc/, /srv/)
+    const teeFlag = params.append ? "-a" : "";
+    execSync(`sudo tee ${teeFlag} ${JSON.stringify(resolved)} > /dev/null`, {
+      input: params.content,
+    });
     result = { success: true, retryable: false };
   } catch (error) {
     const message = summarizeExecError(error);
@@ -200,10 +201,13 @@ export function checkInternet():
     | ToolFailure;
 
   try {
-    const output = execSync('curl -s --max-time 5 -o /dev/null -w "%{time_total}" https://1.1.1.1', {
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"],
-    }).trim();
+    const output = execSync(
+      'curl -s --max-time 5 -o /dev/null -w "%{time_total}" https://1.1.1.1',
+      {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+      },
+    ).trim();
     const latency = Number.parseFloat(output);
     result = {
       success: true,
