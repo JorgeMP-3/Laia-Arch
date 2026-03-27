@@ -7,10 +7,22 @@ El proyecto ya no es simplemente OpenClaw sin cambios. En el repo actual existe 
 Aun así, el estado real hoy es este:
 
 - `Laia Arch` ya existe como producto funcional de instalación.
-- `Laia Arch` todavía funciona principalmente como un instalador determinista con IA encima.
-- `Laia Agora` existe como visión de ecosistema y como plantilla de workspace, pero no como despliegue empresarial cerrado dentro del flujo final.
+- `Laia Arch` ya tiene un camino agentic real en modo `adaptive`: puede generar `ActionProposal` directas desde `ConversationIntent` sin pasar por `plan-generator.ts`.
+- `Laia Agora` existe como despliegue base funcional dentro del flujo de instalación, pero no como producto empresarial completo.
 - `Laia Nemo` existe como concepto y plantilla de workspace, pero no como capa de acceso externo lista para producción.
 - El proyecto LAIA completo todavía no está terminado.
+
+## Nota sobre los nombres de los modos de instalación
+
+Los modos tienen dos nombres: el nombre en la UI (lo que ve el administrador) y el nombre en el código.
+
+| UI (lo que ve el admin) | Código (`InstallMode`) | Descripción                                                       |
+| ----------------------- | ---------------------- | ----------------------------------------------------------------- |
+| Automático              | `tool-driven`          | IA hace preguntas mínimas y ejecuta con tools predefinidas        |
+| Asistido                | `guided`               | Guía fija de preguntas en orden fijo basada en `install-prompts/` |
+| Adaptativo              | `adaptive`             | IA adapta la instalación según la empresa                         |
+
+Cuando leas el código, verás los nombres del código. Cuando leas documentación de producto, verás los nombres de UI. Son lo mismo.
 
 ## Estado confirmado en el repositorio
 
@@ -76,10 +88,14 @@ Implementado:
 - Hay soporte para `sudo`, heartbeat, timeout, reintentos transitorios y rollback por paso.
 - La instalación persiste progreso y puede reanudarse.
 - `ActionProposal` es la unidad primaria de ejecución: todo approval/execution/repair se traza por `proposal.id`.
+- `src/installer/index.ts` ya decide entre dos caminos reales:
+  - `adaptive` -> proposals directas del agente + fallback determinista si hace falta
+  - `guided` / `tool-driven` -> `plan-generator.ts` como hasta ahora
+- `src/installer/executor.ts` ya puede ejecutar proposals directas mediante `executeActionProposals()` sin depender de un plan cerrado previo para recorrer los pasos.
 - Política de reparación implementada: 2 reintentos automáticos (restart servicios) → diagnóstico IA (rescue) → HITL.
 - Verificación activa: éxito técnico (código 0) + verificación fallida = fallo real. No hay false-greens.
 - Sesión completa persistida: `InstallSessionState` incluye snapshot, propuestas, ejecuciones, reparaciones, approvals.
-- El reintento tras rescate ya deja el paso persistido como resuelto si realmente quedó bien; no se “olvida” al relanzar el instalador.
+- El reintento tras rescate ya deja el paso persistido como resuelto si realmente quedó bien; no se "olvida" al relanzar el instalador.
 - La reanudación ofrece tres caminos: reanudar, reiniciar desde cero o desinstalar todo y reinstalar.
 - La reinstalación limpia preserva y restaura automáticamente las credenciales generadas del plan y el perfil de autenticación del proveedor IA para no romper fases posteriores como LDAP.
 - `src/installer/hitl-controller.ts` pide aprobación humana explícita.
@@ -112,6 +128,8 @@ Implementado en `src/installer/tools/`:
 Implementado:
 
 - `src/installer/executor.ts` tiene un modo rescate que se activa manualmente al aprobar o tras fallo.
+- Está integrado como `ai-rescue` dentro del mismo `RepairAttempt` del executor — no es un carril separado.
+- El rescate ya consume memoria operativa explícita de la misma sesión: `ConversationIntent` original + historial de ejecuciones + historial de reparaciones.
 - Puede usar herramientas del instalador, leer logs y ayudar a diagnosticar.
 - El rescate ya resuelve varios fallos reales del flujo, pero los fixes más repetidos se están absorbiendo en el instalador para que no dependan de la IA.
 
@@ -126,27 +144,36 @@ Implementado:
 
 #### Adaptive realmente agentic
 
-Parcial:
+Implementado para el flujo actual del instalador:
 
-- El modo `adaptive` ya existe a nivel conversacional.
-- El executor ya usa propuestas derivadas del plan como unidad primaria de trabajo.
-- Pero la ejecución real sigue dependiendo de un plan predeterminado generado después de la conversación.
+- `buildActionProposalsFromIntent()` construye proposals directas desde `ConversationIntent`.
+- `buildAdaptiveExecutionPlanFromIntent()` construye el plan fallback del camino agentic sin pasar por `plan-generator.ts`.
+- `prepareInstallerExecutionArtifacts()` hace que `src/installer/index.ts` use ese camino en `adaptive`.
+- `executeActionProposals()` ejecuta la cola de proposals directas; el plan queda solo como soporte para preview, persistencia, resumen y reanudación segura.
+- Hay pruebas que validan el criterio observable:
+  - `adaptive` no llama a `plan-generator.ts`
+  - `guided` sigue usando el generador determinista
+  - el fallback sigue vivo
 
-Problema:
+Limitación honesta:
 
-- La IA entiende contexto, pero no gobierna la instalación de extremo a extremo en tiempo real sin un plan previo.
+- el catálogo de comandos del camino agentic todavía refleja de cerca el catálogo actual del plan determinista; lo que cambió en esta fase es que el agente ya gobierna la ejecución adaptativa sin depender obligatoriamente del generador de planes.
 
-#### Modo rescate
+#### Modo rescate unificado
 
-Parcial:
+Implementado en el executor:
 
 - Existe y es útil.
-- Está integrado como `ai-rescue` dentro del mismo `RepairAttempt` del executor, no como carril completamente separado.
-- Comparte ya bastante más contexto con la instalación normal que al principio.
+- Está integrado como `ai-rescue` dentro del mismo `RepairAttempt` del executor.
+- Comparte memoria operativa explícita con la instalación normal a partir del `InstallSessionState`.
+- El prompt de rescate recibe ahora tres bloques estructurados:
+  - `ConversationIntent` original
+  - historial de ejecuciones previas de la sesión
+  - historial de reparaciones previas de la sesión
 
-Problema:
+Resultado:
 
-- Sigue faltando que el razonamiento operativo y el rescate usen exactamente el mismo bucle mental sin depender tanto del plan previo.
+- instalación normal y rescate ya no trabajan con memorias separadas; comparten la misma sesión persistida como contexto operativo real.
 
 #### Verificación activa
 
@@ -163,8 +190,8 @@ Implementado para propuestas conocidas:
 
 Limitación actual:
 
-- Las verificaciones declaradas cubren servicios conocidos (dns, ldap, samba, wireguard, docker, agora).
-- Pasos sin `verification` declarada siguen aceptando código 0 como éxito.
+- Las verificaciones ahora cubren el plan generado de extremo a extremo: `buildActionProposalsFromPlan()` pasa de 11 propuestas sin verificación a 0, y las pruebas exigen verificación explícita en todo el plan.
+- Se amplía `VerificationRequirement.kind` para expresar evidencia observada adicional (`hostname-configured`, `package-installed`, `path-exists`, `sysctl-value`), ejecutadas por `executor.ts`.
 
 #### Ecosistema de tres agentes
 
@@ -178,13 +205,17 @@ Parcial:
 Problema:
 
 - El despliegue de Agora ya existe como base, pero sigue siendo un MVP y no cierra todavía el ecosistema completo.
+- La UI de control de Laia Arch post-instalación no está implementada.
+- El mecanismo de reactivación con contraseña no está implementado.
+- La gestión continua de Agora y Nemo desde Laia Arch post-instalación no está implementada.
 
 ### 4. Lo que todavía no está implementado como producto real
 
 No confirmado en el repo como solución ya terminada:
 
-- panel de `Laia Arch` tipo web de aprobaciones en tiempo real
-- panel de `Laia Agora` como aplicación core empresarial
+- UI propia de `Laia Arch` post-instalación (panel de control del servidor, versión mejorada de OpenClaw)
+- mecanismo de reactivación de `Laia Arch` con contraseña desde el host físico
+- panel de `Laia Agora` como aplicación core empresarial (tipo ClickUp + Notion + Figma)
 - bus inter-agente dedicado con FastAPI y audit trail propio
 - despliegue completo de `Laia Agora` como entorno empresarial terminado
 - `Laia Nemo` productiva para WhatsApp, Telegram, Slack y web
@@ -194,7 +225,7 @@ No confirmado en el repo como solución ya terminada:
 
 ## Diagnóstico honesto
 
-## Qué es hoy
+### Qué es hoy
 
 Hoy `Laia Arch` es un instalador serio, útil y bastante avanzado.
 
@@ -209,19 +240,19 @@ No es un simple script bash:
 - puede reiniciar limpio sin perder credenciales críticas del propio flujo
 - tiene rescate
 
-## Qué todavía no es
+### Qué todavía no es
 
 Todavía no es plenamente el agente instalador que define la visión LAIA.
 
 La diferencia principal es esta:
 
-- hoy la IA recopila contexto y luego activa un flujo determinista
+- hoy la IA ya puede gobernar el flujo adaptativo sin `plan-generator.ts`, pero todavía no razona con libertad total sobre herramientas y estrategia como un sysadmin completamente abierto
 - la visión exige que la IA observe el sistema, decida, ejecute, verifique y repare sobre la marcha
-- ahora ya existe la estructura de intención, sesión, propuestas, verificación y reparación persistida, pero el razonamiento aún no gobierna toda la instalación de extremo a extremo
+- ahora ya existe la estructura de intención, sesión, proposals, verificación y reparación persistida, y el modo `adaptive` ya la usa como camino real
 
 ## Tensión central del proyecto
 
-La tensión técnica actual no es “falta de features”.
+La tensión técnica actual no es "falta de features".
 
 La tensión real es esta:
 
@@ -243,4 +274,8 @@ La prioridad correcta es:
 
 Frase corta:
 
-`Laia Arch` ya existe y funciona, pero todavía está en transición desde “instalador con IA” hacia “agente IA que instala”.
+`Laia Arch` ya existe y funciona, y el modo adaptativo ya instala a partir de proposals directas del agente; el siguiente salto ya no es desbloquear esa arquitectura, sino refinar cuánto razona y adapta sobre el estado real del host.
+
+## Nota de coherencia documental (pendiente de aclaración)
+
+- Codex detectó que `contextLaiaProyect/04-agentes-de-codigo.md` no existe; el protocolo operativo real está en `contextLaiaProyect/04-colaboracion-codex-claude.md` (pendiente de aclaración para el equipo).

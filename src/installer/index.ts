@@ -7,13 +7,18 @@ import * as path from "node:path";
 import * as readline from "node:readline";
 import { isCancel, select } from "@clack/prompts";
 import { laiaTheme as t } from "../cli/laia-arch-theme.js";
-import { buildConversationIntent } from "./agentic.js";
+import {
+  buildActionProposalsFromIntent,
+  buildAdaptiveExecutionPlanFromIntent,
+  buildConversationIntent,
+} from "./agentic.js";
 import { runBootstrap } from "./bootstrap.js";
 import { runConversation } from "./conversation.js";
 import { provisionCredential } from "./credential-manager.js";
 import {
   askSudoPassword,
   checkSudoPasswordless,
+  executeActionProposals,
   executePlan,
   revokeSudoers,
   setupSudoers,
@@ -23,10 +28,12 @@ import { displayPlan, generatePlan } from "./plan-generator.js";
 import { listPresets, savePreset } from "./presets/index.js";
 import { runScanner } from "./scanner.js";
 import type {
+  ActionProposal,
   BootstrapResult,
   ConversationIntent,
   InstallerConfig,
   InstallMode,
+  InstallPlan,
   SystemScan,
 } from "./types.js";
 
@@ -193,6 +200,51 @@ async function askConfirmation(question: string): Promise<boolean> {
   });
 }
 
+export interface InstallerExecutionArtifacts {
+  strategy: "agentic-direct" | "deterministic-plan";
+  plan: InstallPlan;
+  proposals?: ActionProposal[];
+  usesPlanGenerator: boolean;
+  fallbackReason?: string;
+}
+
+export async function prepareInstallerExecutionArtifacts(params: {
+  config: InstallerConfig;
+  intent?: ConversationIntent;
+  scan?: SystemScan;
+}): Promise<InstallerExecutionArtifacts> {
+  const mode = params.intent?.mode ?? params.config.installMode ?? "adaptive";
+
+  if (mode === "adaptive" && params.intent) {
+    try {
+      const plan = buildAdaptiveExecutionPlanFromIntent(params.intent, params.scan);
+      const proposals = buildActionProposalsFromIntent(params.intent, params.scan);
+      if (proposals.length > 0) {
+        return {
+          strategy: "agentic-direct",
+          plan,
+          proposals,
+          usesPlanGenerator: false,
+        };
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return {
+        strategy: "deterministic-plan",
+        plan: await generatePlan(params.config),
+        usesPlanGenerator: true,
+        fallbackReason: `Adaptive direct path unavailable: ${message}`,
+      };
+    }
+  }
+
+  return {
+    strategy: "deterministic-plan",
+    plan: await generatePlan(params.config),
+    usesPlanGenerator: true,
+  };
+}
+
 export async function runInstaller(): Promise<void> {
   let bootstrapResult: BootstrapResult;
   let systemScan: SystemScan;
@@ -290,8 +342,29 @@ export async function runInstaller(): Promise<void> {
 
   // ── Fase 3: Generar el plan ───────────────────────────────────────────────
   let plan;
+  let proposals: ActionProposal[] | undefined;
+  let executionStrategy: InstallerExecutionArtifacts["strategy"] = "deterministic-plan";
+  let fallbackReason: string | undefined;
   try {
-    plan = await generatePlan(config);
+    const executionArtifacts = await prepareInstallerExecutionArtifacts({
+      config,
+      intent,
+      scan: systemScan,
+    });
+    executionStrategy = executionArtifacts.strategy;
+    fallbackReason = executionArtifacts.fallbackReason;
+    plan = executionArtifacts.plan;
+    proposals = executionArtifacts.proposals;
+    if (executionStrategy === "agentic-direct") {
+      console.log(
+        "  " +
+          t.muted(
+            "Modo adaptativo: Laia Arch ejecutará propuestas directas del agente; el plan determinista queda como fallback seguro.\n",
+          ),
+      );
+    } else if (fallbackReason) {
+      console.log(`  ${t.warn(fallbackReason)}\n`);
+    }
     displayPlan(plan);
   } catch (err) {
     console.error("\n  Error generando el plan de instalación:");
@@ -350,12 +423,21 @@ export async function runInstaller(): Promise<void> {
   // ── Fase 5: Ejecutar el plan ──────────────────────────────────────────────
   let results;
   try {
-    results = await executePlan(plan, {
-      bootstrap: bootstrapResult,
-      intent,
-      scan: systemScan,
-      config,
-    });
+    results =
+      executionStrategy === "agentic-direct" && proposals
+        ? await executeActionProposals(proposals, {
+            bootstrap: bootstrapResult,
+            intent,
+            scan: systemScan,
+            config,
+            fallbackPlan: plan,
+          })
+        : await executePlan(plan, {
+            bootstrap: bootstrapResult,
+            intent,
+            scan: systemScan,
+            config,
+          });
   } catch (err) {
     console.error("\n  Error durante la ejecución:");
     console.error(err instanceof Error ? err.message : String(err));
@@ -423,8 +505,29 @@ export async function runInstallerWithPreset(config: InstallerConfig): Promise<v
 
   // ── Fase 3: Generar el plan ───────────────────────────────────────────────
   let plan;
+  let proposals: ActionProposal[] | undefined;
+  let executionStrategy: InstallerExecutionArtifacts["strategy"] = "deterministic-plan";
+  let fallbackReason: string | undefined;
   try {
-    plan = await generatePlan(config);
+    const executionArtifacts = await prepareInstallerExecutionArtifacts({
+      config,
+      intent,
+      scan: systemScan,
+    });
+    executionStrategy = executionArtifacts.strategy;
+    fallbackReason = executionArtifacts.fallbackReason;
+    plan = executionArtifacts.plan;
+    proposals = executionArtifacts.proposals;
+    if (executionStrategy === "agentic-direct") {
+      console.log(
+        "  " +
+          t.muted(
+            "Modo adaptativo: Laia Arch ejecutará propuestas directas del agente; el plan determinista queda como fallback seguro.\n",
+          ),
+      );
+    } else if (fallbackReason) {
+      console.log(`  ${t.warn(fallbackReason)}\n`);
+    }
     displayPlan(plan);
   } catch (err) {
     console.error("\n  Error generando el plan de instalación:");
@@ -477,12 +580,21 @@ export async function runInstallerWithPreset(config: InstallerConfig): Promise<v
   // ── Fase 5: Ejecutar el plan ──────────────────────────────────────────────
   let results;
   try {
-    results = await executePlan(plan, {
-      bootstrap: bootstrapResult,
-      intent,
-      scan: systemScan,
-      config,
-    });
+    results =
+      executionStrategy === "agentic-direct" && proposals
+        ? await executeActionProposals(proposals, {
+            bootstrap: bootstrapResult,
+            intent,
+            scan: systemScan,
+            config,
+            fallbackPlan: plan,
+          })
+        : await executePlan(plan, {
+            bootstrap: bootstrapResult,
+            intent,
+            scan: systemScan,
+            config,
+          });
   } catch (err) {
     console.error("\n  Error durante la ejecución:");
     console.error(err instanceof Error ? err.message : String(err));

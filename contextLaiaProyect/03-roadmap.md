@@ -7,116 +7,156 @@ Es una hoja de ruta viva que debe actualizarse cuando cambie el estado real del 
 
 Regla:
 
-- si algo se implementa, se mueve de “pendiente” a “hecho”
+- si algo se implementa, se mueve de "pendiente" a "hecho"
 - si algo cambia de enfoque, se reescribe aquí
 - si algo sigue siendo visión, no se marca como completado
 
+---
+
 ## Objetivo principal actual
 
-Objetivo vigente:
+Cerrar `Laia Arch` como agente instalador híbrido real y dejar el ecosistema base funcionando:
+host configurado + `Laia Agora` base operativa.
 
-Transformar `Laia Arch` desde un instalador determinista con capa conversacional hacia un agente instalador híbrido, y dejar como siguiente resultado práctico un MVP funcional de `Laia Arch + Laia Agora base`.
+No abrir frentes nuevos hasta que esto esté cerrado.
 
-## Estado por fases
+---
+
+## Mapa completo del proyecto
+
+El proyecto tiene dos grandes bloques:
+
+**Bloque A — Laia Arch como instalador**
+Fases 0–4. El trabajo activo ahora mismo.
+
+**Bloque B — El ecosistema post-instalación**
+Fases 5–8. Empieza cuando Arch esté cerrado.
+Incluye la UI de Arch, Agora como producto real y Nemo como acceso externo.
+
+---
+
+## BLOQUE A — Laia Arch como instalador
 
 ### Fase 0 — Base ya existente
 
-Estado: `ya construida en gran parte`
+Estado: `completada`
 
 Incluye:
 
 - identidad propia `laia-arch`
-- instalador conversacional
+- instalador conversacional con modos `tool-driven` (Automático), `guided` (Asistido) y `adaptive` (Adaptativo)
 - escaneo del sistema
 - presets
 - credenciales seguras
 - herramientas reales del sistema
 - ejecución con HITL
-- modo rescate
+- modo rescate integrado como `ai-rescue` en el mismo flujo del executor
 - rollback por paso
-- reanudación
+- reanudación con tres caminos (reanudar / reiniciar / desinstalar y reinstalar)
+- preservación de credenciales y perfil de bootstrap en clean restart
+- 28 tests verdes en el área del instalador
 
 Resultado:
 
 - existe una base sólida sobre la que evolucionar
 
-### Fase 1 — Pasar a motor agentic híbrido
+---
 
-Estado: `en progreso`
+### Fase 1 — Motor agentic híbrido
+
+Estado: `completada`
 
 Meta:
 
 - que el motor principal sea `observar -> decidir -> ejecutar -> verificar -> reparar`
+- el razonamiento del agente gobierna la instalación, no el plan fijo
 
 Trabajo previsto:
 
-- introducir estado interno de instalación y snapshot del sistema
-- separar intención empresarial de plan técnico fijo
 - hacer que `adaptive` y `tool-driven` usen el motor agentic como camino principal
-- dejar `plan-generator` como fallback seguro
+- dejar `plan-generator` como fallback seguro, no como camino por defecto
 
 Avance actual:
 
 - tipos agentic completos: `ConversationIntent`, `ActionProposal`, `InstallSessionState`, `VerificationRequirement`
 - `buildConversationIntent()` extrae intención desde config o desde conversación real
 - `buildActionProposalsFromPlan()` convierte el plan en propuestas con verificación declarada por servicio
+- `buildAdaptiveExecutionPlanFromIntent()` y `buildActionProposalsFromIntent()` ya construyen el camino adaptativo directo sin pasar por `plan-generator.ts`
 - `createInstallSessionState()` inicializa sesión persistible con snapshot y propuestas
-- el executor usa `ActionProposal` como unidad primaria (approval/execution/repair/completed todo por `proposal.id`)
-- política de reparación implementada: 2 reintentos automáticos → diagnóstico IA → HITL
+- el executor usa `ActionProposal` como unidad primaria — todo por `proposal.id`
+- `executeActionProposals()` ejecuta propuestas directas y recorre la instalación por proposals, no por pasos de un plan cerrado previo
+- `prepareInstallerExecutionArtifacts()` hace que `src/installer/index.ts` use ese camino en modo `adaptive`
+- política de reparación: 2 reintentos automáticos → verificación-retry → diagnóstico IA → HITL
 - verificación activa: false-greens bloqueados (código 0 + verificación fallida = fallo real)
-- clean restart ya preserva y restaura credenciales de instalación y perfil de bootstrap
-- el reintento tras rescate ya persiste el estado final correcto del paso
-- tests actuales del área del instalador: 28 tests verdes en `agentic.test.ts`, `executor.test.ts`, `plan-generator.test.ts` y `verify-tools.test.ts`
-- todavía falta que el motor decida más allá del plan derivado (razonamiento libre en tiempo real)
+- el fallback determinista sigue activo para `guided`, `tool-driven` y para cualquier degradación segura del camino adaptativo
 
 Criterio de cierre:
 
-- la instalación ya no depende por defecto de un plan cerrado previo
+- la instalación en modo `adaptive` ya no depende por defecto de un plan cerrado previo
+
+Responsable: Codex (motor) + Claude Code (conversación y contrato del agente)
+
+Resultado observable de cierre:
+
+- una sesión `adaptive` completa puede prepararse y ejecutarse sin pasar por `plan-generator.ts`
+- el camino determinista sigue intacto y cubierto por `plan-generator.test.ts`
+
+Siguiente mejora natural:
+
+- hacer que el razonamiento adaptativo diverja más del catálogo actual de comandos cuando el estado observado del host ya permita reutilizar componentes instalados
+
+---
 
 ### Fase 2 — Unificar instalación y rescate
 
-Estado: `parcialmente cerrada`
+Estado: `completada`
 
 Meta:
 
-- que el modo rescate sea una extensión natural del mismo agente
+- el rescate es el mismo agente con más libertad diagnóstica, no otro modo mental
 
 Avance actual:
 
-- `ai-rescue` ya es un `RepairAttempt` con `strategy: “ai-rescue”` dentro del mismo flujo del executor
+- `ai-rescue` ya es un `RepairAttempt` con `strategy: "ai-rescue"` dentro del mismo flujo del executor
 - el historial de reparaciones se persiste junto a la sesión
-- varios problemas detectados por rescate ya se han movido al instalador base para evitar depender de la IA en Docker, Nginx, backup y Agora
-
-Pendiente:
-
-- unificar plenamente el historial operativo (instalación normal + rescate comparten contexto de forma explícita)
+- varios problemas antes dependientes de rescate ya se absorbieron en el instalador base (Docker, Nginx, backup, Agora)
+- el rescate recibe ahora memoria operativa explícita derivada del `InstallSessionState`
+- el prompt de rescate incluye:
+  - `ConversationIntent` original
+  - historial de ejecuciones previas con salida y verificación resumidas
+  - historial de reparaciones previas de la misma sesión
 
 Criterio de cierre:
 
-- un fallo normal entra en diagnóstico y reparación sin cambiar de modelo mental
+- un fallo entra en diagnóstico y reparación sin cambiar de modelo mental
+
+Responsable: Codex
+
+---
 
 ### Fase 3 — Verificación activa obligatoria
 
-Estado: `parcialmente cerrada`
+Estado: `completada`
 
 Meta:
 
-- que ningún paso se considere completado solo por devolver código 0
+- ningún paso se considera completado solo por devolver código 0
 
 Avance actual:
 
 - `verifyProposal()` ejecuta comprobaciones reales por tipo de servicio
-- verificación fallida fuerza `status = “failed”` aunque el comando devolviera código 0
-- tipos de verificación declarados: `service-active`, `dns-resolution`, `ldap-bind`, `samba-share`, `wireguard-active`, `docker-operational`, `nginx-config`, `backup-test`, `gateway-health`
-- verificaciones endurecidas con fallback `sudo -n` para reducir falsos negativos por permisos
-
-Pendiente:
-
-- pasos sin `verification` declarada siguen aceptando código 0 como éxito (cobertura parcial)
+- verificación fallida fuerza `status = "failed"` aunque el comando devolviera código 0
+- tipos declarados: `service-active`, `dns-resolution`, `ldap-bind`, `samba-share`, `wireguard-active`, `docker-operational`, `nginx-config`, `backup-test`, `gateway-health`, `hostname-configured`, `package-installed`, `path-exists`, `sysctl-value`
+- Cobertura según sesión: `buildActionProposalsFromPlan()` pasa de 11 propuestas sin verificación a 0 y las pruebas exigen verificación explícita en todo el plan.
+- verificaciones endurecidas con fallback `sudo -n`
 
 Criterio de cierre:
 
-- todo paso importante termina con evidencia de estado observado
+- todo paso importante termina con evidencia de estado observado real
+
+Responsable: Codex
+
+---
 
 ### Fase 4 — MVP de Laia Agora base
 
@@ -124,85 +164,190 @@ Estado: `en progreso`
 
 Meta:
 
-- que el instalador deje desplegada `Laia Agora` como base operativa interna
-
-Trabajo previsto:
-
-- generar despliegue Docker específico de LAIA
-- dejar Agora operativa en `18789`
-- persistir config y workspace
-- dejar plantillas del ecosistema listas
+- el instalador deja `Laia Agora` operativa y verificada como base del ecosistema
 
 Avance actual:
 
-- el plan genera pasos `agora-01` a `agora-03` para directorios, compose y gateway
-- `agora-03` tiene un retry loop de 90 segundos (18 × 5s) antes de declarar fallo
-- `agora-03` tiene verificación declarada `gateway-health` en su `ActionProposal`
-- el flujo se ha endurecido tras instalaciones reales: config mínima, `--allow-unconfigured`, permisos correctos y validación de salud final
-- queda seguir validando el flujo completo en instalaciones reales de punta a punta
+- el plan genera pasos `agora-01` a `agora-03`: directorios, compose, gateway
+- `agora-03` tiene retry loop de 90 segundos (18 × 5s) antes de declarar fallo
+- `agora-03` tiene verificación `gateway-health` declarada en su `ActionProposal`
+- flujo endurecido tras instalaciones reales: config mínima, `--allow-unconfigured`, permisos correctos
+
+Pendiente:
+
+- seguir validando el flujo completo en instalaciones reales de punta a punta
 
 Criterio de cierre:
 
-- tras la instalación, la empresa tiene host configurado y Agora base funcionando
+- tras la instalación, la empresa tiene host configurado y Agora base funcionando en `18789`
 
-### Fase 5 — Ecosistema operativo mínimo
+Responsable: Codex + Claude Code (integración final)
+
+---
+
+## BLOQUE B — El ecosistema post-instalación
+
+Estas fases empiezan cuando el Bloque A esté cerrado.
+No abrir ninguna de estas antes de tener Arch + Agora base funcionando.
+
+---
+
+### Fase 5 — Laia Arch post-instalación
 
 Estado: `pendiente`
 
+Contexto:
+
+Cuando Laia Arch termina la instalación, se auto-desactiva.
+Para que sea útil como herramienta de mantenimiento del servidor, necesita:
+
+- un mecanismo de reactivación seguro
+- una interfaz propia para administrar el sistema
+
 Meta:
 
-- conectar mejor la jerarquía `Arch -> Agora -> Nemo`
+- Laia Arch puede reactivarse desde el servidor físico con una contraseña específica
+- Laia Arch tiene una UI propia de control del servidor (versión mejorada de la interfaz actual de OpenClaw)
+- desde esa UI se puede administrar el servidor, crear nuevas herramientas para la empresa y gestionar el ecosistema
 
 Trabajo previsto:
 
-- definir contratos claros de escalado entre agentes
-- endurecer límites de privilegio
-- dejar Nemo como scaffold técnico listo para crecer
+- implementar el script de reactivación con contraseña específica (no la del sistema)
+- diseñar e implementar la UI de control del servidor
+- definir qué puede hacer Arch desde esa UI y con qué límites
+- decidir si la UI convive con Cockpit o lo reemplaza para el administrador
 
 Criterio de cierre:
 
-- el ecosistema está estructurado de forma coherente aunque Nemo no sea todavía producción
+- el administrador puede reactivar Arch desde el host, operar el servidor desde la UI, y volver a desactivarlo
 
-### Fase 6 — Capas empresariales avanzadas
+---
+
+### Fase 6 — Laia Agora como producto empresarial
+
+Estado: `visión`
+
+Contexto:
+
+Laia Agora es el centro de trabajo diario del equipo.
+La visión es un espacio integrado que reúne lo que hoy hacen herramientas separadas.
+
+Meta:
+
+- espacio integrado tipo ClickUp + Notion + Figma:
+  - gestión de proyectos y tareas
+  - documentos y base de conocimiento
+  - colaboración creativa
+  - comunicación interna
+- corre en Docker, aislado del host
+- acceso desde la red local y VPN
+- autenticación con el mismo LDAP que el resto del sistema
+
+Trabajo previsto (a definir en detalle cuando llegue el momento):
+
+- diseñar la arquitectura de Agora como producto
+- Existe `agora-arquitectura.md` (documento de arquitectura) y propone fases internas de construcción: Fase 1 MVP de valor mínimo, Fase 2 integración del agente, Fase 3 comunicación interna, Fase 4 escalada a Nemo, Fase 5 capas empresariales avanzadas
+- decidir qué construir propio y qué integrar de herramientas existentes
+- implementar el panel principal
+- conectar con LDAP para roles y permisos
+- definir los contratos con Arch (qué puede pedirle Agora a Arch)
+
+Criterio de cierre:
+
+- el equipo puede gestionar proyectos, documentos y tareas desde Agora sin herramientas externas
+
+---
+
+### Fase 7 — Laia Nemo como acceso externo
+
+Estado: `visión — producción estimada Q3 2026`
+
+Contexto:
+
+Laia Nemo es la capa de acceso rápido desde cualquier lugar en cualquier momento.
+Empleados que están fuera de la oficina pueden acceder desde WhatsApp, Telegram, Slack o web pública.
+Tiene privilegios mínimos — no puede tocar configuración ni operaciones críticas.
+Si la tarea lo requiere, escala a Agora.
+
+Meta:
+
+- acceso desde WhatsApp, Telegram, Slack y web pública
+- privilegios mínimos basados en el rol LDAP del usuario
+- corre en Docker, en red completamente aislada de Agora
+- sin comunicación directa entre contenedores — todo pasa por el bus inter-agente
+
+Trabajo previsto (a definir en detalle cuando llegue el momento):
+
+- implementar el bus inter-agente con audit trail
+- configurar los canales de mensajería
+- definir las políticas de acceso por rol
+- implementar el escalado desde Nemo a Agora
+
+Criterio de cierre:
+
+- un comercial puede consultar campañas o tareas desde su móvil sin conectarse a la VPN
+
+---
+
+### Fase 8 — Capas empresariales avanzadas
 
 Estado: `visión posterior`
 
 Incluye:
 
-- panel de Arch
-- panel de Agora
-- bus inter-agente dedicado
-- monitor de seguridad
-- conectores de métricas
-- capa externa madura de Nemo
+- monitor de seguridad del ecosistema
+- conectores de métricas de campañas (Meta Ads, Google Ads)
+- políticas operativas completas por rol
+- integración con herramientas externas de la agencia
 
-## Próximas acciones recomendadas
+---
 
-Orden recomendado de trabajo:
+## Próximas acciones concretas
 
-1. redefinir el motor del instalador
-2. unificar rescate con instalación
-3. imponer verificación activa
-4. cerrar despliegue base de Agora
-5. refinar contratos del ecosistema completo
+En este orden. No saltar a la siguiente sin cerrar la anterior.
+
+**1. Fase 1 — Motor agentic (cerrada)**
+
+- `adaptive` ya ejecuta proposals directas
+- mantener el fallback determinista intacto
+
+**2. Fase 2 — Unificar rescate (cerrada)**
+
+- Codex: rescate unificado con memoria operativa explícita desde la sesión
+
+**3. Cerrar Fase 3 — Verificación obligatoria (cerrada)**
+
+- Codex: verificación explícita asegurada en el plan completo (0 propuestas sin verificación)
+
+**4. Cerrar Fase 4 — Agora base**
+
+- Validar el flujo `agora-01` a `agora-03` en instalaciones reales de punta a punta
+
+**5. Solo después: empezar Bloque B**
+
+- Arrancar con Fase 5 (Arch post-instalación) antes de tocar Agora producto o Nemo
+
+---
 
 ## Riesgos principales
 
 ### Riesgo 1
 
-Quedarse en un “instalador mejorado” sin llegar a motor agentic real.
+Quedarse en un "instalador mejorado" sin llegar a motor agentic real.
 
 Mitigación:
 
 - mover el centro del sistema al estado observado y a las herramientas
+- el criterio de cierre de Fase 1 es observable: la instalación adaptativa no depende del plan fijo
 
 ### Riesgo 2
 
-Intentar construir paneles y capas externas antes de cerrar Arch.
+Abrir el Bloque B antes de cerrar el Bloque A.
 
 Mitigación:
 
-- no abrir demasiados frentes antes de cerrar el núcleo instalador
+- no tocar UI de Arch, Agora producto ni Nemo hasta que Arch + Agora base estén cerrados
+- el roadmap es el contrato — si alguien propone trabajo del Bloque B antes de tiempo, rechazarlo
 
 ### Riesgo 3
 
@@ -210,8 +355,11 @@ Romper la base estable actual por una reescritura excesiva.
 
 Mitigación:
 
-- estrategia híbrida
+- estrategia híbrida siempre
 - conservar `plan-generator` como fallback
+- cambiar una capa cada vez
+
+---
 
 ## Registro de actualización
 
@@ -228,9 +376,6 @@ Mitigación:
   - `plan-generator.ts`: retry loop 90s en `agora-03`
   - `tools/index.ts`: inferencia de `changed_files` corregida para wireguard y hostname
   - primeras pruebas de la capa agentic y de sesión persistida
-
-### 2026-03-26 — actualización posterior
-
 - Se endurece la ruta de reanudación del instalador:
   - persistencia correcta tras rescate exitoso
   - opción `d` para desinstalar y reinstalar
@@ -242,3 +387,16 @@ Mitigación:
   - Nginx con verificación robusta
   - backup con `find -type f` y verificación con fallback de privilegios
 - Cobertura actual del área del instalador: 28 tests verdes.
+
+### 2026-03-27
+
+- Se añade el Bloque B al roadmap con la visión completa del ecosistema post-instalación.
+- Se documenta Fase 5 (Laia Arch post-instalación): mecanismo de reactivación con contraseña y UI de control del servidor.
+- Se documenta Fase 6 (Laia Agora como producto): espacio integrado tipo ClickUp + Notion + Figma, en Docker, con LDAP.
+- Se documenta Fase 7 (Laia Nemo): acceso externo desde WhatsApp, Telegram, Slack y web, Q3 2026.
+- Se añade regla explícita: no abrir Bloque B antes de cerrar Bloque A.
+- Se actualiza `02-proyecto-laia.md` con los tres modos de instalación y la visión de los tres agentes.
+- Se actualiza `01-estado-actual.md` con tabla de nombres UI vs código y elementos post-instalación pendientes.
+- Se actualiza `06-como-funciona-por-dentro.md` con lecciones aprendidas y estado real del modo adaptativo.
+- Se cierra `Fase 3 — Verificación activa obligatoria` al asegurar verificación explícita en todo el plan (0 propuestas sin verificación) y ampliar `VerificationRequirement.kind` con evidencia observada adicional.
+- En `Fase 6`, se incorpora el documento `agora-arquitectura.md` y sus fases internas de construcción (1-5) para Laia Agora como producto empresarial.

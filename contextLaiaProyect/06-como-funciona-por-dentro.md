@@ -9,16 +9,19 @@
 
 Laia Arch es un instalador conversacional que toma un servidor Ubuntu vacío y lo deja configurado con los servicios que la empresa necesita. Opera en la terminal sin interfaz gráfica.
 
-El flujo completo tiene 6 fases secuenciales:
+El flujo completo tiene 6 fases secuenciales, pero en la Fase 3 ya existen dos caminos internos:
 
 ```
 Fase 0: Bootstrap (proveedor IA)
 Fase 1: Escaneo del sistema
 Fase 2: Conversación con la IA  ←─ aquí está la personalización
-Fase 3: Generación del plan
+Fase 3: Preparación de ejecución
 Fase 4: Generación de credenciales
 Fase 5: Ejecución del plan
 ```
+
+En `guided` y `tool-driven`, la Fase 3 sigue siendo plan determinista clásico.
+En `adaptive`, la Fase 3 ya puede construir proposals directas del agente y dejar el plan solo como fallback seguro.
 
 Cada fase produce un objeto que alimenta la siguiente. El código de entrada es `src/installer/index.ts`.
 
@@ -92,11 +95,32 @@ El resultado se guarda en `~/.laia-arch/last-scan.json` y se pasa a la conversac
 
 ### Los tres modos de instalación
 
-| Modo          | Descripción                                              | Cuándo usarlo                      |
-| ------------- | -------------------------------------------------------- | ---------------------------------- |
-| `tool-driven` | La IA hace ≤5 preguntas usando herramientas. Muy rápido. | Cuando ya sabes lo que quieres     |
-| `guided`      | 7 etapas fijas. Siempre el mismo camino.                 | Instalaciones estándar             |
-| `adaptive`    | La IA adapta las preguntas a la empresa. Flexible.       | Primera vez, situaciones complejas |
+Los modos tienen dos nombres: el que aparece en la UI y el que usa el código.
+
+| UI (lo que ve el admin) | Código (`InstallMode`) | Descripción                                                                                                  | Cuándo usarlo                                                                                     |
+| ----------------------- | ---------------------- | ------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------- |
+| **Automático**          | `tool-driven`          | La IA hace ≤5 preguntas y ejecuta con tools predefinidas. Instala LAIA base sin personalización por empresa. | IAs con capacidad limitada o cuando no se necesita adaptación                                     |
+| **Asistido**            | `guided`               | 7 etapas fijas. Siempre el mismo camino basado en `install-prompts/`.                                        | Instalaciones estándar predecibles                                                                |
+| **Adaptativo**          | `adaptive`             | La IA adapta las preguntas a la empresa. Camino personalizado.                                               | Primera instalación, empresas con necesidades específicas, IAs con capacidad real de razonamiento |
+
+### Estado actual vs objetivo del modo Adaptativo
+
+**Estado actual (cómo funciona hoy):**
+
+1. La IA conversa de forma adaptativa y extrae una `InstallerConfig` estructurada.
+2. Se construye un `ConversationIntent` estructurado.
+3. En `adaptive`, `agentic.ts` puede generar `ActionProposal` directas desde ese intent.
+4. El executor recorre esas proposals directamente.
+5. El plan determinista queda como fallback seguro y como artefacto de resumen/reanudación.
+
+La IA ya gobierna el camino adaptativo del instalador sin depender obligatoriamente de `plan-generator.ts`.
+
+**Objetivo (visión del proyecto):**
+
+El agente observa el sistema, decide qué hacer, ejecuta, verifica y repara sobre la marcha.
+El plan determinista queda como fallback de seguridad, no como camino principal.
+
+Esta transición ya quedó cerrada en su primer nivel funcional: el siguiente paso es hacer que el razonamiento adaptativo diverja más del catálogo fijo de comandos cuando el host ya tenga piezas reutilizables.
 
 ### Qué hace conversation.ts
 
@@ -138,7 +162,11 @@ Al terminar la conversación se produce un `ConversationIntent`:
 
 ---
 
-## Fase 3 — Generación del plan (`plan-generator.ts`)
+## Fase 3 — Preparación de ejecución (`plan-generator.ts` + `agentic.ts`)
+
+En esta fase hay dos caminos:
+
+### Camino A — determinista (`guided` y `tool-driven`)
 
 **El plan se genera por código, no por la IA.** La función `generatePlan(config)` lee la `InstallerConfig` y emite una lista ordenada de `InstallStep`.
 
@@ -162,7 +190,7 @@ Al terminar la conversación se produce un `ConversationIntent`:
 | `docker-01`  | 6    | Instala Docker Engine oficial                |
 | `agora-01`   | 6    | Prepara directorios de Laia Agora            |
 | `agora-02`   | 6    | Genera docker-compose.yml de Agora           |
-| `agora-03`   | 6    | Levanta Agora y valida /healthz              |
+| `agora-03`   | 6    | Levanta Agora y valida /healthz (retry 90s)  |
 | `nginx-01`   | 7    | Instala Nginx como proxy inverso             |
 | `cockpit-01` | 8    | Instala Cockpit (panel web :9090)            |
 | `backup-01`  | 9    | Configura rsync diario con retención         |
@@ -181,6 +209,51 @@ Las contraseñas LDAP se recuperan desde el keyring del sistema (no se pasan com
 
 ---
 
+### Camino B — agentic directo (`adaptive`)
+
+En modo `adaptive`, `src/installer/index.ts` ya no tiene por qué pasar por `plan-generator.ts`.
+
+El camino actual es:
+
+1. `conversation.ts` devuelve `ConversationIntent`
+2. `agentic.ts` construye:
+   - `buildAdaptiveExecutionPlanFromIntent()`
+   - `buildActionProposalsFromIntent()`
+3. `index.ts` usa `prepareInstallerExecutionArtifacts()` para elegir ese camino
+4. `executor.ts` ejecuta las proposals con `executeActionProposals()`
+
+El plan adaptativo sigue existiendo, pero ya no manda la ejecución. Se usa para:
+
+- mostrar un preview legible al administrador
+- calcular credenciales requeridas
+- persistencia de sesión
+- reanudación segura
+- resumen y contexto de rescate
+
+---
+
+## agentic.ts — el puente entre intención y ejecución
+
+`agentic.ts` transforma la conversación y/o el plan en `ActionProposal`, que es la **unidad primaria de trabajo del executor**.
+
+Cada proposal añade:
+
+- **Verificación esperada**: qué checks concretos deben pasar
+- **Archivos tocados**: extraídos automáticamente de los comandos (regex sobre rutas `/etc/`, `/srv/`, `/opt/`...)
+- **Servicios afectados**: inferidos del prefijo del step id (ej. `ldap-*` → `slapd`)
+
+También construye el `InstallSessionState` inicial con todos los campos vacíos listos para que el executor los vaya rellenando.
+
+Funciones principales:
+
+- `buildConversationIntent()` — extrae intención desde config o desde conversación real
+- `buildActionProposalsFromPlan()` — convierte plan en propuestas con verificación declarada
+- `buildAdaptiveExecutionPlanFromIntent()` — crea el plan fallback del camino adaptativo sin pasar por `plan-generator.ts`
+- `buildActionProposalsFromIntent()` — crea proposals directas desde `ConversationIntent`
+- `createInstallSessionState()` — inicializa sesión persistible con snapshot y propuestas
+
+---
+
 ## Fase 4 — Credenciales (`credential-manager.ts`)
 
 Antes de ejecutar, el sistema genera automáticamente contraseñas seguras para cada servicio que lo necesite y las almacena en el keyring. **Nunca pasan por el contexto de la IA.**
@@ -195,7 +268,16 @@ La longitud depende de la política de seguridad configurada:
 
 ## Fase 5 — Ejecución (`executor.ts`)
 
-El executor es el módulo más complejo. Su responsabilidad es llevar cada `InstallStep` a estado `done` con verificación real.
+El executor es el módulo más complejo. Su responsabilidad es llevar cada `ActionProposal` a estado `done` con verificación real.
+
+La unidad primaria de trabajo es `ActionProposal`, no `InstallStep`. Todo — approval, execution, repair, completed — se traza por `proposal.id`.
+
+Ahora tiene dos puntos de entrada:
+
+- `executePlan(plan, ...)` -> camino determinista/fallback
+- `executeActionProposals(proposals, ...)` -> camino agentic directo de `adaptive`
+
+Ambos convergen en el mismo bucle interno de ejecución, verificación, reparación y reanudación.
 
 ### Ciclo de vida de un paso
 
@@ -206,11 +288,26 @@ El executor es el módulo más complejo. Su responsabilidad es llevar cada `Inst
                                                FAIL → política de reparación
 ```
 
-### Política de reparación (3 niveles)
+### Política de reparación (4 niveles)
 
-1. **Reintento transitorio** (máx. 2): si el error parece temporal (timeout, red caída, apt lock...), reintenta automáticamente
-2. **Rescate por IA**: la IA analiza el error completo + contexto del sistema + intent de la conversación y propone comandos alternativos
-3. **Escalada manual (HITL)**: si la IA tampoco puede resolverlo, se pausa y el usuario decide qué hacer
+1. **Reintento transitorio** (`transient-retry`, máx. 2): si el error parece temporal (timeout, red caída, apt lock...), reintenta automáticamente
+2. **Reintento de verificación** (`verification-retry`): si el comando tuvo exit 0 pero la verificación activa falló, reintenta el ciclo completo antes de escalar
+3. **Rescate por IA** (`ai-rescue`): la IA analiza el error completo + contexto del sistema + intent de la conversación y propone comandos alternativos
+4. **Escalada manual (HITL)** (`manual-escalation`): si la IA tampoco puede resolverlo, se pausa y el usuario decide qué hacer
+
+El rescate no es un modo separado. Es un `RepairAttempt` con `strategy: "ai-rescue"` dentro del mismo flujo del executor.
+Además, ya no trabaja con contexto parcial: el executor construye memoria operativa explícita desde `InstallSessionState` y se la pasa al prompt de rescate.
+
+### Memoria operativa compartida entre instalación y rescate
+
+Cuando se activa `ai-rescue`, el prompt recibe tres bloques estructurados:
+
+- **ConversationIntent original**: qué quería instalar la empresa, qué servicios, qué dominio, qué decisiones, qué huecos y qué contradicciones existían
+- **Historial de ejecución de la sesión**: qué pasos se ejecutaron, qué devolvieron y qué verificación pasó o falló
+- **Historial de reparaciones de la sesión**: qué estrategias de repair ya se intentaron y con qué resultado
+
+Esto resuelve la separación mental entre “instalación normal” y “modo rescate”.
+Los dos caminos ya comparten la misma sesión persistida como memoria operativa.
 
 ### Verificación activa
 
@@ -228,11 +325,19 @@ Un paso no se considera completado solo porque su comando devolvió exit 0. El e
 | `backup-test`        | El script rsync se ejecuta sin error                   |
 | `gateway-health`     | HTTP GET `http://127.0.0.1:18789/healthz` responde 200 |
 
-Esto previene falsos positivos donde el servicio arrancó pero está roto.
+Limitación actual: pasos sin `verification` declarada siguen aceptando código 0 como éxito.
 
-### Persistencia del estado
+### Persistencia del estado y reanudación
 
-Durante la ejecución se mantiene un `InstallSessionState` que se persiste en disco. Si el proceso se interrumpe (Ctrl+C, reinicio...), el executor puede reanudar desde el último paso completado.
+Durante la ejecución se mantiene un `InstallSessionState` que se persiste en disco.
+
+Si el proceso se interrumpe, la reanudación ofrece tres caminos:
+
+1. **Reanudar** — continúa desde el último paso completado con contexto operativo completo
+2. **Reiniciar desde cero** — limpia el estado pero preserva y restaura credenciales y perfil de bootstrap
+3. **Desinstalar y reinstalar** — elimina servicios instalados y reinicia el proceso completo
+
+La preservación de credenciales en el clean restart es crítica: evita que fases como LDAP fallen porque las contraseñas ya no están disponibles.
 
 ---
 
@@ -279,18 +384,6 @@ Todas las tools devuelven un `ToolResultEnvelope` estándar:
 
 ---
 
-## agentic.ts: el puente entre plan y ejecución
-
-`agentic.ts` transforma los `InstallStep` del plan en `ActionProposal`, que es la unidad de trabajo del executor. Cada proposal añade:
-
-- **Verificación esperada**: qué checks concretos deben pasar
-- **Archivos tocados**: extraídos automáticamente de los comandos (regex sobre rutas `/etc/`, `/srv/`, `/opt/`...)
-- **Servicios afectados**: inferidos del prefijo del step id (ej. `ldap-*` → `slapd`)
-
-También construye el `InstallSessionState` inicial con todos los campos vacíos listos para que el executor los vaya rellenando.
-
----
-
 ## Flujo de datos resumido
 
 ```
@@ -323,7 +416,11 @@ Los prompts que guían a la IA durante la conversación están en ficheros Markd
 | Fichero                    | Qué contiene                                        |
 | -------------------------- | --------------------------------------------------- |
 | `00-system-context.md`     | Contexto del servidor y capacidades de Laia Arch    |
+| `01-company-profile.md`    | Preguntas sobre la empresa                          |
+| `02-access-model.md`       | Usuarios, roles, acceso remoto                      |
 | `03-services-selection.md` | Guía para que la IA ayude a seleccionar servicios   |
+| `04-security-policy.md`    | Política de seguridad                               |
+| `05-data-compliance.md`    | GDPR, backups, retención                            |
 | `06-plan-generation.md`    | Instrucciones para la fase de confirmación del plan |
 
 Son editables sin tocar código TypeScript, lo que permite ajustar el comportamiento de la IA sin recompilar.
@@ -336,11 +433,13 @@ Un preset es una `InstallerConfig` guardada en disco. Permite reutilizar una con
 
 ```bash
 laia-arch install --preset empresa-base
+laia-arch install --list-presets
 ```
 
 Con preset, la Fase 2 (conversación) se salta completamente. `agentic.ts/buildConversationIntent()` reconstruye el `ConversationIntent` directamente desde la config guardada.
 
 Los presets se guardan al final de una instalación exitosa cuando el usuario lo confirma.
+Son la forma estándar de trabajar en sesiones de VM desechables.
 
 ---
 
@@ -351,3 +450,19 @@ Los presets se guardan al final de una instalación exitosa cuando el usuario lo
 - Las contraseñas LDAP se pasan a los comandos ldap\* mediante fichero temporal (no por argumento CLI, para que no aparezcan en `ps aux`)
 - El acceso sudo se configura temporalmente en `/etc/sudoers.d/laia-arch` y se ofrece revocar al terminar
 - Los ficheros sensibles se crean con `mode: 0o600`
+
+---
+
+## Lecciones aprendidas de instalaciones reales
+
+Estos son errores que ya causaron fallos y están corregidos. No repetirlos:
+
+| Problema               | Error cometido                                  | Solución correcta                                                                                                                                  |
+| ---------------------- | ----------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Sintaxis sudoers       | Usar `!NOPASSWD` para prohibir comandos         | `!NOPASSWD` es sintaxis inválida — provoca rechazo silencioso de todo el archivo. Las restricciones se implementan omitiendo comandos de la lista. |
+| ldapadd no interactivo | Usar `-W` para que pida contraseña              | `-W` bloquea en instalación sin terminal interactiva. Usar `-y` con archivo temporal chmod 600 y trap EXIT.                                        |
+| Archivos LDIF          | Generar con `\n` literal                        | Los LDIF requieren saltos de línea reales. Un `\n` literal corrompe las entradas silenciosamente.                                                  |
+| ObjectClasses LDAP     | Combinar `groupOfNames` y `posixGroup`          | Son incompatibles. Elegir uno según el caso.                                                                                                       |
+| JSON de la IA          | Confiar en JSON limpio                          | Las respuestas pueden venir envueltas en bloques markdown. `extractJson` debe manejarlo explícitamente.                                            |
+| Zonas DNS BIND9        | Asumir carga automática post-instalación        | Las zonas requieren un paso explícito de carga. Sin ese paso el servidor no las sirve.                                                             |
+| Archivos LDIF          | Generar el archivo y asumir que ya está cargado | Generar y ejecutar `ldapadd` son dos pasos separados. Ambos deben verificarse.                                                                     |

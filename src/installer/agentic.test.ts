@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   buildActionProposalsFromPlan,
+  buildActionProposalsFromIntent,
+  buildAdaptiveExecutionPlanFromIntent,
   buildConversationIntent,
   createInstallSessionState,
 } from "./agentic.js";
@@ -179,6 +181,74 @@ describe("agentic installer helpers", () => {
 
   // ── buildActionProposalsFromPlan ────────────────────────────────────────
 
+  it("builds adaptive proposals directly from intent without using the deterministic plan", () => {
+    const config = createConfig();
+    const scan = {
+      os: { distribution: "Ubuntu", version: "24.04", kernel: "6.8", hostname: "arch-01" },
+      hardware: { arch: "x86_64", cores: 8, ramGb: 16, diskFreeGb: 200, diskTotalGb: 512 },
+      network: {
+        localIp: "192.168.100.14",
+        subnet: "255.255.255.0",
+        gateway: "192.168.100.1",
+        dns: "1.1.1.1",
+        hasInternet: true,
+        devices: [],
+      },
+      services: ["ssh"],
+      ports: [22],
+      software: { docker: "28.0.0", python3: "3.12" },
+      warnings: [],
+    };
+    const intent = buildConversationIntent(config, "adaptive", [], scan);
+    const proposals = buildActionProposalsFromIntent(intent, scan);
+
+    expect(proposals.map((proposal) => proposal.sourceStepId)).toEqual(
+      expect.arrayContaining(["init-01", "dns-01", "ldap-01", "docker-01", "agora-03"]),
+    );
+    expect(
+      proposals
+        .find((proposal) => proposal.sourceStepId === "agora-03")
+        ?.verification.some((requirement) => requirement.kind === "gateway-health"),
+    ).toBe(true);
+  });
+
+  it("builds an adaptive execution plan with credentials and warnings from intent", () => {
+    const config = createConfig({
+      security: {
+        passwordComplexity: "high",
+        diskEncryption: false,
+        internetExposed: true,
+        sshKeyOnly: false,
+      },
+      services: {
+        dns: true,
+        ldap: true,
+        samba: true,
+        wireguard: true,
+        docker: true,
+        nginx: false,
+        cockpit: false,
+        backups: false,
+      },
+    });
+    const intent = buildConversationIntent(config, "adaptive", []);
+    const plan = buildAdaptiveExecutionPlanFromIntent(intent);
+
+    expect(plan.steps.length).toBeGreaterThan(0);
+    expect(plan.requiredCredentials).toEqual(
+      expect.arrayContaining([
+        "laia-arch-admin-password",
+        "laia-arch-ldap-admin-password",
+        "laia-arch-samba-share-password",
+        "laia-arch-wireguard-preshared-key",
+      ]),
+    );
+    expect(
+      plan.warnings.some((warning) => warning.includes("WireGuard está activo pero el acceso SSH")),
+    ).toBe(true);
+    expect(plan.warnings.some((warning) => warning.includes("proxy inverso"))).toBe(true);
+  });
+
   it("derives fallback proposals and keeps Agora verification requirements", async () => {
     const plan = await generatePlan(createConfig());
     const proposals = buildActionProposalsFromPlan(plan);
@@ -198,8 +268,20 @@ describe("agentic installer helpers", () => {
     const agoraCompose = proposals.find((proposal) => proposal.sourceStepId === "agora-02");
     const agoraStart = proposals.find((proposal) => proposal.sourceStepId === "agora-03");
 
-    expect(agoraPrepare?.verification).toEqual([]);
-    expect(agoraCompose?.verification).toEqual([]);
+    expect(
+      agoraPrepare?.verification.some(
+        (requirement) =>
+          requirement.kind === "path-exists" &&
+          requirement.path === "/srv/laia-agora/templates/laia-agora",
+      ),
+    ).toBe(true);
+    expect(
+      agoraCompose?.verification.some(
+        (requirement) =>
+          requirement.kind === "path-exists" &&
+          requirement.path === "/opt/laia-agora/docker-compose.yml",
+      ),
+    ).toBe(true);
     expect(
       agoraStart?.verification.some((requirement) => requirement.kind === "gateway-health"),
     ).toBe(true);
@@ -241,6 +323,42 @@ describe("agentic installer helpers", () => {
         true,
       );
     }
+  });
+
+  it("covers host, samba, vpn and cockpit steps with explicit verification", async () => {
+    const config = createConfig();
+    const plan = await generatePlan(config);
+    const proposals = buildActionProposalsFromPlan(plan, config);
+
+    expect(proposals.find((proposal) => proposal.sourceStepId === "init-01")?.verification).toEqual(
+      expect.arrayContaining([expect.objectContaining({ kind: "hostname-configured" })]),
+    );
+    expect(proposals.find((proposal) => proposal.sourceStepId === "smb-01")?.verification).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: "service-active", service: "smbd" }),
+        expect.objectContaining({ kind: "service-active", service: "nmbd" }),
+      ]),
+    );
+    expect(proposals.find((proposal) => proposal.sourceStepId === "vpn-02")?.verification).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: "sysctl-value", sysctlKey: "net.ipv4.ip_forward" }),
+      ]),
+    );
+    expect(
+      proposals.find((proposal) => proposal.sourceStepId === "cockpit-01")?.verification,
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: "service-active", service: "cockpit.socket" }),
+      ]),
+    );
+  });
+
+  it("does not leave proposals without verification in a full install", async () => {
+    const config = createConfig();
+    const plan = await generatePlan(config);
+    const proposals = buildActionProposalsFromPlan(plan, config);
+
+    expect(proposals.filter((proposal) => proposal.verification.length === 0)).toEqual([]);
   });
 
   it("proposal ids are unique across the plan", async () => {

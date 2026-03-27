@@ -17,6 +17,7 @@ No sustituye la documentación técnica del producto ni los prompts del instalad
 - `04-colaboracion-codex-claude.md` — reglas prácticas de trabajo para agentes de código
 - `05-plan-ejecucion-codex-claude.md` — reparto operativo actual entre Codex y Claude Code
 - `06-como-funciona-por-dentro.md` — arquitectura interna detallada: fases, archivos, flujo de datos
+- `07-guia-programacion-para-entender-laia.md` — guía didáctica de TypeScript, Node.js y conceptos para leer el código
 
 ## Cómo usar esta carpeta
 

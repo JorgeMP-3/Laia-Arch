@@ -206,8 +206,12 @@ export interface ConversationResult {
 // Tipos de verificación que el executor puede lanzar para validar un step:
 //  "service-active"     → systemctl is-active <service>
 //  "dns-resolution"     → dig/host al dominio interno
+//  "hostname-configured"→ hostnamectl + /etc/hosts reflejan hostname/FQDN esperado
 //  "ldap-bind"          → ldapsearch base
+//  "package-installed"  → dpkg -s <package>
+//  "path-exists"        → archivo o directorio esperado existe
 //  "samba-share"        → smbclient -L
+//  "sysctl-value"       → sysctl -n <key> coincide con el valor esperado
 //  "wireguard-active"   → wg show
 //  "docker-operational" → docker info
 //  "nginx-config"       → nginx -t
@@ -217,8 +221,12 @@ export interface VerificationRequirement {
   kind:
     | "service-active"
     | "dns-resolution"
+    | "hostname-configured"
     | "ldap-bind"
+    | "package-installed"
+    | "path-exists"
     | "samba-share"
+    | "sysctl-value"
     | "wireguard-active"
     | "docker-operational"
     | "nginx-config"
@@ -226,7 +234,11 @@ export interface VerificationRequirement {
     | "gateway-health";
   service?: string;
   hostname?: string;
+  package?: string;
+  path?: string;
+  sysctlKey?: string;
   share?: string;
+  expectedValue?: string;
   url?: string;
   description: string;
 }

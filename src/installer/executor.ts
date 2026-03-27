@@ -185,6 +185,32 @@ function buildPlanSignature(plan: InstallPlan): string {
   return createHash("sha256").update(JSON.stringify(fingerprint)).digest("hex");
 }
 
+function resolveProposalStepId(proposal: ActionProposal): string {
+  return proposal.sourceStepId ?? proposal.id;
+}
+
+function proposalToInstallStep(proposal: ActionProposal): InstallStep {
+  return {
+    id: resolveProposalStepId(proposal),
+    phase: proposal.phase,
+    description: proposal.description,
+    commands: proposal.commands,
+    requiresApproval: proposal.requiresApproval,
+    rollback: proposal.rollback,
+    timeout: proposal.timeout,
+    maxRetries: proposal.maxRetries,
+  };
+}
+
+function buildFallbackPlanFromProposals(proposals: ActionProposal[]): InstallPlan {
+  return {
+    steps: proposals.map((proposal) => proposalToInstallStep(proposal)),
+    estimatedMinutes: Math.max(5, proposals.length * 2),
+    warnings: [],
+    requiredCredentials: [],
+  };
+}
+
 function readProgressState(): InstallProgressState | undefined {
   try {
     const raw = JSON.parse(fs.readFileSync(STATE_FILE, "utf8")) as Partial<InstallProgressState>;
@@ -830,9 +856,21 @@ interface RescueContext {
   installerConfig: InstallerConfig;
   /** Resumen del sistema (de last-scan.json). */
   systemInfo: string;
+  /** ConversationIntent original resumido para el rescate. */
+  intentContext: string;
+  /** Historial estructurado de ejecuciones previas de la sesión. */
+  executionHistory: string;
+  /** Historial estructurado de reparaciones previas de la sesión. */
+  repairHistory: string;
 }
 
 type RescueDecision = "continue" | "cancel";
+
+interface RescueOperationalMemory {
+  intentContext: string;
+  executionHistory: string;
+  repairHistory: string;
+}
 
 function buildPlanSummary(plan: InstallPlan, completedStepIds: Set<string>): string {
   return plan.steps
@@ -841,6 +879,173 @@ function buildPlanSummary(plan: InstallPlan, completedStepIds: Set<string>): str
       return `  ${status} [${s.id}] ${s.description}`;
     })
     .join("\n");
+}
+
+function truncateTextForPrompt(value: string | undefined, maxLines = 6, maxChars = 400): string {
+  if (!value?.trim()) {
+    return "(sin salida)";
+  }
+  const lines = value
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .slice(-maxLines)
+    .join(" | ");
+  return lines.length > maxChars ? `${lines.slice(0, maxChars)}…` : lines;
+}
+
+function summarizeVerificationForRescue(verification?: VerificationReport): string {
+  if (!verification) {
+    return "sin verificación";
+  }
+  if (verification.success) {
+    return `OK — ${verification.checks.map((check) => check.requirement.kind).join(", ")}`;
+  }
+  const failingChecks = verification.checks
+    .filter((check) => !check.success)
+    .map(
+      (check) =>
+        `${check.requirement.kind}: ${truncateTextForPrompt(check.details ?? check.requirement.description, 2, 160)}`,
+    );
+  return `FAIL — ${failingChecks.join(" | ") || verification.summary}`;
+}
+
+function buildIntentContextForRescue(intent: ConversationIntent | undefined): string {
+  if (!intent) {
+    return "(no se encontró ConversationIntent persistido para esta sesión)";
+  }
+
+  const desiredUsers =
+    intent.goal.desiredUsers.length > 0
+      ? intent.goal.desiredUsers
+          .map((user) => `${user.username} (${user.role}${user.remote ? ", remoto" : ""})`)
+          .join(", ")
+      : "ninguno";
+  const pendingGaps =
+    intent.pendingGaps.length > 0
+      ? intent.pendingGaps
+          .map((gap) => `${gap.key}${gap.blocking ? " [bloqueante]" : ""}: ${gap.description}`)
+          .join(" | ")
+      : "ninguno";
+  const contradictions =
+    intent.contradictions.length > 0
+      ? intent.contradictions
+          .map(
+            (item) =>
+              `${item.key}: ${truncateTextForPrompt(item.firstStatement, 1, 100)} -> ${truncateTextForPrompt(item.laterStatement, 1, 100)}${item.resolution ? ` | resuelto: ${truncateTextForPrompt(item.resolution, 1, 100)}` : ""}`,
+          )
+          .join(" | ")
+      : "ninguna";
+
+  return [
+    `- Resumen original: ${intent.summary}`,
+    `- Objetivo: host=${intent.goal.targetHostname} dominio=${intent.goal.targetDomain}`,
+    `- Servicios deseados: ${intent.goal.desiredServices.join(", ") || "ninguno"}`,
+    `- Usuarios deseados: ${desiredUsers}`,
+    `- Decisiones: ${intent.decisions.join(" | ") || "ninguna"}`,
+    `- Huecos pendientes: ${pendingGaps}`,
+    `- Contradicciones: ${contradictions}`,
+  ].join("\n");
+}
+
+function buildExecutionHistoryForRescue(session: InstallSessionState): string {
+  const proposalById = new Map(session.proposals.map((proposal) => [proposal.id, proposal]));
+  const proposalOrder = new Map(session.proposals.map((proposal, index) => [proposal.id, index]));
+  const executionEntries = Object.entries(session.executions).toSorted(
+    ([left], [right]) =>
+      (proposalOrder.get(left) ?? Number.MAX_SAFE_INTEGER) -
+      (proposalOrder.get(right) ?? Number.MAX_SAFE_INTEGER),
+  );
+
+  if (executionEntries.length === 0) {
+    return "(sin ejecuciones previas en esta sesión)";
+  }
+
+  return executionEntries
+    .map(([proposalId, executions]) => {
+      const proposal = proposalById.get(proposalId);
+      const header = `- [${proposal?.sourceStepId ?? proposalId}] ${proposal?.title ?? "(sin título)"}`;
+      const attempts = executions
+        .map((execution) => {
+          const verificationSummary = summarizeVerificationForRescue(execution.verification);
+          const errorSummary = execution.error
+            ? ` error=${truncateTextForPrompt(execution.error, 2, 180)}`
+            : "";
+          return `  intento ${execution.attempt}: status=${execution.status}${errorSummary} | salida=${truncateTextForPrompt(execution.output)} | verificación=${verificationSummary}`;
+        })
+        .join("\n");
+      return `${header}\n${attempts}`;
+    })
+    .join("\n");
+}
+
+function buildRepairHistoryForRescue(session: InstallSessionState): string {
+  const proposalById = new Map(session.proposals.map((proposal) => [proposal.id, proposal]));
+  const proposalOrder = new Map(session.proposals.map((proposal, index) => [proposal.id, index]));
+  const repairEntries = Object.entries(session.repairs)
+    .toSorted(
+      ([left], [right]) =>
+        (proposalOrder.get(left) ?? Number.MAX_SAFE_INTEGER) -
+        (proposalOrder.get(right) ?? Number.MAX_SAFE_INTEGER),
+    )
+    .flatMap(([proposalId, repairs]) =>
+      repairs.map((repair) => ({
+        proposalId,
+        repair,
+        proposal: proposalById.get(proposalId),
+      })),
+    );
+
+  if (repairEntries.length === 0) {
+    return "(sin reparaciones previas en esta sesión)";
+  }
+
+  return repairEntries
+    .map(({ proposalId, repair, proposal }) => {
+      const stepLabel = proposal?.sourceStepId ?? proposalId;
+      const title = proposal?.title ?? "(sin título)";
+      const error = repair.error ? ` | error=${truncateTextForPrompt(repair.error, 2, 180)}` : "";
+      return `- [${stepLabel}] ${title} | intento=${repair.attempt} | estrategia=${repair.strategy} | estado=${repair.status} | notas=${truncateTextForPrompt(repair.notes, 2, 180)}${error}`;
+    })
+    .join("\n");
+}
+
+export function buildRescueOperationalMemory(
+  session: InstallSessionState,
+): RescueOperationalMemory {
+  return {
+    intentContext: buildIntentContextForRescue(session.intent),
+    executionHistory: buildExecutionHistoryForRescue(session),
+    repairHistory: buildRepairHistoryForRescue(session),
+  };
+}
+
+function createRescueContext(params: {
+  session: InstallSessionState;
+  plan: InstallPlan;
+  completedStepIds: Set<string>;
+  step: InstallStep;
+  output: string;
+  error?: string;
+  logPath: string;
+  installerConfig: InstallerConfig;
+  systemInfo: string;
+}): RescueContext {
+  const operationalMemory = buildRescueOperationalMemory(params.session);
+  return {
+    step: params.step,
+    output: params.output,
+    error: params.error,
+    completedCount: params.completedStepIds.size,
+    totalCount: params.plan.steps.length,
+    planSummary: buildPlanSummary(params.plan, params.completedStepIds),
+    logPath: params.logPath,
+    installerConfig: params.installerConfig,
+    systemInfo: params.systemInfo,
+    intentContext: operationalMemory.intentContext,
+    executionHistory: operationalMemory.executionHistory,
+    repairHistory: operationalMemory.repairHistory,
+  };
 }
 
 function createFallbackInstallerConfig(): InstallerConfig {
@@ -1466,6 +1671,15 @@ CONFIGURACIÓN DE LA INSTALACIÓN:
 - Usuarios  : ${configuredUsers}
 - Servicios : ${enabledServices}
 
+CONVERSATIONINTENT ORIGINAL:
+${ctx.intentContext}
+
+HISTORIAL DE EJECUCIÓN DE ESTA SESIÓN:
+${ctx.executionHistory}
+
+HISTORIAL DE REPARACIONES DE ESTA SESIÓN:
+${ctx.repairHistory}
+
 LOG DE INSTALACIÓN:
 Puedes leer el log completo con la tool read_file en la ruta: ${ctx.logPath}
 
@@ -1688,7 +1902,61 @@ function createVerificationReport(
   };
 }
 
-function verifySingleRequirement(requirement: VerificationRequirement): VerificationCheckResult {
+function checkPackageInstalled(packageName: string): { success: boolean; details: string } {
+  try {
+    const status = execSync("dpkg-query -W -f='${Status}' " + JSON.stringify(packageName), {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+      shell: "/bin/bash",
+    })
+      .trim()
+      .toLowerCase();
+    const installed = status.includes("install ok installed");
+    return {
+      success: installed,
+      details: installed ? `package ${packageName} installed` : `package ${packageName} missing`,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      details: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+function verifyHostnameConfigured(
+  expectedHostname: string | undefined,
+  expectedFqdn: string | undefined,
+): { success: boolean; details: string } {
+  try {
+    const hostname =
+      execSync("hostnamectl --static 2>/dev/null || hostname", {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+        shell: "/bin/bash",
+      })
+        .trim()
+        .toLowerCase() || os.hostname().trim().toLowerCase();
+    const hostsFile = fs.readFileSync("/etc/hosts", "utf8");
+    const hostnameOk = expectedHostname
+      ? hostname === expectedHostname.toLowerCase()
+      : hostname.length > 0;
+    const fqdnOk = expectedFqdn ? hostsFile.includes(expectedFqdn) : true;
+    return {
+      success: hostnameOk && fqdnOk,
+      details: `hostname=${hostname} fqdnInHosts=${fqdnOk}`,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      details: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+export function verifySingleRequirement(
+  requirement: VerificationRequirement,
+): VerificationCheckResult {
   switch (requirement.kind) {
     case "service-active": {
       const service = requirement.service ?? "";
@@ -1712,6 +1980,14 @@ function verifySingleRequirement(requirement: VerificationRequirement): Verifica
           : result.error,
       };
     }
+    case "hostname-configured": {
+      const result = verifyHostnameConfigured(requirement.hostname, requirement.expectedValue);
+      return {
+        requirement,
+        success: result.success,
+        details: result.details,
+      };
+    }
     case "ldap-bind": {
       const chain = verifyServiceChain();
       return {
@@ -1720,6 +1996,24 @@ function verifySingleRequirement(requirement: VerificationRequirement): Verifica
         details: chain.success
           ? `ldap active=${chain.ldap} responds=${chain.ldap_responds}`
           : chain.error,
+      };
+    }
+    case "package-installed": {
+      const packageName = requirement.package ?? "";
+      const result = checkPackageInstalled(packageName);
+      return {
+        requirement,
+        success: result.success,
+        details: result.details,
+      };
+    }
+    case "path-exists": {
+      const targetPath = requirement.path ?? "";
+      const exists = Boolean(targetPath) && fs.existsSync(targetPath);
+      return {
+        requirement,
+        success: exists,
+        details: exists ? `${targetPath} exists` : `${targetPath} missing`,
       };
     }
     case "samba-share": {
@@ -1731,6 +2025,27 @@ function verifySingleRequirement(requirement: VerificationRequirement): Verifica
           ? `samba active=${chain.samba} shares=${chain.samba_shares}`
           : chain.error,
       };
+    }
+    case "sysctl-value": {
+      const key = requirement.sysctlKey ?? "";
+      try {
+        const value = execSync(`sysctl -n ${JSON.stringify(key)}`, {
+          encoding: "utf8",
+          stdio: ["ignore", "pipe", "pipe"],
+          shell: "/bin/bash",
+        }).trim();
+        return {
+          requirement,
+          success: value === (requirement.expectedValue ?? ""),
+          details: `${key}=${value}`,
+        };
+      } catch (error) {
+        return {
+          requirement,
+          success: false,
+          details: error instanceof Error ? error.message : String(error),
+        };
+      }
     }
     case "wireguard-active": {
       const status = checkServiceStatus(requirement.service ?? "wg-quick@wg0");
@@ -1956,7 +2271,7 @@ export async function executeStep(
   return result;
 }
 
-// ── Ejecutar el plan completo ─────────────────────────────────────────────────
+// ── Ejecutar el flujo completo ───────────────────────────────────────────────
 
 /**
  * Ejecuta el plan completo paso a paso.
@@ -1966,8 +2281,9 @@ export async function executeStep(
  * - Ofrece reanudar desde el último paso fallido si se detecta progreso previo.
  * - Los pasos con requiresApproval=true esperan confirmación antes de ejecutarse.
  */
-export async function executePlan(
+async function executePreparedProposals(
   plan: InstallPlan,
+  proposals: ActionProposal[],
   options?: {
     bootstrap?: BootstrapResult;
     intent?: ConversationIntent;
@@ -1982,8 +2298,6 @@ export async function executePlan(
   const resolvedIntent = options?.intent ?? loadInstallerIntentForExecution(options?.scan);
   const resolvedConfig =
     options?.config ?? resolvedIntent?.installerConfig ?? loadInstallerConfigForRescue();
-  const proposals = buildActionProposalsFromPlan(plan, resolvedConfig);
-  const proposalByStepId = new Map(proposals.map((proposal) => [proposal.sourceStepId, proposal]));
   const resolvedGoal: InstallationGoal =
     resolvedIntent?.goal ??
     buildConversationIntent(
@@ -2011,6 +2325,11 @@ export async function executePlan(
   session.proposals = proposals;
   session.snapshot = buildInstallationSnapshot(planSignature, options?.scan);
   writeInstallSessionState(session);
+  const executionQueue = proposals.map((proposal) => ({
+    proposal,
+    step: proposalToInstallStep(proposal),
+    stepId: resolveProposalStepId(proposal),
+  }));
 
   // ── 1. Resolver acceso sudo ───────────────────────────────────────────────
 
@@ -2160,33 +2479,41 @@ export async function executePlan(
   console.log("\n╔══════════════════════════════════════════════════════════╗");
   console.log("║            EJECUTANDO PLAN DE INSTALACIÓN               ║");
   console.log("╚══════════════════════════════════════════════════════════╝\n");
-  console.log(`  Pasos totales   : ${plan.steps.length}`);
+  console.log(`  Pasos totales   : ${executionQueue.length}`);
   console.log(`  Tiempo estimado : ~${plan.estimatedMinutes} minutos\n`);
   const rescueContextDefaults = {
     logPath: resolveRescueLogPath(),
     installerConfig: resolvedConfig,
     systemInfo: loadSystemInfoForRescue(),
   };
+  const createSessionRescueContext = (params: {
+    step: InstallStep;
+    output: string;
+    error?: string;
+  }): RescueContext =>
+    createRescueContext({
+      session,
+      plan,
+      completedStepIds: completedSteps,
+      ...rescueContextDefaults,
+      ...params,
+    });
 
   // ── 5. Bucle de pasos ─────────────────────────────────────────────────────
 
   try {
-    for (const step of plan.steps) {
-      const proposal = proposalByStepId.get(step.id);
-      if (!proposal) {
-        throw new Error(`No se encontró propuesta para el paso ${step.id}`);
-      }
+    for (const { proposal, step, stepId } of executionQueue) {
       session.currentProposalId = proposal.id;
       writeInstallSessionState(session);
 
       // Saltar pasos ya completados al reanudar
-      if (completedSteps.has(step.id)) {
-        console.log(`\n  ⏭  [${step.id}] ${step.description} ${t.muted("(reanudado — omitido)")}`);
-        results.push({ stepId: step.id, status: "done" });
+      if (completedSteps.has(stepId)) {
+        console.log(`\n  ⏭  [${stepId}] ${step.description} ${t.muted("(reanudado — omitido)")}`);
+        results.push({ stepId, status: "done" });
         continue;
       }
 
-      console.log(`\n  ▶ [${step.id}] ${step.description}`);
+      console.log(`\n  ▶ [${stepId}] ${step.description}`);
 
       if (step.requiresApproval) {
         const request = await requestApproval(step, 120);
@@ -2194,14 +2521,10 @@ export async function executePlan(
 
         if (approvalDecision === "rescue") {
           if (bootstrap) {
-            const ctx: RescueContext = {
-              ...rescueContextDefaults,
+            const ctx = createSessionRescueContext({
               step,
               output: "",
-              completedCount: completedSteps.size,
-              totalCount: plan.steps.length,
-              planSummary: buildPlanSummary(plan, completedSteps),
-            };
+            });
             const rescueResult = await runRescueMode(ctx, bootstrap);
             // "continue" → proceder con el paso; "cancel" → detener
             approvalDecision = rescueResult === "continue" ? "approved" : "rejected";
@@ -2217,25 +2540,25 @@ export async function executePlan(
         writeInstallSessionState(session);
 
         if (approvalDecision === "rejected") {
-          console.log(`\n  Paso ${step.id} rechazado. Deteniendo ejecución.`);
+          console.log(`\n  Paso ${stepId} rechazado. Deteniendo ejecución.`);
           const r: StepResult = {
-            stepId: step.id,
+            stepId,
             status: "skipped",
             error: "rechazado por el usuario",
           };
           results.push(r);
-          saveStepStateForPlan(planSignature, step.id, "skipped", r.error);
+          saveStepStateForPlan(planSignature, stepId, "skipped", r.error);
           break;
         }
         if (approvalDecision === "timeout") {
-          console.log(`\n  Paso ${step.id} ignorado por timeout. Deteniendo ejecución.`);
+          console.log(`\n  Paso ${stepId} ignorado por timeout. Deteniendo ejecución.`);
           const r: StepResult = {
-            stepId: step.id,
+            stepId,
             status: "skipped",
             error: "timeout de aprobación",
           };
           results.push(r);
-          saveStepStateForPlan(planSignature, step.id, "skipped", r.error);
+          saveStepStateForPlan(planSignature, stepId, "skipped", r.error);
           break;
         }
       }
@@ -2306,15 +2629,11 @@ export async function executePlan(
               notes: result.error ?? "AI rescue requested after failed execution.",
               startedAt: new Date().toISOString(),
             };
-            const ctx: RescueContext = {
-              ...rescueContextDefaults,
+            const ctx = createSessionRescueContext({
               step,
               output: result.output ?? "",
               error: result.error,
-              completedCount: completedSteps.size,
-              totalCount: plan.steps.length,
-              planSummary: buildPlanSummary(plan, completedSteps),
-            };
+            });
             const rescueDecision = await runRescueMode(ctx, bootstrap);
             repairAttempt.status = rescueDecision === "continue" ? "succeeded" : "cancelled";
             repairAttempt.finishedAt = new Date().toISOString();
@@ -2323,7 +2642,7 @@ export async function executePlan(
 
             if (rescueDecision === "continue") {
               // Un único reintento tras el rescate
-              console.log(`\n  ${t.muted("Reintentando paso " + step.id + " tras rescate...")}\n`);
+              console.log(`\n  ${t.muted("Reintentando paso " + stepId + " tras rescate...")}\n`);
               const retryResult = await executeStep(step, sudoCtx);
               const retryExecution: ActionExecution = {
                 proposalId: proposal.id,
@@ -2346,13 +2665,13 @@ export async function executePlan(
                 result = verifiedRetryResult;
                 rescuedAndRetried = true;
               } else {
-                console.error(`\n  El reintento del paso ${step.id} también ha fallado.`);
+                console.error(`\n  El reintento del paso ${stepId} también ha fallado.`);
               }
             }
           }
         }
         if (!rescuedAndRetried) {
-          console.error(`\n  El paso ${step.id} ha fallado. Deteniendo ejecución.`);
+          console.error(`\n  El paso ${stepId} ha fallado. Deteniendo ejecución.`);
           console.log(
             `  ${t.muted("Vuelve a ejecutar 'laia-arch install' para retomar desde aquí.")}`,
           );
@@ -2361,7 +2680,7 @@ export async function executePlan(
       }
 
       results.push(result);
-      saveStepStateForPlan(planSignature, result.stepId, result.status, result.error);
+      saveStepStateForPlan(planSignature, stepId, result.status, result.error);
 
       if (stopAfterFailure) {
         break;
@@ -2370,11 +2689,11 @@ export async function executePlan(
       if (!session.completedProposalIds.includes(proposal.id)) {
         session.completedProposalIds.push(proposal.id);
       }
-      completedSteps.add(step.id);
+      completedSteps.add(stepId);
       session.currentProposalId = undefined;
       session.snapshot = buildInstallationSnapshot(planSignature, options?.scan);
       writeInstallSessionState(session);
-      console.log(`  ✓ Paso ${step.id} completado.`);
+      console.log(`  ✓ Paso ${stepId} completado.`);
     }
   } finally {
     if (keepAliveTimer !== undefined) {
@@ -2389,14 +2708,52 @@ export async function executePlan(
   const skipped = results.filter((r) => r.status === "skipped").length;
 
   console.log(
-    `\n  Resultado: ${done} completados, ${failed} fallidos, ${skipped} omitidos de ${plan.steps.length} pasos.`,
+    `\n  Resultado: ${done} completados, ${failed} fallidos, ${skipped} omitidos de ${executionQueue.length} pasos.`,
   );
 
   // Si todo fue bien, limpiar el archivo de estado
-  if (failed === 0 && skipped === 0 && done === plan.steps.length) {
+  if (failed === 0 && skipped === 0 && done === executionQueue.length) {
     clearStepState();
     clearInstallSessionState();
   }
 
   return results;
+}
+
+/**
+ * Camino determinista/fallback: sigue usando plan-generator.ts y deriva
+ * ActionProposal desde ese plan.
+ */
+export async function executePlan(
+  plan: InstallPlan,
+  options?: {
+    bootstrap?: BootstrapResult;
+    intent?: ConversationIntent;
+    scan?: SystemScan;
+    config?: InstallerConfig;
+  },
+): Promise<StepResult[]> {
+  const resolvedConfig =
+    options?.config ?? options?.intent?.installerConfig ?? loadInstallerConfigForRescue();
+  const proposals = buildActionProposalsFromPlan(plan, resolvedConfig);
+  return executePreparedProposals(plan, proposals, options);
+}
+
+/**
+ * Camino agentic directo: ejecuta propuestas ya razonadas por el agente sin
+ * pasar por plan-generator.ts. Mantiene un plan fallback solo para persistencia,
+ * resumen y reanudación segura.
+ */
+export async function executeActionProposals(
+  proposals: ActionProposal[],
+  options?: {
+    bootstrap?: BootstrapResult;
+    intent?: ConversationIntent;
+    scan?: SystemScan;
+    config?: InstallerConfig;
+    fallbackPlan?: InstallPlan;
+  },
+): Promise<StepResult[]> {
+  const fallbackPlan = options?.fallbackPlan ?? buildFallbackPlanFromProposals(proposals);
+  return executePreparedProposals(fallbackPlan, proposals, options);
 }
