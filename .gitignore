@@ -2,3 +2,4 @@ node_modules
 .serena/cache/
 .serena/cache/
 src/canvas-host/a2ui/
+.serena/cache/
