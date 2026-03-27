@@ -3,3 +3,7 @@ node_modules
 .serena/cache/
 src/canvas-host/a2ui/
 .serena/cache/
+dist/
+dist-runtime/
+.serena/
+node_modules/
