@@ -8,7 +8,11 @@
       "Bash(node openclaw.mjs --version)",
       "Bash(chmod +x /home/laia-arch/laia-arch-origen/scripts/install-laia-arch.sh)",
       "Bash(bash -n /home/laia-arch/laia-arch-origen/scripts/install-laia-arch.sh)",
-      "Bash(bash scripts/committer \"feat: add bash installer for Laia Arch deployment\" scripts/install-laia-arch.sh contextLaiaProyect/01-estado-actual.md contextLaiaProyect/sesion-activa.md)"
+      "Bash(bash scripts/committer \"feat: add bash installer for Laia Arch deployment\" scripts/install-laia-arch.sh contextLaiaProyect/01-estado-actual.md contextLaiaProyect/sesion-activa.md)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git pull:*)",
+      "Bash(git push:*)"
     ]
   }
 }
