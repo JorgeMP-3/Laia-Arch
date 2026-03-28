@@ -1,4 +1,4 @@
-# 🦞 Laia Arch — Enterprise AI Assistant Platform
+# Laia Arch — Enterprise AI Assistant Platform
 
 **Laia Arch** is a fork of OpenClaw customized for enterprise deployment. It includes an advanced conversational installer, server orchestration, LDAP/Samba/DNS configuration, and a three-tier agent ecosystem (Arch for host management, Agora for team collaboration, Nemo for external access).
 
