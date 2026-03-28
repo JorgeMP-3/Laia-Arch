@@ -6,6 +6,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import * as readline from "node:readline";
+import { fileURLToPath } from "node:url";
 import { laiaTheme as t } from "../cli/laia-arch-theme.js";
 import {
   buildArchAgoraOutcomeMessage,
@@ -35,8 +36,10 @@ import type {
 } from "./types.js";
 
 // Los prompts están en install-prompts/ en la raíz del repo.
-// process.cwd() siempre apunta a la raíz del proyecto donde se ejecuta laia-arch.
-const PROMPTS_DIR = path.resolve(process.cwd(), "install-prompts");
+// Usamos import.meta.url para resolver desde la ubicación del módulo compilado,
+// no desde process.cwd() (que apunta al directorio desde donde se lanzó el proceso).
+const _moduleDir = path.dirname(fileURLToPath(import.meta.url));
+const PROMPTS_DIR = path.resolve(_moduleDir, "../../install-prompts");
 const PROMPTS_SESSION_ROOT = path.join(os.homedir(), ".laia-arch", "installer-prompts");
 
 export type ConversationState = "idle" | "active" | "complete";
