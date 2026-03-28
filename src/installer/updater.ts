@@ -24,10 +24,6 @@ function execSilent(cmd: string): string {
   }
 }
 
-function execVisible(cmd: string): void {
-  execSync(cmd, { stdio: "inherit" });
-}
-
 async function askConfirm(question: string): Promise<boolean> {
   return new Promise((resolve) => {
     const rl = readline.createInterface({
@@ -283,32 +279,73 @@ function printAiLine(text: string): void {
   console.log();
 }
 
+// ── Detectar el directorio raíz del repo de Laia Arch ────────────────────
+// El updater puede ejecutarse desde cualquier cwd, pero necesita operar
+// siempre sobre el directorio donde está instalado laia-arch.mjs.
+
+function detectRepoDir(): string {
+  // El binario instalado apunta a un laia-arch.mjs absoluto; lo usamos como ancla.
+  const selfPath = process.argv[1] ?? "";
+  const byArg = selfPath.replace(/[/\\]laia-arch\.mjs$/, "");
+  if (byArg !== selfPath && execSilent(`git -C "${byArg}" rev-parse --git-dir`)) {
+    return byArg;
+  }
+  // Fallback: directorio de trabajo actual si tiene un repo git válido
+  const cwd = process.cwd();
+  if (execSilent(`git -C "${cwd}" rev-parse --git-dir`)) {
+    return cwd;
+  }
+  return cwd;
+}
+
 // ── runGenericUpdate ──────────────────────────────────────────────────────
 
 export async function runGenericUpdate(): Promise<void> {
   console.log(t.section("ACTUALIZACIÓN DE LAIA ARCH"));
 
-  const currentCommit = execSilent("git log --oneline -1");
-  console.log(t.dim(`\n  Versión actual: ${currentCommit}\n`));
+  const repoDir = detectRepoDir();
+  const g = (cmd: string) => execSilent(`git -C "${repoDir}" ${cmd}`);
 
-  console.log("  Verificando actualizaciones en origin/laia-arch-dev...");
+  // Versión actual: combinamos package.json + commit hash
+  let pkgVersion = "";
   try {
-    execSilent("git fetch origin laia-arch-dev");
-  } catch {
-    console.error(t.bad("  No se pudo conectar con el repositorio remoto."));
-    return;
-  }
-
-  const pendingCommits = execSilent("git log HEAD..origin/laia-arch-dev --oneline");
-  if (!pendingCommits) {
-    console.log(
-      t.good("\n  Ya tienes la versión más reciente. No hay actualizaciones disponibles.\n"),
+    const pkgRaw = execSilent(
+      `node -e "process.stdout.write(require('${repoDir}/package.json').version)"`,
     );
+    pkgVersion = pkgRaw ? `v${pkgRaw}` : "";
+  } catch {
+    /* ignore */
+  }
+  const currentHash = g("rev-parse --short HEAD");
+  const currentVersion =
+    [pkgVersion, currentHash].filter(Boolean).join(" (") + (currentHash ? ")" : "");
+  console.log(t.dim(`\n  Versión instalada: ${currentVersion || "(desconocida)"}`));
+  console.log(t.dim(`  Directorio:        ${repoDir}\n`));
+
+  console.log("  Verificando actualizaciones en origin/main...");
+  const fetchOk = execSilent(`git -C "${repoDir}" fetch origin main 2>&1`);
+  if (fetchOk.includes("fatal") || fetchOk.includes("error")) {
+    console.error(t.bad("  No se pudo conectar con el repositorio remoto."));
+    console.error(t.muted(`  ${fetchOk}`));
     return;
   }
 
-  console.log(t.step("\n  Actualizaciones disponibles:"));
-  for (const line of pendingCommits.split("\n").filter(Boolean)) {
+  const pendingCommits = g("log HEAD..origin/main --oneline");
+  if (!pendingCommits) {
+    const remoteHash = g("rev-parse --short origin/main");
+    if (remoteHash === currentHash) {
+      console.log(
+        t.good("\n  Ya tienes la versión más reciente. No hay actualizaciones disponibles.\n"),
+      );
+    } else {
+      console.log(t.good("\n  No hay commits nuevos pendientes de aplicar.\n"));
+    }
+    return;
+  }
+
+  const lines = pendingCommits.split("\n").filter(Boolean);
+  console.log(t.step(`\n  ${lines.length} actualización(es) disponible(s):`));
+  for (const line of lines) {
     console.log(`    ${t.muted(line)}`);
   }
   console.log();
@@ -320,22 +357,35 @@ export async function runGenericUpdate(): Promise<void> {
   }
 
   console.log(t.step("\n  Descargando actualizaciones..."));
-  execSilent("git pull origin laia-arch-dev");
+  execSilent(`git -C "${repoDir}" pull --rebase origin main`);
 
   console.log(t.step("  Compilando nueva versión..."));
   try {
-    execVisible("pnpm build:laia-arch");
+    execSync(`bash "${repoDir}/scripts/build-laia-arch.sh"`, {
+      stdio: "inherit",
+      cwd: repoDir,
+    });
   } catch {
     console.error(t.bad("  El build falló. Revisa los errores anteriores."));
     return;
   }
 
-  const installedCommits = execSilent("git log HEAD~5..HEAD --oneline");
+  const newHash = g("rev-parse --short HEAD");
+  let newVersion = "";
+  try {
+    const v = execSilent(
+      `node -e "process.stdout.write(require('${repoDir}/package.json').version)"`,
+    );
+    newVersion = v ? `v${v} (${newHash})` : newHash;
+  } catch {
+    newVersion = newHash;
+  }
+
   console.log(t.step("\n  Commits instalados:"));
-  for (const line of installedCommits.split("\n").filter(Boolean)) {
+  for (const line of g("log HEAD~5..HEAD --oneline").split("\n").filter(Boolean)) {
     console.log(`    ${t.muted(line)}`);
   }
-  console.log(t.good("\n  Actualización completada.\n"));
+  console.log(t.good(`\n  Actualización completada. Versión actual: ${newVersion}\n`));
 }
 
 // ── runOpenClawSync ───────────────────────────────────────────────────────
@@ -343,10 +393,12 @@ export async function runGenericUpdate(): Promise<void> {
 export async function runOpenClawSync(): Promise<void> {
   console.log(t.section("SINCRONIZACIÓN CON OPENCLAW UPSTREAM"));
 
-  console.log("  Verificando cambios en origin/main...");
-  execSilent("git fetch origin main");
+  const repoDir = detectRepoDir();
 
-  const pendingUpstream = execSilent("git log HEAD..origin/main --oneline");
+  console.log("  Verificando cambios en origin/main...");
+  execSilent(`git -C "${repoDir}" fetch origin main`);
+
+  const pendingUpstream = execSilent(`git -C "${repoDir}" log HEAD..origin/main --oneline`);
   if (!pendingUpstream) {
     console.log(t.good("\n  No hay cambios nuevos en OpenClaw upstream.\n"));
     return;
@@ -373,12 +425,12 @@ export async function runOpenClawSync(): Promise<void> {
   }
 
   try {
-    execSilent("git merge origin/main --no-edit");
+    execSilent(`git -C "${repoDir}" merge origin/main --no-edit`);
     console.log(t.step("  Merge completado. Compilando..."));
-    execVisible("pnpm build:laia-arch");
+    execSync(`bash "${repoDir}/scripts/build-laia-arch.sh"`, { stdio: "inherit", cwd: repoDir });
     console.log(t.good("  Sincronización con OpenClaw upstream completada.\n"));
   } catch {
-    const conflicted = execSilent("git diff --name-only --diff-filter=U");
+    const conflicted = execSilent(`git -C "${repoDir}" diff --name-only --diff-filter=U`);
     console.error(t.bad("\n  El merge tiene conflictos. Archivos afectados:"));
     for (const f of conflicted.split("\n").filter(Boolean)) {
       console.log(`    ${t.muted(f)}`);
@@ -392,9 +444,12 @@ export async function runOpenClawSync(): Promise<void> {
 export async function runGuidedUpdate(bootstrap: BootstrapResult): Promise<void> {
   console.log(t.section("ACTUALIZACIÓN GUIADA CON IA"));
 
-  execSilent("git fetch origin laia-arch-dev");
+  const repoDir = detectRepoDir();
+  execSilent(`git -C "${repoDir}" fetch origin main`);
 
-  const pendingCommits = execSilent("git log HEAD..origin/laia-arch-dev --oneline --format=%s");
+  const pendingCommits = execSilent(
+    `git -C "${repoDir}" log HEAD..origin/main --oneline --format=%s`,
+  );
   if (!pendingCommits) {
     console.log(t.good("\n  Ya tienes la versión más reciente. No hay nada que actualizar.\n"));
     return;
