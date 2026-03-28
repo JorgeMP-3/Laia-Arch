@@ -1,34 +1,70 @@
-# 🦞 OpenClaw — Personal AI Assistant
+# 🦞 Laia Arch — Enterprise AI Assistant Platform
 
-<p align="center">
-    <picture>
-        <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/openclaw/openclaw/main/docs/assets/openclaw-logo-text-dark.svg">
-        <img src="https://raw.githubusercontent.com/openclaw/openclaw/main/docs/assets/openclaw-logo-text.svg" alt="OpenClaw" width="500">
-    </picture>
-</p>
+**Laia Arch** is a fork of OpenClaw customized for enterprise deployment. It includes an advanced conversational installer, server orchestration, LDAP/Samba/DNS configuration, and a three-tier agent ecosystem (Arch for host management, Agora for team collaboration, Nemo for external access).
 
-<p align="center">
-  <strong>EXFOLIATE! EXFOLIATE!</strong>
-</p>
+**Built on OpenClaw** — the personal AI assistant framework you run on your own devices.
+OpenClaw answers on channels you already use (WhatsApp, Telegram, Slack, Discord, Google Chat, Signal, iMessage, BlueBubbles, IRC, Microsoft Teams, Matrix, Feishu, LINE, Mattermost, Nextcloud Talk, Nostr, Synology Chat, Tlon, Twitch, Zalo, Zalo Personal, WebChat). It can speak and listen on macOS/iOS/Android, and can render a live Canvas you control.
 
-<p align="center">
-  <a href="https://github.com/openclaw/openclaw/actions/workflows/ci.yml?branch=main"><img src="https://img.shields.io/github/actions/workflow/status/openclaw/openclaw/ci.yml?branch=main&style=for-the-badge" alt="CI status"></a>
-  <a href="https://github.com/openclaw/openclaw/releases"><img src="https://img.shields.io/github/v/release/openclaw/openclaw?include_prereleases&style=for-the-badge" alt="GitHub release"></a>
-  <a href="https://discord.gg/clawd"><img src="https://img.shields.io/discord/1456350064065904867?label=Discord&logo=discord&logoColor=white&color=5865F2&style=for-the-badge" alt="Discord"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge" alt="MIT License"></a>
-</p>
+---
 
-**OpenClaw** is a _personal AI assistant_ you run on your own devices.
+**Laia Arch Repo**: https://github.com/JorgeMP-3/Laia-Arch
+
+**OpenClaw Upstream**: https://github.com/openclaw/openclaw · [Docs](https://docs.openclaw.ai) · [Vision](https://github.com/openclaw/openclaw/blob/main/VISION.md)
+
+---
+
+## Laia Arch — What's different
+
+**Laia Arch** extends OpenClaw with:
+
+- **Conversational installer** — AI-driven setup wizard that understands your company and configures the entire host (LDAP, Samba, DNS, WireGuard, Docker, backups)
+- **Three-tier agent ecosystem**:
+  - **Arch** — Host management and system orchestration
+  - **Agora** — Team collaboration platform (tasks, docs, creative tools)
+  - **Nemo** — External access layer (WhatsApp, Telegram, Slack, web)
+- **Enterprise security** — Credential management, HITL approval, rescue/repair workflows, session persistence
+- **Hybrid reasoning** — Adaptive execution that blends deterministic plans with agentic decision-making
+
+---
+
+## Install (Laia Arch)
+
 It answers you on the channels you already use (WhatsApp, Telegram, Slack, Discord, Google Chat, Signal, iMessage, BlueBubbles, IRC, Microsoft Teams, Matrix, Feishu, LINE, Mattermost, Nextcloud Talk, Nostr, Synology Chat, Tlon, Twitch, Zalo, Zalo Personal, WebChat). It can speak and listen on macOS/iOS/Android, and can render a live Canvas you control. The Gateway is just the control plane — the product is the assistant.
 
 If you want a personal, single-user assistant that feels local, fast, and always-on, this is it.
 
 [Website](https://openclaw.ai) · [Docs](https://docs.openclaw.ai) · [Vision](VISION.md) · [DeepWiki](https://deepwiki.com/openclaw/openclaw) · [Getting Started](https://docs.openclaw.ai/start/getting-started) · [Updating](https://docs.openclaw.ai/install/updating) · [Showcase](https://docs.openclaw.ai/start/showcase) · [FAQ](https://docs.openclaw.ai/help/faq) · [Onboarding](https://docs.openclaw.ai/start/wizard) · [Nix](https://github.com/openclaw/nix-openclaw) · [Docker](https://docs.openclaw.ai/install/docker) · [Discord](https://discord.gg/clawd)
 
-Preferred setup: run `openclaw onboard` in your terminal.
-OpenClaw Onboard guides you step by step through setting up the gateway, workspace, channels, and skills. It is the recommended CLI setup path and works on **macOS, Linux, and Windows (via WSL2; strongly recommended)**.
-Works with npm, pnpm, or bun.
-New install? Start here: [Getting started](https://docs.openclaw.ai/start/getting-started)
+## Recommended Setup
+
+**Laia Arch Installer** — Run the bash installer to set up Laia Arch on a fresh Linux server:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/JorgeMP-3/Laia-Arch/main/scripts/install-laia-arch.sh | bash
+# or from a clone:
+bash scripts/install-laia-arch.sh
+```
+
+After installation, launch the **conversational installer**:
+
+```bash
+laia-arch installer
+```
+
+This guides you through configuring your entire enterprise environment: host settings, LDAP, Samba, DNS, WireGuard, Docker, and Laia Agora.
+
+---
+
+## OpenClaw Setup (Underlying Framework)
+
+If you want to run the OpenClaw base without the enterprise extensions:
+
+```bash
+npm install -g openclaw@latest
+openclaw onboard --install-daemon
+```
+
+[OpenClaw Getting Started](https://docs.openclaw.ai/start/getting-started)
 
 ## Sponsors
 

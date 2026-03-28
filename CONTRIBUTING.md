@@ -1,15 +1,28 @@
-# Contributing to OpenClaw
+# Contributing to Laia Arch
 
-Welcome to the lobster tank! 🦞
+Laia Arch is a community fork of OpenClaw focused on enterprise AI deployment and multi-agent orchestration.
 
 ## Quick Links
 
-- **GitHub:** https://github.com/openclaw/openclaw
-- **Vision:** [`VISION.md`](VISION.md)
-- **Discord:** https://discord.gg/qkhbAGHRBT
-- **X/Twitter:** [@steipete](https://x.com/steipete) / [@openclaw](https://x.com/openclaw)
+- **Laia Arch GitHub:** https://github.com/JorgeMP-3/Laia-Arch
+- **OpenClaw (Upstream):** https://github.com/openclaw/openclaw
+- **OpenClaw Docs:** https://docs.openclaw.ai
+- **OpenClaw Discord:** https://discord.gg/qkhbAGHRBT
 
-## Maintainers
+## About This Fork
+
+**Laia Arch** is a community-driven fork of OpenClaw created to build enterprise-grade AI infrastructure.
+
+### Laia Arch Maintainers
+
+- **Jorge M.P.** - Project lead
+  - GitHub: [@JorgeMP-3](https://github.com/JorgeMP-3)
+
+---
+
+## OpenClaw Upstream Team
+
+The original OpenClaw project is maintained by:
 
 - **Peter Steinberger** - Benevolent Dictator
   - GitHub: [@steipete](https://github.com/steipete) · X: [@steipete](https://x.com/steipete)

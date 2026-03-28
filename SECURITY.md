@@ -1,10 +1,21 @@
 # Security Policy
 
-If you believe you've found a security issue in OpenClaw, please report it privately.
+If you believe you've found a security issue in **Laia Arch**, please report it privately.
 
-## Reporting
+## Reporting Security Issues in Laia Arch
 
-Report vulnerabilities directly to the repository where the issue lives:
+### Laia Arch (This Fork)
+
+For security issues in Laia Arch extensions, the enterprise installer, or fork-specific features:
+
+1. **GitHub Security Advisory**: Use the [GitHub Security Advisory](https://github.com/JorgeMP-3/Laia-Arch/security/advisories) feature in the Laia Arch repo
+2. **Email** (if needed): Contact the Laia Arch maintainers directly through the GitHub repo
+
+### OpenClaw Upstream Issues
+
+If the issue is in the OpenClaw base (channels, gateway, models, core plugins):
+
+Report vulnerabilities directly to the OpenClaw repository:
 
 - **Core CLI and gateway** — [openclaw/openclaw](https://github.com/openclaw/openclaw)
 - **macOS desktop app** — [openclaw/openclaw](https://github.com/openclaw/openclaw) (apps/macos)
@@ -13,7 +24,7 @@ Report vulnerabilities directly to the repository where the issue lives:
 - **ClawHub** — [openclaw/clawhub](https://github.com/openclaw/clawhub)
 - **Trust and threat model** — [openclaw/trust](https://github.com/openclaw/trust)
 
-For issues that don't fit a specific repo, or if you're unsure, email **[security@openclaw.ai](mailto:security@openclaw.ai)** and we'll route it.
+For OpenClaw issues, email **[security@openclaw.ai](mailto:security@openclaw.ai)**.
 
 For full reporting instructions see our [Trust page](https://trust.openclaw.ai).
 
@@ -77,7 +88,15 @@ These are frequently reported but are typically closed with no code change:
 
 ## Security & Trust
 
+### Laia Arch Security
+
+Security for Laia Arch extensions and enterprise features is coordinated through the GitHub repository.
+
+### OpenClaw Upstream Security
+
 **Jamieson O'Reilly** ([@theonejvo](https://twitter.com/theonejvo)) is Security & Trust at OpenClaw. Jamieson is the founder of [Dvuln](https://dvuln.com) and brings extensive experience in offensive security, penetration testing, and security program development.
+
+OpenClaw's comprehensive threat model and security guidance: https://docs.openclaw.ai/gateway/security
 
 ## Bug Bounties
 
