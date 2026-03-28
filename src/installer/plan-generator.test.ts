@@ -160,6 +160,14 @@ describe("generatePlan LDAP steps", () => {
     expect(commands).toContain("chmod 644 /srv/laia-agora/config/openclaw.json");
     expect(startCommands).toContain("/srv/laia-agora/config/openclaw.json");
     expect(startCommands).toContain("chmod 644 /srv/laia-agora/config/openclaw.json");
+    expect(startCommands).toContain("AUTH_TARGET_DIR=/srv/laia-agora/config/agents/main/agent");
+    expect(startCommands).toContain('AUTH_TARGET_PATH="${AUTH_TARGET_DIR}/auth-profiles.json"');
+    expect(startCommands).toContain("auth-profiles.json del bootstrap");
+    expect(startCommands.indexOf("auth-profiles.json")).toBeLessThan(
+      startCommands.indexOf(
+        "docker compose --env-file /opt/laia-agora/.env -f /opt/laia-agora/docker-compose.yml up -d",
+      ),
+    );
   });
 
   it("adds the invoking user to the docker group during docker installation", async () => {

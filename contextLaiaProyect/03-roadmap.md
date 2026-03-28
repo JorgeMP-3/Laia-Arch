@@ -169,9 +169,12 @@ Meta:
 Avance actual:
 
 - el plan genera pasos `agora-01` a `agora-03`: directorios, compose, gateway
+- el instalador arranca un gateway provisional tras el bootstrap y usa RPC `agent` en Fase 2 en lugar del cliente HTTP propio por proveedor
+- la conversación del instalador ya hereda OAuth Codex, catálogo de modelos y selección de proveedor/modelo desde OpenClaw vía auth-profiles
 - `agora-03` tiene retry loop de 90 segundos (18 × 5s) antes de declarar fallo
 - `agora-03` tiene verificación `gateway-health` declarada en su `ActionProposal`
 - flujo endurecido tras instalaciones reales: config mínima, `--allow-unconfigured`, permisos correctos
+- antes de `agora-03`, el plan copia `auth-profiles.json` del bootstrap al home de Agora para que el gateway definitivo arranque con las mismas credenciales
 
 Pendiente:
 
@@ -400,3 +403,44 @@ Mitigación:
 - Se actualiza `06-como-funciona-por-dentro.md` con lecciones aprendidas y estado real del modo adaptativo.
 - Se cierra `Fase 3 — Verificación activa obligatoria` al asegurar verificación explícita en todo el plan (0 propuestas sin verificación) y ampliar `VerificationRequirement.kind` con evidencia observada adicional.
 - En `Fase 6`, se incorpora el documento `agora-arquitectura.md` y sus fases internas de construcción (1-5) para Laia Agora como producto empresarial.
+- Fix crítico del flujo OAuth Codex en `bootstrap.ts`:
+  - Corregido `client_id`, URL de authorize (faltaba `/oauth/`), `redirect_uri` (`localhost` en lugar de `127.0.0.1`).
+  - Añadido PKCE (S256) y parámetros `codex_cli_simplified_flow`, `id_token_add_organizations`, `originator`.
+  - `exchangeOAuthCode()` ahora captura `refresh_token` y `expires_in` (antes se perdían).
+  - Eliminada validación contra `/v1/chat/completions` (los tokens Codex son de suscripción, no API keys).
+  - Token almacenado como `type: "oauth"` con provider `openai-codex` (antes era `type: "api_key"`, sin refresh).
+  - Añadido `storeOAuthCredential()` en `credential-manager.ts`.
+- Mejoras UX del instalador:
+  - `askChoice()` con reintento automático (3 intentos) en lugar de abortar al primer error de input.
+  - Errores en `index.ts` con tema visual de Laia Arch (sin stack traces).
+  - Mensajes de error más descriptivos en flujos de API key y OAuth.
+- Fix del endpoint: OAuth Codex ahora apunta a `chatgpt.com/backend-api` (ChatGPT backend) en lugar de `api.openai.com/v1`.
+  - Antes: conversation.ts llamaba a `api.openai.com/v1/chat/completions` con token Codex → 429.
+  - Ahora: `baseUrl = "https://chatgpt.com/backend-api"` → conversation.ts llama a `chatgpt.com/backend-api/chat/completions`.
+  - El `providerId` queda como `"openai"` para compatibilidad con el routing de conversation.ts; `baseUrl` redirige al backend correcto.
+- Modelos Codex actualizados: gpt-5.4, gpt-5.4-mini, gpt-5.3-codex, gpt-5.3-codex-spark, gpt-5.2, gpt-5.2-codex, gpt-5.1, gpt-5.1-codex-max, gpt-5.1-codex-mini.
+- Fix del endpoint: `/chat/completions` no existe en el ChatGPT backend (403 HTML). Solución: branch dedicado `"openai-codex"` en `conversation.ts` que llama a `/codex/responses` (Responses API).
+  - Body: `{ model, instructions, input, store: false, stream: false }`
+  - Headers: `chatgpt-account-id` (extraído del JWT), `OpenAI-Beta: responses=experimental`, `originator: pi`
+  - Response: `output[].content[].text`
+  - `bootstrap.ts`: `providerId` ahora es `"openai-codex"` para OAuth.
+- Tests del instalador: 56/56 verdes. Formato: verde.
+
+### 2026-03-28
+
+- Se elimina el cliente HTTP propio de Fase 2 como transporte principal del instalador y se sustituye por un gateway provisional de OpenClaw.
+- Nuevo módulo `src/installer/provisional-gateway.ts`:
+  - arranque programático con `startGatewayServer()`
+  - token efímero
+  - puertos provisionales dedicados (`18791-18795`)
+  - `callAgentTurn()` vía RPC `agent` con `provider/model` explícitos
+  - `sessionKey` estable para la conversación principal
+- `src/installer/index.ts` arranca el gateway provisional justo tras el bootstrap, lo entrega a `runConversation()`, lo apaga antes de Fase 5 y mantiene cleanup en `finally`.
+- `src/installer/conversation.ts` deja de rutear por ramas Anthropic/OpenAI/Codex/DeepSeek/Ollama/OpenRouter y pasa a extraer texto desde `result.payloads[].text` del gateway.
+- La extracción estructurada del instalador usa sesiones efímeras separadas para no contaminar la sesión principal de conversación.
+- `src/installer/plan-generator.ts` copia `auth-profiles.json` al home de Agora antes de `agora-03`, de forma que el gateway definitivo hereda las credenciales del bootstrap.
+- Hardening posterior tras la primera ejecución real:
+  - `src/installer/provisional-gateway.ts` amplía el timeout por defecto del RPC `agent`
+  - fuerza conversación sin tools/plugins en Fase 2 para evitar desvíos a `memory-core`
+  - desactiva el canvas host en este arranque provisional
+- Tests del instalador tras la migración y el hardening: `pnpm test -- src/installer/` -> 57/57 verdes.

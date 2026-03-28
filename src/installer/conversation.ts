@@ -1,6 +1,7 @@
 // conversation.ts — Fase 2: Conversación con la IA para recopilar la configuración
 // La IA guía al administrador a través de 6 etapas. Nunca ve contraseñas.
 
+import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -10,12 +11,7 @@ import {
   buildArchAgoraOutcomeMessage,
   buildConversationArtifacts,
 } from "./conversation-semantics.js";
-import { extractCredentialValue, retrieveProfileCredential } from "./credential-manager.js";
-import {
-  TOOL_DEFINITIONS_ANTHROPIC,
-  TOOL_DEFINITIONS_OPENAI,
-  TOOL_HANDLERS,
-} from "./tools/index.js";
+import type { ProvisionalGateway } from "./provisional-gateway.js";
 import { INSTALLER_USERNAME_EXAMPLE } from "./tools/username-policy.js";
 import type {
   AccessModel,
@@ -299,277 +295,36 @@ SERVIDOR: ${formatScan(scan)}`,
 
 /** Envía un turno al proveedor de IA y devuelve el texto de la respuesta. */
 async function callAI(
+  gateway: ProvisionalGateway,
   bootstrap: BootstrapResult,
   systemPrompt: string,
   messages: Message[],
   modeConfig?: ModeConfig,
 ): Promise<string> {
-  const key =
-    bootstrap.providerId !== "ollama"
-      ? extractCredentialValue(retrieveProfileCredential(bootstrap.profileId))
-      : "";
-
-  // supportsReasoning de bootstrap tiene prioridad; si no está, detectamos por nombre
   const useReasoning = bootstrap.supportsReasoning ?? isReasoningModel(bootstrap.model);
-  const maxTokens = modeConfig?.maxTokensPerCall ?? (useReasoning ? 8000 : 2048);
+  const thinking = useReasoning ? "high" : undefined;
 
-  if (bootstrap.providerId === "anthropic") {
-    // setup-token es OAuth: usa Authorization: Bearer en lugar de x-api-key
-    const anthropicHeaders: Record<string, string> =
-      bootstrap.authMethod === "setup-token"
-        ? {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${key}`,
-            "anthropic-version": "2023-06-01",
-          }
-        : {
-            "Content-Type": "application/json",
-            "x-api-key": key,
-            "anthropic-version": "2023-06-01",
-          };
+  const response = await gateway.callAgentTurn({
+    message:
+      modeConfig == null
+        ? messages
+            .map((message) => `${message.role.toUpperCase()}: ${message.content}`)
+            .join("\n\n")
+        : (messages.at(-1)?.content ?? "").trim(),
+    systemPrompt,
+    thinking,
+    sessionKey: modeConfig == null ? `installer:extract:${randomUUID()}` : undefined,
+  });
 
-    const useTools = modeConfig?.useTools === true && !useReasoning;
-
-    if (useTools) {
-      // Bucle de tool use: la IA llama herramientas hasta que stop_reason !== "tool_use"
-      type ApiContent = Record<string, unknown>;
-      type ApiMsg = { role: string; content: string | ApiContent[] };
-      const apiMessages: ApiMsg[] = messages.map((m) => ({ role: m.role, content: m.content }));
-
-      while (true) {
-        const body: Record<string, unknown> = {
-          model: bootstrap.model,
-          max_tokens: maxTokens,
-          system: systemPrompt,
-          messages: apiMessages,
-          tools: TOOL_DEFINITIONS_ANTHROPIC,
-        };
-        const response = await fetch("https://api.anthropic.com/v1/messages", {
-          method: "POST",
-          headers: anthropicHeaders,
-          body: JSON.stringify(body),
-        });
-        if (!response.ok) {
-          const errBody = await response.text().catch(() => "");
-          throw new Error(`Anthropic API ${response.status}: ${errBody.slice(0, 200)}`);
-        }
-        const data = (await response.json()) as {
-          stop_reason: string;
-          content: Array<{
-            type: string;
-            id?: string;
-            name?: string;
-            input?: Record<string, unknown>;
-            text?: string;
-          }>;
-        };
-
-        if (data.stop_reason !== "tool_use") {
-          return data.content.find((b) => b.type === "text")?.text ?? "";
-        }
-
-        // Ejecutar las herramientas solicitadas
-        const toolResults: ApiContent[] = [];
-        for (const block of data.content.filter((b) => b.type === "tool_use")) {
-          const handler = TOOL_HANDLERS[block.name ?? ""];
-          let resultContent: string;
-          try {
-            const toolResult = handler
-              ? await handler(block.input ?? {})
-              : { error: `Herramienta desconocida: ${block.name}` };
-            resultContent = JSON.stringify(toolResult);
-          } catch (err) {
-            resultContent = JSON.stringify({
-              error: err instanceof Error ? err.message : String(err),
-            });
-          }
-          toolResults.push({
-            type: "tool_result",
-            tool_use_id: block.id ?? "",
-            content: resultContent,
-          });
-        }
-
-        // Añadir turno de la IA y resultados al historial
-        apiMessages.push({ role: "assistant", content: data.content as ApiContent[] });
-        apiMessages.push({ role: "user", content: toolResults });
-      }
-    }
-
-    const anthropicBody: Record<string, unknown> = {
-      model: bootstrap.model,
-      max_tokens: maxTokens,
-      system: systemPrompt,
-      messages,
-    };
-    if (useReasoning) {
-      // extended thinking requiere temperature: 1 y el bloque thinking
-      anthropicBody.temperature = 1;
-      anthropicBody.thinking = { type: "enabled", budget_tokens: 5000 };
-    }
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: anthropicHeaders,
-      body: JSON.stringify(anthropicBody),
-    });
-    if (!response.ok) {
-      const body = await response.text().catch(() => "");
-      throw new Error(`Anthropic API ${response.status}: ${body.slice(0, 200)}`);
-    }
-    const data = (await response.json()) as {
-      content: Array<{ type: string; text: string }>;
-    };
-    // Filtramos bloques thinking; solo queremos el texto visible
-    return data.content.find((b) => b.type === "text")?.text ?? "";
+  const payloads = response.result?.payloads;
+  if (!Array.isArray(payloads) || payloads.length === 0) {
+    return "";
   }
 
-  if (
-    bootstrap.providerId === "openai" ||
-    bootstrap.providerId === "deepseek" ||
-    bootstrap.providerId === "openai-compatible" ||
-    bootstrap.providerId === "openrouter"
-  ) {
-    const baseUrl =
-      bootstrap.baseUrl ??
-      (bootstrap.providerId === "openrouter"
-        ? "https://openrouter.ai/api/v1"
-        : bootstrap.providerId === "deepseek"
-          ? "https://api.deepseek.com/v1"
-          : "https://api.openai.com/v1");
-
-    const openaiHeaders = {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${key || "none"}`,
-    };
-
-    // Proveedores que usan formato OpenAI para tool use (function calling).
-    // DeepSeek usa exactamente el mismo formato que OpenAI: tool_calls / role:tool.
-    const usesOpenAIToolFormat =
-      bootstrap.providerId === "openai" ||
-      bootstrap.providerId === "openrouter" ||
-      bootstrap.providerId === "deepseek" ||
-      bootstrap.providerId === "openai-compatible";
-    const useToolsOpenAI = modeConfig?.useTools === true && !useReasoning && usesOpenAIToolFormat;
-
-    if (useToolsOpenAI) {
-      // Bucle de tool use: formato OpenAI (tool_calls / role:tool)
-      type OpenAIMsg = Record<string, unknown>;
-      const apiMessages: OpenAIMsg[] = [
-        { role: "system", content: systemPrompt },
-        ...messages.map((m) => ({ role: m.role, content: m.content })),
-      ];
-
-      while (true) {
-        const body: Record<string, unknown> = {
-          model: bootstrap.model,
-          max_tokens: maxTokens,
-          messages: apiMessages,
-          tools: TOOL_DEFINITIONS_OPENAI,
-          tool_choice: "auto",
-        };
-        const response = await fetch(`${baseUrl}/chat/completions`, {
-          method: "POST",
-          headers: openaiHeaders,
-          body: JSON.stringify(body),
-        });
-        if (!response.ok) {
-          const errBody = await response.text().catch(() => "");
-          throw new Error(`OpenAI API ${response.status}: ${errBody.slice(0, 200)}`);
-        }
-        const data = (await response.json()) as {
-          choices: Array<{
-            finish_reason: string;
-            message: {
-              role: string;
-              content: string | null;
-              tool_calls?: Array<{
-                id: string;
-                type: string;
-                function: { name: string; arguments: string };
-              }>;
-            };
-          }>;
-        };
-
-        const choice = data.choices[0];
-        if (!choice) {
-          throw new Error("OpenAI API: respuesta vacía");
-        }
-
-        if (choice.finish_reason !== "tool_calls" || !choice.message.tool_calls?.length) {
-          return choice.message.content ?? "";
-        }
-
-        // Añadir turno del asistente con las tool_calls al historial
-        apiMessages.push({ ...choice.message });
-
-        // Ejecutar cada herramienta y añadir sus resultados
-        for (const tc of choice.message.tool_calls) {
-          const handler = TOOL_HANDLERS[tc.function.name];
-          let resultContent: string;
-          try {
-            const input = JSON.parse(tc.function.arguments) as Record<string, unknown>;
-            const toolResult = handler
-              ? await handler(input)
-              : { error: `Herramienta desconocida: ${tc.function.name}` };
-            resultContent = JSON.stringify(toolResult);
-          } catch (err) {
-            resultContent = JSON.stringify({
-              error: err instanceof Error ? err.message : String(err),
-            });
-          }
-          apiMessages.push({
-            role: "tool",
-            tool_call_id: tc.id,
-            content: resultContent,
-          });
-        }
-      }
-    }
-
-    const openaiBody: Record<string, unknown> = {
-      model: bootstrap.model,
-      max_tokens: maxTokens,
-      messages: [{ role: "system", content: systemPrompt }, ...messages],
-    };
-    if (!useReasoning) {
-      // temperature: 0.3 solo para modelos estándar; o1/o3 no lo aceptan
-      openaiBody.temperature = 0.3;
-    }
-    const response = await fetch(`${baseUrl}/chat/completions`, {
-      method: "POST",
-      headers: openaiHeaders,
-      body: JSON.stringify(openaiBody),
-    });
-    if (!response.ok) {
-      const body = await response.text().catch(() => "");
-      throw new Error(`OpenAI API ${response.status}: ${body.slice(0, 200)}`);
-    }
-    const data = (await response.json()) as {
-      choices: Array<{ message: { content: string } }>;
-    };
-    return data.choices[0]?.message?.content ?? "";
-  }
-
-  if (bootstrap.providerId === "ollama") {
-    const response = await fetch("http://localhost:11434/api/chat", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: bootstrap.model,
-        stream: false,
-        messages: [{ role: "system", content: systemPrompt }, ...messages],
-        options: { temperature: 0.3 },
-      }),
-    });
-    if (!response.ok) {
-      throw new Error(`Ollama API ${response.status}`);
-    }
-    const data = (await response.json()) as { message: { content: string } };
-    return data.message?.content ?? "";
-  }
-
-  throw new Error(`Proveedor no soportado: ${bootstrap.providerId}`);
+  return payloads
+    .map((payload) => (typeof payload.text === "string" ? payload.text : ""))
+    .filter(Boolean)
+    .join("\n\n");
 }
 
 // ── Utilidades ────────────────────────────────────────────────────────────
@@ -676,6 +431,7 @@ type StageOutcome = { action: "advance"; messages: Message[] } | { action: "back
  */
 async function runStage(
   rl: readline.Interface,
+  gateway: ProvisionalGateway,
   bootstrap: BootstrapResult,
   systemPrompt: string,
   initialTrigger: string,
@@ -686,7 +442,7 @@ async function runStage(
   while (true) {
     // Llamar a la IA con el historial actual
     process.stdout.write("  (pensando...)\r");
-    const aiText = await callAI(bootstrap, systemPrompt, messages, modeConfig);
+    const aiText = await callAI(gateway, bootstrap, systemPrompt, messages, modeConfig);
     process.stdout.write("                \r");
 
     printAiMessage(aiText);
@@ -729,6 +485,7 @@ async function runStage(
 
 async function runOpenConversation(
   rl: readline.Interface,
+  gateway: ProvisionalGateway,
   bootstrap: BootstrapResult,
   systemPrompt: string,
   initialTrigger: string,
@@ -738,7 +495,7 @@ async function runOpenConversation(
 
   while (true) {
     process.stdout.write("  (pensando...)\r");
-    const aiText = await callAI(bootstrap, systemPrompt, messages, modeConfig);
+    const aiText = await callAI(gateway, bootstrap, systemPrompt, messages, modeConfig);
     process.stdout.write("                \r");
 
     printAiMessage(aiText);
@@ -783,6 +540,7 @@ function stripToJson(raw: string): string {
 }
 
 async function extractJson<T>(
+  gateway: ProvisionalGateway,
   bootstrap: BootstrapResult,
   conversationMessages: Message[],
   extractionInstruction: string,
@@ -808,7 +566,7 @@ async function extractJson<T>(
   };
 
   try {
-    const raw = await callAI(bootstrap, extractionSystem, [
+    const raw = await callAI(gateway, bootstrap, extractionSystem, [
       ...conversationMessages,
       { role: "user", content: extractionRequest },
     ]);
@@ -819,7 +577,7 @@ async function extractJson<T>(
     }
 
     // Segundo intento con instrucción aún más explícita
-    const raw2 = await callAI(bootstrap, extractionSystem, [
+    const raw2 = await callAI(gateway, bootstrap, extractionSystem, [
       ...conversationMessages,
       { role: "user", content: extractionRequest },
       { role: "assistant", content: raw },
@@ -960,6 +718,7 @@ function buildCollectedContext(data: ConversationData): string {
 }
 
 async function extractConversationData(
+  gateway: ProvisionalGateway,
   bootstrap: BootstrapResult,
   conversationMessages: Message[],
   currentData: ConversationData,
@@ -968,6 +727,7 @@ async function extractConversationData(
   const next = cloneConversationData(currentData);
 
   next.company = await extractJson<CompanyProfile>(
+    gateway,
     bootstrap,
     conversationMessages,
     `Extrae de toda la conversación el perfil de la organización y devuelve este JSON:
@@ -982,6 +742,7 @@ async function extractConversationData(
   );
 
   next.access = await extractJson<AccessModel>(
+    gateway,
     bootstrap,
     conversationMessages,
     `Extrae de toda la conversación el modelo de acceso y devuelve este JSON:
@@ -997,6 +758,7 @@ async function extractConversationData(
   );
 
   next.users = await extractJson<UserConfig[]>(
+    gateway,
     bootstrap,
     conversationMessages,
     `Si en la conversación se mencionaron nombres de personas, extrae la lista de usuarios.
@@ -1012,6 +774,7 @@ Devuelve un array JSON. Si no se mencionaron nombres concretos, devuelve []:
   );
 
   next.services = await extractJson<ServiceSelection>(
+    gateway,
     bootstrap,
     conversationMessages,
     `Extrae de la conversación los servicios seleccionados y devuelve este JSON:
@@ -1036,6 +799,7 @@ Devuelve un array JSON. Si no se mencionaron nombres concretos, devuelve []:
     .replace(/[^a-z0-9-]/g, "");
 
   next.network = await extractJson<NetworkConfig>(
+    gateway,
     bootstrap,
     conversationMessages,
     `Extrae la configuración de red confirmada en la conversación y devuelve este JSON:
@@ -1051,6 +815,7 @@ Devuelve un array JSON. Si no se mencionaron nombres concretos, devuelve []:
   );
 
   next.security = await extractJson<SecurityPolicy>(
+    gateway,
     bootstrap,
     conversationMessages,
     `Extrae de la conversación la política de seguridad y devuelve este JSON:
@@ -1064,6 +829,7 @@ Devuelve un array JSON. Si no se mencionaron nombres concretos, devuelve []:
   );
 
   next.compliance = await extractJson<DataCompliance>(
+    gateway,
     bootstrap,
     conversationMessages,
     `Extrae de la conversación los datos de cumplimiento normativo y devuelve este JSON:
@@ -1088,6 +854,7 @@ Devuelve un array JSON. Si no se mencionaron nombres concretos, devuelve []:
  * agentic como el plan-generator de fallback.
  */
 async function extractConversationIntent(
+  gateway: ProvisionalGateway,
   bootstrap: BootstrapResult,
   allMessages: Message[],
   data: ConversationData,
@@ -1095,7 +862,7 @@ async function extractConversationIntent(
   mode: InstallMode,
 ): Promise<ConversationIntent> {
   // Reutilizar la extracción existente para el InstallerConfig de fallback
-  const finalData = await extractConversationData(bootstrap, allMessages, data, scan);
+  const finalData = await extractConversationData(gateway, bootstrap, allMessages, data, scan);
   const installerConfig: InstallerConfig = {
     company: finalData.company,
     access: finalData.access,
@@ -1121,6 +888,7 @@ async function extractConversationIntent(
   };
 
   const aiConfirmedFacts = await extractJson<ConversationFact[]>(
+    gateway,
     bootstrap,
     allMessages,
     `Lista los datos que el administrador confirmó explícitamente durante la conversación.
@@ -1138,6 +906,7 @@ Solo incluye datos que el administrador dijo directamente, no deducidos.`,
   );
 
   const aiPendingGaps = await extractJson<ConversationGap[]>(
+    gateway,
     bootstrap,
     allMessages,
     `Lista los datos que quedaron sin confirmar o sin respuesta en la conversación.
@@ -1153,6 +922,7 @@ Devuelve un array JSON. Si todo quedó cubierto, devuelve []:
   );
 
   const aiContradictions = await extractJson<ConversationContradiction[]>(
+    gateway,
     bootstrap,
     allMessages,
     `Lista las contradicciones detectadas en la conversación.
@@ -1202,7 +972,11 @@ export async function runConversation(
   bootstrap: BootstrapResult,
   scan: SystemScan,
   mode: InstallMode = "adaptive",
+  gateway?: ProvisionalGateway,
 ): Promise<ConversationResult> {
+  if (!gateway) {
+    throw new Error("El gateway provisional es obligatorio para la conversación del instalador.");
+  }
   console.log(t.section("CONFIGURACIÓN CON LAIA ARCH"));
   const rl = readline.createInterface({
     input: process.stdin,
@@ -1258,7 +1032,7 @@ export async function runConversation(
           "No avances hasta entender al 100% al administrador y recibir confirmación explícita. " +
           "Cuando la etapa esté realmente cerrada, termina tu último mensaje con [ETAPA_COMPLETA].";
 
-        const outcome = await runStage(rl, bootstrap, systemPrompt, trigger, modeConfig);
+        const outcome = await runStage(rl, gateway, bootstrap, systemPrompt, trigger, modeConfig);
 
         if (outcome.action === "back") {
           if (stageIndex > 0) {
@@ -1272,7 +1046,7 @@ export async function runConversation(
         }
 
         allMessages.push(...outcome.messages);
-        data = await extractConversationData(bootstrap, allMessages, data, scan);
+        data = await extractConversationData(gateway, bootstrap, allMessages, data, scan);
         stageIndex++;
         snapshots[stageIndex] = cloneConversationData(data);
       }
@@ -1298,16 +1072,30 @@ export async function runConversation(
           ? 'Empieza con la pregunta 1 exactamente como está escrita. Haz una sola pregunta cada vez. Cuando tengas las 5 respuestas, resume lo entendido y termina con "[ETAPA_COMPLETA]".'
           : "Empieza confirmando el servidor o preguntando por el dato más importante que falte. Haz una sola pregunta cada vez. No cierres si queda una contradiccion relevante o un hueco bloqueante sin resolver. Cuando tengas la informacion necesaria para el plan, resume organizacion, roles, servicios y el resultado esperado host + Agora base, y termina con [ETAPA_COMPLETA].";
 
-      const messages = await runOpenConversation(rl, bootstrap, systemPrompt, trigger, modeConfig);
+      const messages = await runOpenConversation(
+        rl,
+        gateway,
+        bootstrap,
+        systemPrompt,
+        trigger,
+        modeConfig,
+      );
       allMessages.push(...messages);
-      data = await extractConversationData(bootstrap, allMessages, data, scan);
+      data = await extractConversationData(gateway, bootstrap, allMessages, data, scan);
     }
 
     rl.close();
 
-    data = await extractConversationData(bootstrap, allMessages, data, scan);
+    data = await extractConversationData(gateway, bootstrap, allMessages, data, scan);
 
-    const intent = await extractConversationIntent(bootstrap, allMessages, data, scan, mode);
+    const intent = await extractConversationIntent(
+      gateway,
+      bootstrap,
+      allMessages,
+      data,
+      scan,
+      mode,
+    );
     const config = intent.installerConfig;
 
     // Guardar la configuración en ~/.laia-arch/

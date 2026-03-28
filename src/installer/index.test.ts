@@ -11,7 +11,7 @@ vi.mock("./plan-generator.js", () => ({
 }));
 
 import { buildConversationIntent } from "./agentic.js";
-import { prepareInstallerExecutionArtifacts } from "./index.js";
+import { parseInstallerConfirmationInput, prepareInstallerExecutionArtifacts } from "./index.js";
 import { generatePlan } from "./plan-generator.js";
 import type { InstallerConfig, SystemScan } from "./types.js";
 
@@ -128,5 +128,24 @@ describe("installer execution artifact selection", () => {
     expect(artifacts.strategy).toBe("deterministic-plan");
     expect(artifacts.usesPlanGenerator).toBe(true);
     expect(vi.mocked(generatePlan)).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("installer confirmation input parsing", () => {
+  it("accepts yes variants", () => {
+    expect(parseInstallerConfirmationInput("s")).toBe(true);
+    expect(parseInstallerConfirmationInput("Sí")).toBe(true);
+    expect(parseInstallerConfirmationInput(" yes ")).toBe(true);
+  });
+
+  it("accepts no variants", () => {
+    expect(parseInstallerConfirmationInput("n")).toBe(false);
+    expect(parseInstallerConfirmationInput(" no ")).toBe(false);
+  });
+
+  it("rejects invalid keys instead of silently treating them as no", () => {
+    expect(parseInstallerConfirmationInput("x")).toBeUndefined();
+    expect(parseInstallerConfirmationInput("")).toBeUndefined();
+    expect(parseInstallerConfirmationInput("1")).toBeUndefined();
   });
 });

@@ -4,7 +4,7 @@ import * as crypto from "node:crypto";
 import * as readline from "node:readline";
 import { laiaTheme as t } from "../cli/laia-arch-theme.js";
 import { validateAnthropicSetupToken } from "../plugins/provider-auth-token.js";
-import { storeApiKey, storeSetupToken } from "./credential-manager.js";
+import { storeApiKey, storeOAuthCredential, storeSetupToken } from "./credential-manager.js";
 import type { AiProvider, AuthMethod, BootstrapResult } from "./types.js";
 
 const REASONING_MODEL_IDS = new Set([
@@ -76,11 +76,33 @@ const SUPPORTED_PROVIDERS: AiProvider[] = [
   },
 ];
 
-// OpenAI OAuth endpoints para el flujo Codex
-const OPENAI_OAUTH_CLIENT_ID = "app_01JYXNZS89AZ3XKCGSZAHSRPN8";
-const OPENAI_OAUTH_REDIRECT_URI = "http://127.0.0.1:1455/auth/callback";
-const OPENAI_AUTH_URL = "https://auth.openai.com/authorize";
+// OpenAI OAuth endpoints para el flujo Codex (mismo client_id que usa pi-ai/openclaw)
+const OPENAI_OAUTH_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann";
+const OPENAI_OAUTH_REDIRECT_URI = "http://localhost:1455/auth/callback";
+const OPENAI_AUTH_URL = "https://auth.openai.com/oauth/authorize";
 const OPENAI_TOKEN_URL = "https://auth.openai.com/oauth/token";
+const OPENAI_OAUTH_SCOPE = "openid profile email offline_access";
+
+// Endpoint y modelos de Codex (ChatGPT backend, NO api.openai.com)
+const OPENAI_CODEX_BASE_URL = "https://chatgpt.com/backend-api";
+const OPENAI_CODEX_MODELS = [
+  "gpt-5.4",
+  "gpt-5.4-mini",
+  "gpt-5.3-codex",
+  "gpt-5.3-codex-spark",
+  "gpt-5.2",
+  "gpt-5.2-codex",
+  "gpt-5.1",
+  "gpt-5.1-codex-max",
+  "gpt-5.1-codex-mini",
+];
+
+// PKCE (Proof Key for Code Exchange) — requerido por el endpoint /oauth/authorize de OpenAI
+function generatePkce(): { verifier: string; challenge: string } {
+  const verifier = crypto.randomBytes(32).toString("base64url");
+  const challenge = crypto.createHash("sha256").update(verifier).digest("base64url");
+  return { verifier, challenge };
+}
 
 // ─── Validación de credenciales ───────────────────────────────────────────────
 
@@ -250,6 +272,29 @@ function askSecret(question: string): Promise<string> {
   });
 }
 
+/**
+ * Pide un número entre min y max con reintento automático (max 3 intentos).
+ * En lugar de lanzar una excepción por input inválido, repite la pregunta
+ * con un mensaje amigable.
+ */
+async function askChoice(
+  rl: readline.Interface,
+  question: string,
+  min: number,
+  max: number,
+): Promise<number> {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const raw = await ask(rl, question);
+    const num = parseInt(raw.trim(), 10);
+    if (!Number.isNaN(num) && num >= min && num <= max) {
+      return num;
+    }
+    console.log(t.warn(`Opción no válida. Introduce un número entre ${min} y ${max}.`));
+  }
+  rl.close();
+  throw new Error("Demasiados intentos fallidos. Ejecuta laia-arch install de nuevo.");
+}
+
 // ─── Flujos de autenticación especiales ──────────────────────────────────────
 
 async function handleSetupToken(model: string): Promise<{ profileId: string }> {
@@ -300,7 +345,14 @@ async function handleSetupToken(model: string): Promise<{ profileId: string }> {
   return { profileId };
 }
 
-async function exchangeOAuthCode(code: string): Promise<string> {
+/** Resultado completo del intercambio OAuth — mismo shape que OAuthCredentials de pi-ai */
+interface CodexOAuthResult {
+  access: string;
+  refresh: string;
+  expires: number;
+}
+
+async function exchangeOAuthCode(code: string, codeVerifier: string): Promise<CodexOAuthResult> {
   const response = await fetch(OPENAI_TOKEN_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -309,20 +361,30 @@ async function exchangeOAuthCode(code: string): Promise<string> {
       code,
       grant_type: "authorization_code",
       redirect_uri: OPENAI_OAUTH_REDIRECT_URI,
+      code_verifier: codeVerifier,
     }),
   });
 
   if (!response.ok) {
+    const body = await response.text().catch(() => "");
     throw new Error(
-      `Error al intercambiar el código OAuth: ${response.status} ${response.statusText}`,
+      `Error al intercambiar el código OAuth: ${response.status} ${response.statusText}${body ? ` — ${body}` : ""}`,
     );
   }
 
-  const data = (await response.json()) as { access_token?: string };
+  const data = (await response.json()) as {
+    access_token?: string;
+    refresh_token?: string;
+    expires_in?: number;
+  };
   if (!data.access_token) {
     throw new Error("La respuesta OAuth no incluye access_token.");
   }
-  return data.access_token;
+  return {
+    access: data.access_token,
+    refresh: data.refresh_token ?? "",
+    expires: data.expires_in ? Date.now() + data.expires_in * 1000 : Date.now() + 3600_000,
+  };
 }
 
 // ─── Flujo principal ──────────────────────────────────────────────────────────
@@ -347,15 +409,13 @@ export async function runBootstrap(): Promise<BootstrapResult> {
   });
   console.log();
 
-  const providerChoice = await ask(rl, `Elige el proveedor (1-${SUPPORTED_PROVIDERS.length}): `);
-  const providerIndex = parseInt(providerChoice, 10) - 1;
-
-  if (providerIndex < 0 || providerIndex >= SUPPORTED_PROVIDERS.length) {
-    rl.close();
-    throw new Error("Opcion no valida. Ejecuta laia-arch install de nuevo.");
-  }
-
-  const selectedProvider = SUPPORTED_PROVIDERS[providerIndex];
+  const providerNum = await askChoice(
+    rl,
+    `Elige el proveedor (1-${SUPPORTED_PROVIDERS.length}): `,
+    1,
+    SUPPORTED_PROVIDERS.length,
+  );
+  const selectedProvider = SUPPORTED_PROVIDERS[providerNum - 1];
 
   // 2. Seleccionar método de autenticación (si hay más de uno)
   let authMethod: AuthMethod = "api-key";
@@ -367,18 +427,13 @@ export async function runBootstrap(): Promise<BootstrapResult> {
     });
     console.log();
 
-    const authChoice = await ask(
+    const authNum = await askChoice(
       rl,
       `Elige el método (1-${selectedProvider.authMethods.length}): `,
+      1,
+      selectedProvider.authMethods.length,
     );
-    const authIndex = parseInt(authChoice, 10) - 1;
-
-    if (authIndex < 0 || authIndex >= selectedProvider.authMethods.length) {
-      rl.close();
-      throw new Error("Método no válido.");
-    }
-
-    const methodName = selectedProvider.authMethods[authIndex];
+    const methodName = selectedProvider.authMethods[authNum - 1];
     if (methodName.startsWith("Setup-token")) {
       authMethod = "setup-token";
     } else if (methodName.startsWith("OAuth")) {
@@ -427,43 +482,47 @@ export async function runBootstrap(): Promise<BootstrapResult> {
     console.log(`  ${selectedProvider.models.length + 1}. Otro (introducir nombre)`);
     console.log();
 
-    const modelChoice = await ask(
+    const modelNum = await askChoice(
       rl,
       `Elige el modelo (1-${selectedProvider.models.length + 1}): `,
+      1,
+      selectedProvider.models.length + 1,
     );
-    const modelIndex = parseInt(modelChoice, 10) - 1;
 
-    if (modelIndex === selectedProvider.models.length) {
+    if (modelNum === selectedProvider.models.length + 1) {
       selectedModel = (await ask(rl, "Nombre del modelo instalado en Ollama: ")).trim();
       if (!selectedModel) {
         throw new Error("El nombre del modelo no puede estar vacío.");
       }
-    } else if (modelIndex < 0 || modelIndex >= selectedProvider.models.length) {
-      rl.close();
-      throw new Error("Modelo no válido.");
     } else {
-      selectedModel = selectedProvider.models[modelIndex];
+      selectedModel = selectedProvider.models[modelNum - 1];
     }
   } else {
-    console.log(`\nModelos disponibles para ${selectedProvider.name}:\n`);
-    selectedProvider.models.forEach((m, i) => {
+    // OAuth Codex usa modelos del ChatGPT backend, no los estándar de api.openai.com
+    const modelList = authMethod === "oauth" ? OPENAI_CODEX_MODELS : selectedProvider.models;
+    const modelLabel = authMethod === "oauth" ? "Modelos Codex (ChatGPT)" : selectedProvider.name;
+
+    console.log(`\nModelos disponibles para ${modelLabel}:\n`);
+    modelList.forEach((m, i) => {
       console.log(`  ${i + 1}. ${formatModelLabel(m)}`);
     });
     console.log();
 
-    const modelChoice = await ask(rl, `Elige el modelo (1-${selectedProvider.models.length}): `);
-    const modelIndex = parseInt(modelChoice, 10) - 1;
-
-    if (modelIndex < 0 || modelIndex >= selectedProvider.models.length) {
-      rl.close();
-      throw new Error("Modelo no válido.");
-    }
-
-    selectedModel = selectedProvider.models[modelIndex];
+    const modelNum = await askChoice(
+      rl,
+      `Elige el modelo (1-${modelList.length}): `,
+      1,
+      modelList.length,
+    );
+    selectedModel = modelList[modelNum - 1];
   }
 
   // 5. URL base para proveedores compatibles
   let baseUrl: string | undefined = selectedProvider.baseUrl;
+  // OAuth Codex usa el backend de ChatGPT, no api.openai.com
+  if (authMethod === "oauth") {
+    baseUrl = OPENAI_CODEX_BASE_URL;
+  }
 
   if (selectedProvider.id === "openai-compatible") {
     const input = await ask(rl, "URL base del servidor (ej: http://localhost:1234/v1): ");
@@ -473,12 +532,25 @@ export async function runBootstrap(): Promise<BootstrapResult> {
   // 6. Flujo OAuth: recoger la callback URL antes de cerrar rl
   // (la URL de callback no es un secreto, se puede usar readline)
   let oauthCallbackUrl: string | undefined;
+  let oauthVerifier: string | undefined;
   if (authMethod === "oauth" && selectedProvider.id === "openai") {
+    // PKCE: genera verifier y challenge para el flujo Codex
+    const { verifier, challenge } = generatePkce();
+    oauthVerifier = verifier;
+
     const state = crypto.randomBytes(16).toString("hex");
-    const authUrl =
-      `${OPENAI_AUTH_URL}?client_id=${OPENAI_OAUTH_CLIENT_ID}` +
-      `&redirect_uri=${encodeURIComponent(OPENAI_OAUTH_REDIRECT_URI)}` +
-      `&response_type=code&scope=openid%20profile%20email&state=${state}`;
+    const url = new URL(OPENAI_AUTH_URL);
+    url.searchParams.set("response_type", "code");
+    url.searchParams.set("client_id", OPENAI_OAUTH_CLIENT_ID);
+    url.searchParams.set("redirect_uri", OPENAI_OAUTH_REDIRECT_URI);
+    url.searchParams.set("scope", OPENAI_OAUTH_SCOPE);
+    url.searchParams.set("code_challenge", challenge);
+    url.searchParams.set("code_challenge_method", "S256");
+    url.searchParams.set("state", state);
+    url.searchParams.set("id_token_add_organizations", "true");
+    url.searchParams.set("codex_cli_simplified_flow", "true");
+    url.searchParams.set("originator", "pi");
+    const authUrl = url.toString();
 
     console.log(
       "\n" +
@@ -490,7 +562,7 @@ export async function runBootstrap(): Promise<BootstrapResult> {
     console.log(
       t.dim(
         "Cuando completes el login, copia la URL completa a la que te redirige\n" +
-          "(empezará por http://127.0.0.1:1455/auth/callback?...)\n" +
+          "(empezará por http://localhost:1455/auth/callback?...)\n" +
           "y pégala aquí:",
       ),
     );
@@ -536,20 +608,22 @@ export async function runBootstrap(): Promise<BootstrapResult> {
     }
 
     console.log("\n" + t.step("Intercambiando código por token de acceso..."));
-    const accessToken = await exchangeOAuthCode(code);
+    const oauthCreds = await exchangeOAuthCode(code, oauthVerifier ?? "");
     console.log("  " + t.good("Token obtenido\n"));
 
-    console.log(t.step("Validando el token con OpenAI..."));
-    const valid = await validateApiKey("openai", accessToken, selectedModel);
-    if (!valid) {
-      throw new Error("El token OAuth no es válido para la API de OpenAI.");
-    }
-    console.log("  " + t.good("Token válido\n"));
+    // No validamos contra /v1/chat/completions — el token Codex es de suscripción,
+    // no una API key estándar. El flujo original de OpenClaw tampoco valida:
+    // confía en el intercambio OAuth exitoso (igual que pi-ai).
 
     console.log(t.step("Almacenando credenciales en auth-profiles..."));
-    // El token OAuth se almacena como api_key (Bearer estático sin refresh)
-    profileId = storeApiKey("openai", accessToken);
-    authType = "api_key";
+    // Almacenar como type: "oauth" con refresh token — mismo patrón que el onboarding real
+    profileId = storeOAuthCredential(
+      "openai-codex",
+      oauthCreds.access,
+      oauthCreds.refresh,
+      oauthCreds.expires,
+    );
+    authType = "oauth";
   } else {
     // Flujo estándar: API key
     const providerLabel =
@@ -557,7 +631,10 @@ export async function runBootstrap(): Promise<BootstrapResult> {
     let apiKey = await askSecret(`\nIntroduce tu API key de ${providerLabel}: `);
 
     if (!apiKey || apiKey.length < 8) {
-      throw new Error("API key demasiado corta. Verifica que la has copiado correctamente.");
+      throw new Error(
+        "API key demasiado corta (mínimo 8 caracteres). " +
+          "Verifica que la has copiado correctamente y ejecuta laia-arch install de nuevo.",
+      );
     }
 
     // Validación opcional de formato
@@ -593,7 +670,8 @@ export async function runBootstrap(): Promise<BootstrapResult> {
   console.log(t.dim("  (La key nunca aparecerá en logs ni en el contexto de la IA)\n"));
 
   return {
-    providerId: selectedProvider.id,
+    // OAuth Codex usa un provider distinto: "openai-codex" ruteará a la Responses API
+    providerId: authMethod === "oauth" ? "openai-codex" : selectedProvider.id,
     model: selectedModel,
     profileId,
     authMethod,

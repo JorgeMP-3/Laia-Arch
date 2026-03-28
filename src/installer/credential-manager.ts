@@ -51,6 +51,29 @@ export function storeSetupToken(token: string): string {
 }
 
 /**
+ * Almacena una credencial OAuth completa (con refresh token y expiración).
+ * Usa el mismo formato que el onboarding original de OpenClaw (type: "oauth").
+ * Devuelve el profileId (e.g. "openai-codex:default").
+ */
+export function storeOAuthCredential(
+  provider: string,
+  access: string,
+  refresh: string,
+  expires: number,
+): string {
+  const profileId = buildTokenProfileId({ provider, name: "default" });
+  const credential: AuthProfileCredential = {
+    type: "oauth",
+    provider,
+    access,
+    refresh,
+    expires,
+  } as AuthProfileCredential;
+  upsertAuthProfile({ profileId, credential });
+  return profileId;
+}
+
+/**
  * Recupera una credencial de IA por su profileId desde auth-profiles.json.
  */
 export function retrieveProfileCredential(profileId: string): AuthProfileCredential {

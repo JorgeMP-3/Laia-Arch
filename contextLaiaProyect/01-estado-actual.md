@@ -48,6 +48,10 @@ Implementado:
 - `src/installer/index.ts` orquesta bootstrap, escaneo, conversación, plan, credenciales y ejecución.
 - `src/installer/conversation.ts` soporta modos `tool-driven`, `guided` y `adaptive`.
 - `src/installer/conversation.ts` ya devuelve también una intención estructurada (`ConversationIntent`) además de la config de fallback.
+- `src/installer/index.ts` arranca ahora un gateway provisional justo después del bootstrap y antes de la Fase 2.
+- `src/installer/provisional-gateway.ts` encapsula ese runtime mínimo: puerto provisional, token efímero, `start()`, `callAgentTurn()` y `close()`.
+- `src/installer/conversation.ts` ya no mantiene un cliente HTTP propio por proveedor; todos los turnos de Fase 2 pasan por el gateway provisional vía RPC `agent`, con `provider` y `model` explícitos desde `BootstrapResult`.
+- El gateway provisional usa ahora un timeout explícito más amplio para respuestas finales y fuerza conversación en texto plano sin tools/plugins para evitar cortes a los 10 s del wrapper `callGateway()` y desvíos accidentales a plugins como `memory-core`.
 - `install-prompts/00-06.md` define etapas editables para el modo guiado.
 - `src/installer/presets/` y `presets/*.json` permiten configuraciones reutilizables.
 
@@ -77,6 +81,7 @@ Implementado:
   - DNS con zona mínima válida y TTL explícito
   - Docker añadiendo el usuario invocador al grupo `docker`
   - `Laia Agora` con `openclaw.json` mínimo, permisos compatibles con el contenedor y `healthcheck`
+  - handoff de `auth-profiles.json` del bootstrap al home de Agora antes de `agora-03`
   - backup con retención por archivos (`find -type f`) para evitar falsos fallos en cron
 - `src/installer/plan-generator.test.ts` ya cubre DNS, Docker, Agora y backup además del flujo LDAP.
 
@@ -106,6 +111,22 @@ Implementado:
 
 - `src/installer/credential-manager.ts` genera y guarda credenciales sin exponerlas a la IA.
 - Usa llavero del sistema cuando es posible y fallback local restringido.
+- `storeOAuthCredential()` almacena tokens OAuth completos (access + refresh + expires) como `type: "oauth"`, compatible con el sistema de refresh automático de OpenClaw.
+
+#### Bootstrap: OAuth Codex corregido
+
+Implementado:
+
+- `src/installer/bootstrap.ts` usa el flujo PKCE idéntico al de `@mariozechner/pi-ai` (mismo `client_id`, misma URL, mismos parámetros).
+- El intercambio de código captura `access_token`, `refresh_token` y `expires_in` — ya no pierde el refresh token.
+- El token Codex se almacena como `type: "oauth"` con provider `openai-codex` (mismo patrón que el onboarding original de OpenClaw).
+- Se eliminó la validación contra `/v1/chat/completions` que fallaba porque los tokens Codex son de suscripción, no API keys.
+- `baseUrl` se establece a `https://chatgpt.com/backend-api` para OAuth Codex (el ChatGPT backend, NO `api.openai.com/v1`).
+- Los modelos disponibles para OAuth Codex son los del ChatGPT backend (`gpt-5.4`, `gpt-5.3-codex`, etc.), no los de la API estándar (`gpt-4o`, `o3-mini`).
+- `providerId` es `"openai-codex"` cuando se usa OAuth Codex, para diferenciar el routing del proveedor estándar OpenAI.
+- La Fase 2 del instalador ya no depende de un branch HTTP específico para Codex: usa el gateway provisional de OpenClaw, que resuelve OAuth Codex, catálogo de modelos y routing de proveedor a través del sistema nativo de auth-profiles.
+- Selección de proveedor y modelo con reintento automático (3 intentos) en lugar de abortar al primer error de input.
+- Errores en index.ts se muestran con el tema visual de Laia Arch en lugar de stack traces crudos.
 
 #### Herramientas reales del sistema
 
