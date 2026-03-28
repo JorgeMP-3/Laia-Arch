@@ -297,6 +297,25 @@ Frase corta:
 
 `Laia Arch` ya existe y funciona, y el modo adaptativo ya instala a partir de proposals directas del agente; el siguiente salto ya no es desbloquear esa arquitectura, sino refinar cuánto razona y adapta sobre el estado real del host.
 
+## Herramientas complementarias de instalación
+
+### Instalador en bash (`scripts/install-laia-arch.sh`)
+
+Implementado: CLI independiente para instalar Laia Arch en máquinas nuevas.
+
+- Verifica requisitos (Node.js >= 22.16, pnpm, git)
+- Clona desde `https://github.com/JorgeMP-3/Laia-Arch.git`
+- Instala dependencias y compila con `scripts/build-laia-arch.sh`
+- Crea wrapper ejecutable en `~/.local/bin/laia-arch`
+- Soporta instalación, actualización (`--update`) y directorios personalizados (`--dir`)
+- Uso: `curl ... | bash` o `bash scripts/install-laia-arch.sh`
+
+Diferencia con el instalador conversacional:
+
+- el instalador bash es un bootstrap de herramientas del sistema (nodo, pnpm, repo)
+- el instalador conversacional (`src/installer/index.ts`) es el motor agentic que configura la empresa entera (LDAP, Samba, DNS, etc.)
+- ambos coexisten: la máquina se prepara con el script bash, luego corre el instalador conversacional en la primera sesión
+
 ## Nota de coherencia documental (pendiente de aclaración)
 
 - Codex detectó que `contextLaiaProyect/04-agentes-de-codigo.md` no existe; el protocolo operativo real está en `contextLaiaProyect/04-colaboracion-codex-claude.md` (pendiente de aclaración para el equipo).

@@ -1,35 +1,35 @@
 # Sesión de trabajo activa
 
-Fecha: 2026-03-27
-Agentes: Codex, Claude Opus, Antigravity
+Fecha: 2026-03-28
+Agentes: Codex, Claude Opus, Antigravity, Claude Haiku
 
 ## Archivos en uso
 
-| Archivo                                           | Agente      | Estado   |
-| ------------------------------------------------- | ----------- | -------- |
-| contextLaiaProyect/sesion-activa.md               | Claude Opus | editando |
-| src/installer/conversation.ts                     | Claude Opus | libre    |
-| src/installer/bootstrap.ts                        | Claude Opus | libre    |
-| src/installer/credential-manager.ts               | Claude Opus | libre    |
-| contextLaiaProyect/01-estado-actual.md            | Claude Opus | libre    |
-| contextLaiaProyect/03-roadmap.md                  | Claude Opus | libre    |
-| src/installer/types.ts                            | Codex       | libre    |
-| src/installer/agentic.ts                          | Codex       | libre    |
-| src/installer/index.ts                            | Codex       | libre    |
-| src/installer/executor.ts                         | Codex       | libre    |
-| src/installer/agentic.test.ts                     | Codex       | libre    |
-| src/installer/index.test.ts                       | Codex       | libre    |
-| src/installer/executor.test.ts                    | Codex       | libre    |
-| contextLaiaProyect/01-estado-actual.md            | Codex       | libre    |
-| contextLaiaProyect/03-roadmap.md                  | Codex       | libre    |
-| contextLaiaProyect/06-como-funciona-por-dentro.md | Codex       | libre    |
-| src/installer/provisional-gateway.ts              | Codex       | libre    |
-| src/installer/index.ts                            | Codex       | libre    |
-| src/installer/conversation.ts                     | Codex       | libre    |
-| src/installer/plan-generator.ts                   | Codex       | libre    |
-| contextLaiaProyect/01-estado-actual.md            | Codex       | libre    |
-| contextLaiaProyect/03-roadmap.md                  | Codex       | libre    |
-| contextLaiaProyect/sesion-activa.md               | Codex       | libre    |
+| Archivo                                           | Agente       | Estado |
+| ------------------------------------------------- | ------------ | ------ |
+| contextLaiaProyect/sesion-activa.md               | Claude Haiku | libre  |
+| src/installer/conversation.ts                     | Claude Opus  | libre  |
+| src/installer/bootstrap.ts                        | Claude Opus  | libre  |
+| src/installer/credential-manager.ts               | Claude Opus  | libre  |
+| contextLaiaProyect/01-estado-actual.md            | Claude Opus  | libre  |
+| contextLaiaProyect/03-roadmap.md                  | Claude Opus  | libre  |
+| src/installer/types.ts                            | Codex        | libre  |
+| src/installer/agentic.ts                          | Codex        | libre  |
+| src/installer/index.ts                            | Codex        | libre  |
+| src/installer/executor.ts                         | Codex        | libre  |
+| src/installer/agentic.test.ts                     | Codex        | libre  |
+| src/installer/index.test.ts                       | Codex        | libre  |
+| src/installer/executor.test.ts                    | Codex        | libre  |
+| contextLaiaProyect/01-estado-actual.md            | Codex        | libre  |
+| contextLaiaProyect/03-roadmap.md                  | Codex        | libre  |
+| contextLaiaProyect/06-como-funciona-por-dentro.md | Codex        | libre  |
+| src/installer/provisional-gateway.ts              | Codex        | libre  |
+| src/installer/index.ts                            | Codex        | libre  |
+| src/installer/conversation.ts                     | Codex        | libre  |
+| src/installer/plan-generator.ts                   | Codex        | libre  |
+| contextLaiaProyect/01-estado-actual.md            | Codex        | libre  |
+| contextLaiaProyect/03-roadmap.md                  | Codex        | libre  |
+| contextLaiaProyect/sesion-activa.md               | Codex        | libre  |
 
 ## Log de cambios de esta sesión
 
@@ -163,3 +163,12 @@ Agentes: Codex, Claude Opus, Antigravity
 - [17:03] Codex: validación local del ajuste de ruido:
   - `pnpm test -- src/installer/` -> 57/57 verde
   - `pnpm exec oxfmt --check src/installer/provisional-gateway.ts src/installer/provisional-gateway.test.ts contextLaiaProyect/sesion-activa.md` -> verde
+- [2026-03-28 19:30] Claude Haiku: sesión nueva. Tarea: crear instalador en bash para desplegar Laia Arch.
+- [19:30] Claude Haiku: creado `scripts/install-laia-arch.sh`:
+  - verifica Node.js >= 22.16, pnpm y git
+  - clona el repo desde `https://github.com/JorgeMP-3/Laia-Arch.git`
+  - instala dependencias con `pnpm install`
+  - compila con `scripts/build-laia-arch.sh` (sin canvas/A2UI)
+  - crea wrapper ejecutable en `~/.local/bin/laia-arch`
+  - argumentos: `--dir <ruta>`, `--no-symlink`, `--update`
+  - verifica sintaxis bash: OK
