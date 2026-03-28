@@ -3,7 +3,12 @@
     "allow": [
       "Bash(pnpm exec:*)",
       "Bash(pnpm test:*)",
-      "Bash(wc -l /home/laia-arch/laia-arch-origen/src/installer/*.ts)"
+      "Bash(wc -l /home/laia-arch/laia-arch-origen/src/installer/*.ts)",
+      "Bash(node laia-arch.mjs --version)",
+      "Bash(node openclaw.mjs --version)",
+      "Bash(chmod +x /home/laia-arch/laia-arch-origen/scripts/install-laia-arch.sh)",
+      "Bash(bash -n /home/laia-arch/laia-arch-origen/scripts/install-laia-arch.sh)",
+      "Bash(bash scripts/committer \"feat: add bash installer for Laia Arch deployment\" scripts/install-laia-arch.sh contextLaiaProyect/01-estado-actual.md contextLaiaProyect/sesion-activa.md)"
     ]
   }
 }
