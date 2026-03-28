@@ -54,6 +54,7 @@ Implementado:
 - El gateway provisional usa ahora un timeout explícito más amplio para respuestas finales y fuerza conversación en texto plano sin tools/plugins para evitar cortes a los 10 s del wrapper `callGateway()` y desvíos accidentales a plugins como `memory-core`.
 - `install-prompts/00-06.md` define etapas editables para el modo guiado.
 - `src/installer/presets/` y `presets/*.json` permiten configuraciones reutilizables.
+- **Resolución de rutas corregida** (v2026.3.28): `conversation.ts` resuelve `install-prompts/` desde `import.meta.url` en lugar de `process.cwd()`; `laia-arch-root.ts` reconoce ahora tanto `"openclaw"` como `"laia-arch"` en `CORE_PACKAGE_NAMES`, permitiendo que el instalador encuentre recursos correctamente en instalaciones empaquetadas.
 
 #### Escaneo y entendimiento del host
 
@@ -316,6 +317,10 @@ Diferencia con el instalador conversacional:
 - el instalador conversacional (`src/installer/index.ts`) es el motor agentic que configura la empresa entera (LDAP, Samba, DNS, etc.)
 - ambos coexisten: la máquina se prepara con el script bash, luego corre el instalador conversacional en la primera sesión
 
-## Nota de coherencia documental (pendiente de aclaración)
+## Organización de la documentación
 
-- Codex detectó que `contextLaiaProyect/04-agentes-de-codigo.md` no existe; el protocolo operativo real está en `contextLaiaProyect/04-colaboracion-codex-claude.md` (pendiente de aclaración para el equipo).
+Restructurada en v2026.3.28 en tres carpetas temáticas:
+
+- `context_LAIA/` — visión, roadmap, definición del producto
+- `context_Code/` — estado de implementación, arquitectura, sesiones activas (para IAs)
+- `context_Guias/` — guías prácticas de Git, comandos de compilación (para administradores humanos)

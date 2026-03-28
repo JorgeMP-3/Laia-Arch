@@ -172,3 +172,19 @@ Agentes: Codex, Claude Opus, Antigravity, Claude Haiku
   - crea wrapper ejecutable en `~/.local/bin/laia-arch`
   - argumentos: `--dir <ruta>`, `--no-symlink`, `--update`
   - verifica sintaxis bash: OK
+- [2026-03-28 23:45] Claude Haiku: sesión nueva. Tarea: actualizar context_Code con arreglos de rutas en instalador.
+- [23:45] Claude Haiku: problemas diagnosticados en máquina de prueba:
+  - Error 1: `ENOENT install-prompts/00-system-context.md` en `/home/jorgetm/` → `conversation.ts` usaba `process.cwd()` en lugar del directorio del módulo
+  - Error 2: `Missing workspace template: AGENTS.md` en `/home/jorgetm/docs/reference/templates/` → `laia-arch-root.ts` no reconocía paquete `"laia-arch"` en búsqueda de raíz
+- [23:45] Claude Haiku: fix aplicado en `src/infra/laia-arch-root.ts` línea 6:
+  - Cambio: `const CORE_PACKAGE_NAMES = new Set(["openclaw"])` → `new Set(["openclaw", "laia-arch"])`
+  - Efecto: `resolveOpenClawPackageRoot()` ahora encuentra raíz tanto en instalaciones de OpenClaw como de Laia Arch
+- [23:45] Claude Haiku: fix aplicado en `src/installer/conversation.ts`:
+  - Añadida importación: `import { fileURLToPath } from "node:url"`
+  - Cambio: `const PROMPTS_DIR = path.resolve(process.cwd(), "install-prompts")` → `path.resolve(_moduleDir, "../../install-prompts")` donde `_moduleDir = path.dirname(fileURLToPath(import.meta.url))`
+  - Efecto: rutas `install-prompts/` ahora se resuelven desde ubicación del módulo compilado, no desde directorio actual del usuario
+- [23:45] Claude Haiku: build: `pnpm build:laia-arch` -> OK, sin errores nuevos
+- [23:45] Claude Haiku: commit: `69ce356007` con mensaje "fix: resolver rutas en instalador — prompts y workspace templates ya no dependen de cwd"
+- [23:45] Claude Haiku: push a GitHub: OK, origen/main actualizado
+- [23:45] Claude Haiku: actualización de `context_Code/01-estado-actual.md` para documentar fixes de rutas
+- [23:45] Claude Haiku: actualización de `context_Code/sesion-activa.md` (este archivo)
