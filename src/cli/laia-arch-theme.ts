@@ -42,169 +42,34 @@ export const laiaTheme = {
     return `\n${border}\n  ${c.hex("#FFC45A").bold(title)}\n${border}`;
   },
 
-  // Banner principal del instalador — red neuronal de tres agentes
+  // Banner principal del instalador
   banner: (version?: string) => {
     const gold = (s: string) => c.hex("#FFC45A").bold(s);
-    const dim = (s: string) => c.hex("#E0A830")(s);
     const grey = (s: string) => c.hex("#A0A0A0")(s);
-    const white = (s: string) => c.hex("#FFFFFF")(s);
-    const blue = (s: string) => c.hex("#3B82F6")(s);
-    const green = (s: string) => c.hex("#22C55E")(s);
-
-    // nodos y conexiones:
-    //
-    //   ┌──────────┐
-    //   │ LAIA ARCH│  ← tú (host-only)
-    //   └────┬─────┘
-    //        │  ╲
-    //        │   ╲
-    //   ┌────▼───┐ ┌▼──────────┐
-    //   │  AGORA │ │   NEMO    │
-    //   │(docker)│ │(externo)  │
-    //   └────────┘ └───────────┘
 
     const lines = [
       "",
-      grey("  ╔══════════════════════════════════════════════════════════╗"),
-      grey("  ║") + "                                                          " + grey("║"),
-      grey("  ║") +
-        "           " +
-        gold("⚡ L A I A   A R C H") +
-        "                        " +
-        grey("║"),
-      grey("  ║") +
-        "       " +
-        grey("El arquitecto que construye tu servidor") +
-        "       " +
-        grey("║"),
+      gold("  ⚡ L A I A   A R C H"),
+      grey("  El arquitecto que construye tu servidor"),
     ];
 
-    // Agregar línea de versión si está disponible
     if (version) {
-      lines.push(
-        grey("  ║") +
-          "       " +
-          dim(version) +
-          " ".repeat(Math.max(0, 30 - version.length)) +
-          "       " +
-          grey("║"),
-      );
+      lines.push(grey(`  ${version}`));
     }
 
+    lines.push("");
+    lines.push(grey("  Qué es LAIA:"));
+    lines.push(grey("  LAIA es un ecosistema privado de agentes inteligentes para empresas."));
+    lines.push(grey("  Funciona en un servidor propio bajo tu control absoluto, con tres capas:"));
+    lines.push("");
+    lines.push(gold("    1. Laia Arch") + grey(" — Instala y configura la infraestructura"));
     lines.push(
-      grey("  ║") + "                                                          " + grey("║"),
-    );
-    lines.push(grey("  ╠══════════════════════════════════════════════════════════╣"));
-    lines.push(
-      grey("  ║") + "                                                          " + grey("║"),
-    );
-    lines.push(
-      grey("  ║") +
-        "         " +
-        gold("┌─────────────────────────────┐") +
-        "             " +
-        grey("║"),
+      gold("    2. Laia Agora") +
+        grey(" — Centro operativo de la empresa (tareas, proyectos, documentos)"),
     );
     lines.push(
-      grey("  ║") +
-        "         " +
-        gold("│") +
-        "  " +
-        gold("◈") +
-        " " +
-        white("Laia Arch") +
-        dim("  [host-only]") +
-        "       " +
-        gold("│") +
-        "             " +
-        grey("║"),
+      gold("    3. Laia Nemo") + grey(" — Acceso externo desde WhatsApp, Telegram, Slack, web"),
     );
-    lines.push(
-      grey("  ║") +
-        "         " +
-        gold("└──────────────┬──────────────┘") +
-        "             " +
-        grey("║"),
-    );
-    lines.push(
-      grey("  ║") +
-        "                        " +
-        dim("│") +
-        "                              " +
-        grey("║"),
-    );
-    lines.push(
-      grey("  ║") +
-        "               " +
-        dim("╔═════════╩══════════╗") +
-        "                  " +
-        grey("║"),
-    );
-    lines.push(
-      grey("  ║") +
-        "               " +
-        dim("║") +
-        "                    " +
-        dim("║") +
-        "                  " +
-        grey("║"),
-    );
-    lines.push(
-      grey("  ║") +
-        "    " +
-        blue("┌──────────────┐") +
-        "     " +
-        green("┌───────────────┐") +
-        "      " +
-        grey("║"),
-    );
-    lines.push(
-      grey("  ║") +
-        "    " +
-        blue("│") +
-        " " +
-        blue("◈") +
-        " " +
-        white("Laia Agora") +
-        "    " +
-        blue("│") +
-        "     " +
-        green("│") +
-        " " +
-        green("◈") +
-        " " +
-        white("Laia Nemo") +
-        "     " +
-        green("│") +
-        "      " +
-        grey("║"),
-    );
-    lines.push(
-      grey("  ║") +
-        "    " +
-        blue("│") +
-        grey(" docker:18789  ") +
-        blue("│") +
-        "     " +
-        green("│") +
-        grey(" WA · TG · Slack ") +
-        green("│") +
-        "      " +
-        grey("║"),
-    );
-    lines.push(
-      grey("  ║") +
-        "    " +
-        blue("└──────────────┘") +
-        "     " +
-        green("└───────────────┘") +
-        "      " +
-        grey("║"),
-    );
-    lines.push(
-      grey("  ║") + "                                                          " + grey("║"),
-    );
-    lines.push(grey("  ╚══════════════════════════════════════════════════════════╝"));
     lines.push("");
 
     return lines.join("\n");
