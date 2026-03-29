@@ -6,7 +6,7 @@ import { laiaTheme as t } from "../cli/laia-arch-theme.js";
 import { validateAnthropicSetupToken } from "../plugins/provider-auth-token.js";
 import { storeApiKey, storeOAuthCredential, storeSetupToken } from "./credential-manager.js";
 import type { AiProvider, AuthMethod, BootstrapResult } from "./types.js";
-import { formatVersionForBanner } from "./version-info.js";
+import { formatVersionForBanner, getManifestSummary } from "./version-info.js";
 
 const REASONING_MODEL_IDS = new Set([
   "claude-opus-4-5",
@@ -392,8 +392,21 @@ async function exchangeOAuthCode(code: string, codeVerifier: string): Promise<Co
 
 export async function runBootstrap(): Promise<BootstrapResult> {
   const version = formatVersionForBanner();
+  const manifestSummary = getManifestSummary();
+  console.log(t.ecosystemIntro(manifestSummary ?? undefined));
+  if (manifestSummary) {
+    console.log(
+      `  ${t.label("Versión activa del proyecto:")} ${t.value(`LAIA A:${manifestSummary.blockA} B:${manifestSummary.blockB}`)} ${t.dim(`(build ${manifestSummary.buildNumber}, ${manifestSummary.compilationDate})`)}`,
+    );
+    console.log(`  ${t.dim("A = instalador, motor agentic y despliegue base.")}`);
+    console.log(`  ${t.dim("B = Agora, Nemo y evolución del ecosistema operativo.")}\n`);
+  } else {
+    console.log(
+      t.dim("  No se pudo resolver la versión semántica interna; continuaré con el modo básico.\n"),
+    );
+  }
   console.log(t.banner(version ?? undefined));
-  console.log(t.dim("  Antes de empezar necesito configurar el modelo de IA.\n"));
+  console.log(t.dim("  Ahora voy a configurar el modelo de IA que guiará esta instalación.\n"));
 
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
 

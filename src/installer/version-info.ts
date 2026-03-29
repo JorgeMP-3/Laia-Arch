@@ -102,6 +102,29 @@ export function getManifest(): VersionManifest | null {
   return readManifest();
 }
 
+export function getManifestSummary(): {
+  blockA: string;
+  blockB: string;
+  compilationDate: string;
+  buildNumber: number;
+  descriptionA: string;
+  descriptionB: string;
+} | null {
+  const manifest = readManifest();
+  if (!manifest) {
+    return null;
+  }
+
+  return {
+    blockA: formatBlockVersion(manifest.blocks.A),
+    blockB: formatBlockVersion(manifest.blocks.B),
+    compilationDate: manifest.compilationDate,
+    buildNumber: manifest.buildNumber,
+    descriptionA: manifest.blocks.A.description,
+    descriptionB: manifest.blocks.B.description,
+  };
+}
+
 /**
  * Get version info for a specific block
  */

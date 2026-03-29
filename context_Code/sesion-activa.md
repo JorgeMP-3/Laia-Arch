@@ -256,3 +256,11 @@ Agentes: Codex, Claude Opus, Antigravity, Claude Haiku
   - `context_LAIA/05-versionamiento.md` actualizada para reflejar estado real del sistema A/B y quitar tareas ya completadas
   - `context_LAIA/README.md` corregido para apuntar a archivos reales y separar mejor visión, código y guías
   - `context_Guias/09-comandos-laia-arch.md` actualizada con los comandos nuevos de detección/aplicación de bump semántico
+- [18:14] Codex: arranque del instalador reordenado para priorizar la presentación del proyecto:
+  - `src/cli/laia-arch-theme.ts` ahora abre con una tarjeta gráfica del ecosistema LAIA, más descriptiva y centrada en producto
+  - `src/installer/bootstrap.ts` muestra primero la presentación del proyecto y de la versión semántica `A/B`, y solo después el banner de `Laia Arch` y los mensajes del instalador
+  - `context_Code/01-estado-actual.md` actualizado para reflejar este comportamiento de bienvenida
+- [18:17] Codex: validación final del nuevo arranque del instalador:
+  - `pnpm exec oxfmt --check src/cli/laia-arch-theme.ts src/installer/bootstrap.ts src/installer/version-info.ts test/laia-versioning.test.ts context_Code/01-estado-actual.md context_Code/sesion-activa.md` -> verde
+  - `pnpm test -- test/laia-versioning.test.ts` -> 10/10 verde
+  - `pnpm build` -> verde

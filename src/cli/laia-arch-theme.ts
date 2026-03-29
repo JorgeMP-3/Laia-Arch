@@ -209,4 +209,152 @@ export const laiaTheme = {
 
     return lines.join("\n");
   },
+
+  ecosystemIntro: (summary?: {
+    blockA: string;
+    blockB: string;
+    compilationDate: string;
+    buildNumber: number;
+    descriptionA: string;
+    descriptionB: string;
+  }) => {
+    const gold = (s: string) => c.hex("#FFC45A").bold(s);
+    const amber = (s: string) => c.hex("#E0A830")(s);
+    const white = (s: string) => c.hex("#FFFFFF")(s);
+    const grey = (s: string) => c.hex("#A0A0A0")(s);
+    const blue = (s: string) => c.hex("#3B82F6")(s);
+    const green = (s: string) => c.hex("#22C55E")(s);
+
+    const lines = [
+      "",
+      grey("  ╔══════════════════════════════════════════════════════════╗"),
+      grey("  ║") + "                                                          " + grey("║"),
+      grey("  ║") +
+        "              " +
+        gold("L A I A   E C O S Y S T E M") +
+        "                " +
+        grey("║"),
+      grey("  ║") +
+        "      " +
+        grey("Infraestructura, operaciones y acceso inteligente") +
+        "      " +
+        grey("║"),
+      grey("  ║") + "                                                          " + grey("║"),
+      grey("  ╠══════════════════════════════════════════════════════════╣"),
+      grey("  ║") + "                                                          " + grey("║"),
+      grey("  ║") +
+        "   " +
+        white("LAIA") +
+        grey(" es un ecosistema modular con tres capas coordinadas.") +
+        "    " +
+        grey("║"),
+      grey("  ║") + "                                                          " + grey("║"),
+      grey("  ║") +
+        "   " +
+        white("1.") +
+        " " +
+        gold("Laia Arch") +
+        grey(" diseña el servidor, instala la base y") +
+        "      " +
+        grey("║"),
+      grey("  ║") +
+        "      " +
+        grey("orquesta el despliegue inicial.") +
+        "                           " +
+        grey("║"),
+      grey("  ║") +
+        "   " +
+        white("2.") +
+        " " +
+        blue("Laia Agora") +
+        grey(" opera dentro del servidor y coordina") +
+        "       " +
+        grey("║"),
+      grey("  ║") +
+        "      " +
+        grey("servicios, agentes y flujos operativos.") +
+        "                    " +
+        grey("║"),
+      grey("  ║") +
+        "   " +
+        white("3.") +
+        " " +
+        green("Laia Nemo") +
+        grey(" conecta el sistema con el exterior y") +
+        "       " +
+        grey("║"),
+      grey("  ║") +
+        "      " +
+        grey("sus canales de acceso.") +
+        "                                 " +
+        grey("║"),
+      grey("  ║") + "                                                          " + grey("║"),
+      grey("  ╠══════════════════════════════════════════════════════════╣"),
+    ];
+
+    if (summary) {
+      lines.push(
+        grey("  ║") +
+          "   " +
+          gold("Versión semántica interna del proyecto") +
+          "                    " +
+          grey("║"),
+      );
+      lines.push(
+        grey("  ║") +
+          "   " +
+          white(`A:${summary.blockA}`) +
+          grey("  -> instalador, motor agentic y despliegue base") +
+          " " +
+          grey("║"),
+      );
+      lines.push(
+        grey("  ║") +
+          "   " +
+          white(`B:${summary.blockB}`) +
+          grey("  -> Agora, Nemo y capacidades post-instalación") +
+          " " +
+          grey("║"),
+      );
+      lines.push(
+        grey("  ║") +
+          "   " +
+          amber(`Build ${summary.buildNumber} · ${summary.compilationDate}`) +
+          "                            " +
+          grey("║"),
+      );
+      lines.push(grey("  ╠══════════════════════════════════════════════════════════╣"));
+      lines.push(
+        grey("  ║") +
+          "   " +
+          grey("A describe: ") +
+          white(summary.descriptionA.slice(0, 39)) +
+          " ".repeat(Math.max(0, 39 - summary.descriptionA.slice(0, 39).length)) +
+          grey("║"),
+      );
+      lines.push(
+        grey("  ║") +
+          "   " +
+          grey("B describe: ") +
+          white(summary.descriptionB.slice(0, 39)) +
+          " ".repeat(Math.max(0, 39 - summary.descriptionB.slice(0, 39).length)) +
+          grey("║"),
+      );
+    } else {
+      lines.push(
+        grey("  ║") +
+          "   " +
+          grey("No se pudo leer version.manifest.json; se mostrará el modo básico.") +
+          grey("║"),
+      );
+    }
+
+    lines.push(
+      grey("  ║") + "                                                          " + grey("║"),
+      grey("  ╚══════════════════════════════════════════════════════════╝"),
+      "",
+    );
+
+    return lines.join("\n");
+  },
 };

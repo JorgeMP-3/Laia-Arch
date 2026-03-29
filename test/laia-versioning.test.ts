@@ -17,6 +17,7 @@ import {
   formatVersionForLog,
   getBlockVersion,
   getFormattedVersion,
+  getManifestSummary,
 } from "../src/installer/version-info.ts";
 
 const manifestPath = new URL("../version.manifest.json", import.meta.url).pathname;
@@ -188,6 +189,12 @@ describe("laia runtime version info", () => {
     expect(getFormattedVersion()).toBe("LAIA A:2.3 B:1.0 2026.3.29");
     expect(formatVersionForBanner()).toBe("LAIA A:2.3 B:1.0 2026.3.29");
     expect(getBlockVersion("A")).toBe("2.3.0");
+    expect(getManifestSummary()).toMatchObject({
+      blockA: "2.3.0",
+      blockB: "1.0.0",
+      compilationDate: "2026.3.29",
+      buildNumber: 719,
+    });
     expect(formatVersionForLog()).toBe("Laia Arch A:2.3.0 B:1.0.0 (build 719) compiled 2026.3.29");
   });
 });
