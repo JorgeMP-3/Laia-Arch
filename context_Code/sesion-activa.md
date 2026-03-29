@@ -264,3 +264,43 @@ Agentes: Codex, Claude Opus, Antigravity, Claude Haiku
   - `pnpm exec oxfmt --check src/cli/laia-arch-theme.ts src/installer/bootstrap.ts src/installer/version-info.ts test/laia-versioning.test.ts context_Code/01-estado-actual.md context_Code/sesion-activa.md` -> verde
   - `pnpm test -- test/laia-versioning.test.ts` -> 10/10 verde
   - `pnpm build` -> verde
+- [2026-03-29 18:30] Claude Haiku: sesión nueva. Tarea: simplificar banner del instalador y actualizar documentación.
+- [18:30] Claude Haiku: incidencia identificada en `src/cli/laia-arch-theme.ts`:
+  - Banner actual: complejo recuadro ASCII de 170+ líneas con presentación de ecosistema LAIA (Arch, Agora, Nemo)
+  - Problema: demasiado verboso, explica LAIA (ecosistema) en lugar de Laia Arch (agente instalador)
+  - Solicitud del usuario: eliminar recuadro y dejar solo texto limpio enfocado en Laia Arch
+- [18:35] Claude Haiku: `src/cli/laia-arch-theme.ts` refactorizado completamente:
+  - Eliminado: `ecosystemIntro()` con recuadro ASCII y 60 líneas de descripción
+  - `banner()` simplificado de 170 líneas a ~25 líneas de código
+  - Nuevo contenido: nombre del agente, tagline, versión semántica A/B, explicación de qué es Laia Arch
+  - Salida final:
+
+    ```
+    ⚡ L A I A   A R C H
+    El arquitecto que construye tu servidor
+    LAIA A:2.2 B:1.0 2026.3.29
+
+    Qué es Laia Arch:
+    Agente instalador que configura la infraestructura privada de tu empresa.
+    Corre en tu propio servidor bajo tu control total, sin dependencias externas.
+
+    Sus funciones principales:
+      • Escanear el servidor y entender su estado real
+      • Conversar contigo para conocer tus necesidades
+      • Instalar la base del ecosistema LAIA (Agora, Nemo, servicios)
+      • Verificar que todo funciona correctamente
+    ```
+
+- [18:36] Claude Haiku: `src/installer/bootstrap.ts` ajustado:
+  - Eliminadas referencias a `ecosystemIntro()` (ya no existe)
+  - Flujo simplificado: banner limpio de Laia Arch directamente
+  - Fallback elegante si `version.manifest.json` no se puede resolver
+- [18:36] Claude Haiku: validación local del banner simplificado:
+  - `pnpm exec oxfmt --check src/cli/laia-arch-theme.ts src/installer/bootstrap.ts` -> verde
+  - `pnpm test` -> todos los tests pasan
+  - `pnpm build` -> verde
+- [18:37] Claude Haiku: commits realizados:
+  - Commit 1 (151f4fb4f1): "refactor: Simplificar banner del instalador a solo texto limpio"
+  - Commit 2 (82be5fd54c): "fix: Cambiar banner para explicar Laia Arch, no LAIA"
+- [18:40] Claude Haiku: push a GitHub completado. Los cambios están en `origin/main`.
+- [18:40] Claude Haiku: actualización de documentación de contexto (`sesion-activa.md` y `01-estado-actual.md`) pendiente.

@@ -138,8 +138,9 @@ Implementado:
 - La Fase 2 del instalador ya no depende de un branch HTTP específico para Codex: usa el gateway provisional de OpenClaw, que resuelve OAuth Codex, catálogo de modelos y routing de proveedor a través del sistema nativo de auth-profiles.
 - Selección de proveedor y modelo con reintento automático (3 intentos) en lugar de abortar al primer error de input.
 - Errores en index.ts se muestran con el tema visual de Laia Arch en lugar de stack traces crudos.
-- El arranque del instalador ya enseña primero una presentación visual del proyecto LAIA como ecosistema, y solo después el banner de `Laia Arch`.
-- Esa presentación inicial explica la versión semántica interna del proyecto (`A` y `B`) antes de pedir proveedor, credenciales o cualquier dato sensible.
+- El arranque del instalador muestra un banner limpio centrado en **Laia Arch** (el agente instalador), no en LAIA (el ecosistema).
+- El banner explica qué es Laia Arch, sus funciones principales (escaneo, conversación, instalación, verificación) y la versión semántica interna (`A` para instalador, `B` para post-instalación).
+- La presentación inicial es minimalista: nombre + tagline + versión + explicación clara de propósito, sin recuadros ASCII ni descripciones verbosas.
 
 #### Herramientas reales del sistema
 
