@@ -58,18 +58,17 @@ export const laiaTheme = {
     }
 
     lines.push("");
-    lines.push(grey("  Qué es LAIA:"));
-    lines.push(grey("  LAIA es un ecosistema privado de agentes inteligentes para empresas."));
-    lines.push(grey("  Funciona en un servidor propio bajo tu control absoluto, con tres capas:"));
+    lines.push(grey("  Qué es Laia Arch:"));
+    lines.push(grey("  Agente instalador que configura la infraestructura privada de tu empresa."));
+    lines.push(
+      grey("  Corre en tu propio servidor bajo tu control total, sin dependencias externas."),
+    );
     lines.push("");
-    lines.push(gold("    1. Laia Arch") + grey(" — Instala y configura la infraestructura"));
-    lines.push(
-      gold("    2. Laia Agora") +
-        grey(" — Centro operativo de la empresa (tareas, proyectos, documentos)"),
-    );
-    lines.push(
-      gold("    3. Laia Nemo") + grey(" — Acceso externo desde WhatsApp, Telegram, Slack, web"),
-    );
+    lines.push(grey("  Sus funciones principales:"));
+    lines.push(grey("    • Escanear el servidor y entender su estado real"));
+    lines.push(grey("    • Conversar contigo para conocer tus necesidades"));
+    lines.push(grey("    • Instalar la base del ecosistema LAIA (Agora, Nemo, servicios)"));
+    lines.push(grey("    • Verificar que todo funciona correctamente"));
     lines.push("");
 
     return lines.join("\n");
