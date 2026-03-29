@@ -43,7 +43,7 @@ export const laiaTheme = {
   },
 
   // Banner principal del instalador — red neuronal de tres agentes
-  banner: () => {
+  banner: (version?: string) => {
     const gold = (s: string) => c.hex("#FFC45A").bold(s);
     const dim = (s: string) => c.hex("#E0A830")(s);
     const grey = (s: string) => c.hex("#A0A0A0")(s);
@@ -77,14 +77,35 @@ export const laiaTheme = {
         grey("El arquitecto que construye tu servidor") +
         "       " +
         grey("║"),
+    ];
+
+    // Agregar línea de versión si está disponible
+    if (version) {
+      lines.push(
+        grey("  ║") +
+          "       " +
+          dim(version) +
+          " ".repeat(Math.max(0, 30 - version.length)) +
+          "       " +
+          grey("║"),
+      );
+    }
+
+    lines.push(
       grey("  ║") + "                                                          " + grey("║"),
-      grey("  ╠══════════════════════════════════════════════════════════╣"),
+    );
+    lines.push(grey("  ╠══════════════════════════════════════════════════════════╣"));
+    lines.push(
       grey("  ║") + "                                                          " + grey("║"),
+    );
+    lines.push(
       grey("  ║") +
         "         " +
         gold("┌─────────────────────────────┐") +
         "             " +
         grey("║"),
+    );
+    lines.push(
       grey("  ║") +
         "         " +
         gold("│") +
@@ -97,21 +118,29 @@ export const laiaTheme = {
         gold("│") +
         "             " +
         grey("║"),
+    );
+    lines.push(
       grey("  ║") +
         "         " +
         gold("└──────────────┬──────────────┘") +
         "             " +
         grey("║"),
+    );
+    lines.push(
       grey("  ║") +
         "                        " +
         dim("│") +
         "                              " +
         grey("║"),
+    );
+    lines.push(
       grey("  ║") +
         "               " +
         dim("╔═════════╩══════════╗") +
         "                  " +
         grey("║"),
+    );
+    lines.push(
       grey("  ║") +
         "               " +
         dim("║") +
@@ -119,6 +148,8 @@ export const laiaTheme = {
         dim("║") +
         "                  " +
         grey("║"),
+    );
+    lines.push(
       grey("  ║") +
         "    " +
         blue("┌──────────────┐") +
@@ -126,6 +157,8 @@ export const laiaTheme = {
         green("┌───────────────┐") +
         "      " +
         grey("║"),
+    );
+    lines.push(
       grey("  ║") +
         "    " +
         blue("│") +
@@ -145,6 +178,8 @@ export const laiaTheme = {
         green("│") +
         "      " +
         grey("║"),
+    );
+    lines.push(
       grey("  ║") +
         "    " +
         blue("│") +
@@ -156,6 +191,8 @@ export const laiaTheme = {
         green("│") +
         "      " +
         grey("║"),
+    );
+    lines.push(
       grey("  ║") +
         "    " +
         blue("└──────────────┘") +
@@ -163,10 +200,12 @@ export const laiaTheme = {
         green("└───────────────┘") +
         "      " +
         grey("║"),
+    );
+    lines.push(
       grey("  ║") + "                                                          " + grey("║"),
-      grey("  ╚══════════════════════════════════════════════════════════╝"),
-      "",
-    ];
+    );
+    lines.push(grey("  ╚══════════════════════════════════════════════════════════╝"));
+    lines.push("");
 
     return lines.join("\n");
   },

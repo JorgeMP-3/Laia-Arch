@@ -55,6 +55,12 @@ Implementado:
 - `install-prompts/00-06.md` define etapas editables para el modo guiado.
 - `src/installer/presets/` y `presets/*.json` permiten configuraciones reutilizables.
 - **Resolución de rutas corregida** (v2026.3.28): `conversation.ts` resuelve `install-prompts/` desde `import.meta.url` en lugar de `process.cwd()`; `laia-arch-root.ts` reconoce ahora tanto `"openclaw"` como `"laia-arch"` en `CORE_PACKAGE_NAMES`, permitiendo que el instalador encuentre recursos correctamente en instalaciones empaquetadas.
+- **Versionado A/B operativo** (v2026.3.29): el sistema ya distingue dos planos reales:
+  - `package.json` mantiene versión-calendario (`YYYY.M.D`) para compatibilidad de build y release
+  - `version.manifest.json` es la fuente de verdad del versionado semántico interno por bloques `A` y `B`
+- `scripts/detect-version-increment.ts` ya no es un borrador: ahora lee el manifiesto actual, clasifica cambios por bloque, ignora docs/tests/contexto, detecta archivos fuera de bloque y recomienda `none`, `patch`, `minor` o `major` con razón y confianza.
+- `scripts/update-version.ts` ya permite actualizar también metadatos del bloque (`changes`, `contributors`, `description`) al aplicar un bump.
+- `src/installer/version-info.ts` ya soporta override de ruta del manifiesto para pruebas y muestra en logs ambas versiones (`A` y `B`) además del build.
 
 #### Escaneo y entendimiento del host
 

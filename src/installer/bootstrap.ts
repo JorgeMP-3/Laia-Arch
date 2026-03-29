@@ -6,6 +6,7 @@ import { laiaTheme as t } from "../cli/laia-arch-theme.js";
 import { validateAnthropicSetupToken } from "../plugins/provider-auth-token.js";
 import { storeApiKey, storeOAuthCredential, storeSetupToken } from "./credential-manager.js";
 import type { AiProvider, AuthMethod, BootstrapResult } from "./types.js";
+import { formatVersionForBanner } from "./version-info.js";
 
 const REASONING_MODEL_IDS = new Set([
   "claude-opus-4-5",
@@ -390,7 +391,8 @@ async function exchangeOAuthCode(code: string, codeVerifier: string): Promise<Co
 // ─── Flujo principal ──────────────────────────────────────────────────────────
 
 export async function runBootstrap(): Promise<BootstrapResult> {
-  console.log(t.banner());
+  const version = formatVersionForBanner();
+  console.log(t.banner(version ?? undefined));
   console.log(t.dim("  Antes de empezar necesito configurar el modelo de IA.\n"));
 
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });

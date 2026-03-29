@@ -8,10 +8,19 @@ El contexto está dividido en tres carpetas con responsabilidades distintas:
 
 ### `context_LAIA/` — Visión estática del proyecto (estás aquí)
 
-Contiene la visión, el propósito y el roadmap del proyecto. Es el punto de partida para entender qué es LAIA y hacia dónde va.
+Contiene la visión, el propósito, roadmap y versionamiento del proyecto. Es el punto de partida para entender qué es LAIA y hacia dónde va.
+
+**Para IAs y desarrolladores (EMPIEZA AQUÍ):**
+
+- **`INSTRUCCIONES-PARA-IAS.md`** 🤖 — Paso a paso: qué archivo afecta, qué versión poner, qué comando ejecutar
+- **`QUICK-START-versionamiento.md`** ⚡ — Cheat sheet de comandos listos para copiar-pegar
+
+**Documentación completa:**
 
 - `02-proyecto-laia.md` — Qué es LAIA y para qué existe
 - `03-roadmap.md` — Plan de evolución del proyecto, fases y estado actual
+- `04-guia-versionamiento.md` — Guía práctica con ejemplos detallados
+- `05-versionamiento.md` — Especificación técnica del sistema de versiones
 
 ### `context_Code/` — Código y trabajo de IAs
 

@@ -208,3 +208,46 @@ Agentes: Codex, Claude Opus, Antigravity, Claude Haiku
   - `pnpm test -- src/installer/plan-generator.test.ts src/installer/agentic.test.ts src/installer/executor.test.ts` -> 37/37 verde
   - `pnpm exec oxfmt --check src/installer/plan-generator.ts src/installer/agentic.ts src/installer/executor.ts src/installer/plan-generator.test.ts src/installer/agentic.test.ts src/installer/executor.test.ts` -> verde
   - `pnpm build` -> verde
+- [17:53] Codex: inicio de ajuste del sistema de versiones. Archivos reservados: `scripts/detect-version-increment.ts`, `scripts/update-version.ts`, `src/installer/version-info.ts`, `test/laia-versioning.test.ts`, `context_Code/00-como-trabajan-las-ias.md`, `context_Code/01-estado-actual.md`, `context_Code/sesion-activa.md`.
+- [17:53] Codex: decisión de diseño confirmada tras revisar `context_Code/00-como-trabajan-las-ias.md`: mantener `package.json` en formato fecha para compatibilidad de release y usar `version.manifest.json` como fuente de verdad del versionado semántico A/B.
+- [17:59] Codex: `scripts/detect-version-increment.ts` rehecho para:
+  - leer la versión actual desde `version.manifest.json`
+  - clasificar cambios por bloques `A` y `B`
+  - ignorar docs, contexto, tests, `.github` y `version.manifest.json`
+  - señalar archivos fuera de bloque
+  - sugerir `patch`, `minor`, `major` o ningún bump con razón y confianza
+  - exponer salida `--json` para que otra IA pueda decidir sin parsear texto humano
+- [17:59] Codex: `scripts/update-version.ts` ampliado y limpiado:
+  - elimina código muerto
+  - exporta helpers puros para test
+  - permite `--set-changes`, `--set-contributors` y `--set-description`
+  - sigue actualizando `compilationDate` y `gitCommit`
+- [17:59] Codex: `src/installer/version-info.ts` endurecido:
+  - soporte para override `LAIA_ARCH_VERSION_MANIFEST_PATH` en tests y tooling
+  - logs con `A` y `B` completos en lugar de solo `A`
+  - cache limpiable mediante `clearVersionInfoCache()`
+- [17:59] Codex: añadido `test/laia-versioning.test.ts` con cobertura de:
+  - cambios que no deben subir versión
+  - `minor` por nueva herramienta del instalador
+  - `major` por cambios estructurales del motor
+  - `minor` en bloque `B`
+  - parsing de `git diff`/`numstat`
+  - bump del manifiesto y metadata
+  - formato runtime de banner y logs
+- [17:59] Codex: validación parcial completada:
+  - `pnpm test -- test/laia-versioning.test.ts` -> 10/10 verde
+  - `pnpm exec oxfmt --check scripts/detect-version-increment.ts scripts/update-version.ts src/installer/version-info.ts test/laia-versioning.test.ts` -> verde
+  - `node --import tsx scripts/detect-version-increment.ts --since-commits 1 --json` -> salida correcta
+- [17:59] Codex: `pnpm build` lanzado para validación final del cambio de versionado.
+- [18:01] Codex: validación final completada:
+  - `pnpm test -- test/laia-versioning.test.ts` -> 10/10 verde
+  - `pnpm exec oxfmt --check scripts/detect-version-increment.ts scripts/update-version.ts src/installer/version-info.ts test/laia-versioning.test.ts context_Code/00-como-trabajan-las-ias.md context_Code/01-estado-actual.md context_Code/sesion-activa.md` -> verde
+  - `pnpm build` -> verde
+- [18:01] Codex: archivos liberados. Cambio terminado en:
+  - `scripts/detect-version-increment.ts`
+  - `scripts/update-version.ts`
+  - `src/installer/version-info.ts`
+  - `test/laia-versioning.test.ts`
+  - `context_Code/00-como-trabajan-las-ias.md`
+  - `context_Code/01-estado-actual.md`
+  - `context_Code/sesion-activa.md`

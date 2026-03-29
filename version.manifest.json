@@ -1,0 +1,31 @@
+{
+  "format": "1.0",
+  "blocks": {
+    "A": {
+      "major": 2,
+      "minor": 3,
+      "patch": 0,
+      "description": "Laia Arch as installer — hybrid agentic motor + OAuth Codex integration",
+      "changes": [
+        "Fixed Codex OAuth endpoint with PKCE and /oauth/ path",
+        "Implemented Responses API endpoint for Codex conversation",
+        "Added semantic versioning system for blocks A and B",
+        "Improved installer presentation with version info"
+      ],
+      "lastUpdated": "2026.3.29",
+      "contributors": ["Codex", "Claude Code"]
+    },
+    "B": {
+      "major": 1,
+      "minor": 0,
+      "patch": 0,
+      "description": "Post-installation ecosystem — Agora base (templates), Nemo foundation",
+      "changes": ["Base templates for Agora and Nemo deployment"],
+      "lastUpdated": "2026-03-14",
+      "contributors": ["Design team"]
+    }
+  },
+  "compilationDate": "2026.3.29",
+  "gitCommit": "unknown",
+  "buildNumber": 719
+}

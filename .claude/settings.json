@@ -1,4 +1,5 @@
 {
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
   "permissions": {
     "allow": [
       "Bash(pnpm exec:*)",
@@ -13,7 +14,12 @@
       "Bash(git commit:*)",
       "Bash(git pull:*)",
       "Bash(git push:*)",
-      "Bash(git mv:*)"
+      "Bash(git mv:*)",
+      "Bash(git reset:*)",
+      "Bash(git checkout:*)",
+      "Bash(pnpm build:laia-arch)",
+      "Bash(bash scripts/committer \"fix: resolver rutas en instalador — prompts y workspace templates ya no dependen de cwd\" src/installer/conversation.ts src/infra/laia-arch-root.ts)",
+      "Bash(bash scripts/committer \"docs: actualizar context_Code con fixes de rutas en instalador\" context_Code/01-estado-actual.md context_Code/sesion-activa.md)"
     ]
   }
 }
