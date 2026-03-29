@@ -310,25 +310,46 @@ OPENCLAW_TEST_PROFILE=low OPENCLAW_TEST_SERIAL_GATEWAY=1 pnpm test
 
 ## 8. Gestión de versiones
 
-La versión sigue el formato `YYYY.M.D` (año.mes.día sin ceros a la izquierda).
-Por ejemplo: `2026.3.28` es el 28 de marzo de 2026.
+Laia Arch usa dos versiones a la vez:
+
+- `package.json` -> formato `YYYY.M.D` para build y release
+- `version.manifest.json` -> formato semántico interno `LAIA A:X.Y B:X.Y YYYY.M.D`
 
 ```bash
 # Ver la versión actual en package.json
 node -p "require('./package.json').version"
 
+# Ver la versión semántica del manifest
+cat version.manifest.json | jq '.blocks'
+
 # Ver la versión compilada
 node laia-arch.mjs --version
 
-# Comprobar si la versión está al día
+# Detectar si hace falta bump en A o B
+node --import tsx scripts/detect-version-increment.ts --since-commits 1
+
+# Lo mismo, pero en JSON para otra IA o tooling
+node --import tsx scripts/detect-version-increment.ts --since-commits 1 --json
+
+# Aplicar un bump semántico al bloque A
+node --import tsx scripts/update-version.ts --block A --bump minor
+
+# Comprobar si la fecha/calver está al día
 pnpm version:check
 
-# Actualizar la versión a la fecha de hoy (sin compilar)
+# Actualizar la versión-calendario a la fecha de hoy (sin compilar)
 pnpm version:today
 
-# Actualizar versión + compilar (todo en uno — lo más habitual)
+# Actualizar fecha/calver + compilar
 pnpm build:laia-arch
 ```
+
+Regla rápida:
+
+- fix pequeño -> `patch`
+- nueva capacidad o herramienta -> `minor`
+- cambio estructural -> `major`
+- docs, tests, contexto -> sin bump
 
 ---
 
@@ -345,6 +366,9 @@ git pull --rebase origin main
 # (edita los archivos que necesites)
 
 # ── Verificar que todo está bien ──────────────────────────────────
+# Detectar qué bump semántico hace falta
+node --import tsx scripts/detect-version-increment.ts --since-commits 1
+
 # Compilar
 pnpm build:laia-arch
 
@@ -386,6 +410,11 @@ git push origin main
 | Actualizar instalación      | `bash scripts/install-laia-arch.sh --update` |
 | Actualizar fecha de versión | `pnpm version:today`                         |
 
+Comandos de versionado A/B:
+
+- Detectar bump: `node --import tsx scripts/detect-version-increment.ts --since-commits 1`
+- Aplicar bump: `node --import tsx scripts/update-version.ts --block A --bump minor`
+
 ### Verificaciones
 
 | Qué quieres hacer     | Comando             |
@@ -407,4 +436,4 @@ git push origin main
 
 ---
 
-_Última actualización: 2026-03-28_
+_Última actualización: 2026-03-29_

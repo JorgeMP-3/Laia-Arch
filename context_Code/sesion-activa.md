@@ -251,3 +251,8 @@ Agentes: Codex, Claude Opus, Antigravity, Claude Haiku
   - `context_Code/00-como-trabajan-las-ias.md`
   - `context_Code/01-estado-actual.md`
   - `context_Code/sesion-activa.md`
+- [18:04] Codex: documentación de contexto alineada con el sistema de versiones ya implementado:
+  - `context_LAIA/04-guia-versionamiento.md` actualizada para reflejar detector real, `--json`, metadata del manifest y convivencia entre `package.json` y `version.manifest.json`
+  - `context_LAIA/05-versionamiento.md` actualizada para reflejar estado real del sistema A/B y quitar tareas ya completadas
+  - `context_LAIA/README.md` corregido para apuntar a archivos reales y separar mejor visión, código y guías
+  - `context_Guias/09-comandos-laia-arch.md` actualizada con los comandos nuevos de detección/aplicación de bump semántico

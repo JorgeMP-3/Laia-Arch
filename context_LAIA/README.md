@@ -12,8 +12,9 @@ Contiene la visión, el propósito, roadmap y versionamiento del proyecto. Es el
 
 **Para IAs y desarrolladores (EMPIEZA AQUÍ):**
 
-- **`INSTRUCCIONES-PARA-IAS.md`** 🤖 — Paso a paso: qué archivo afecta, qué versión poner, qué comando ejecutar
-- **`QUICK-START-versionamiento.md`** ⚡ — Cheat sheet de comandos listos para copiar-pegar
+- `context_Code/00-como-trabajan-las-ias.md` — protocolo real para agentes y versionado operativo
+- `04-guia-versionamiento.md` — guía práctica de uso diario del sistema de versiones
+- `05-versionamiento.md` — especificación técnica del sistema A/B
 
 **Documentación completa:**
 
@@ -38,7 +39,8 @@ Contiene el estado real del código, la arquitectura interna y las reglas de tra
 Contiene documentación pensada para el administrador del proyecto. No es relevante para las IAs.
 
 - `07-guia-programacion-para-entender-laia.md` — Conceptos técnicos explicados de forma accesible
-- `08-guia-git-github-y-comandos.md` — Git, GitHub y compilación de Laia Arch
+- `08-guia-git-github.md` — Git, GitHub y commits en el repo
+- `09-comandos-laia-arch.md` — comandos de build, test, instalación y versiones
 
 ## Principio editorial
 
@@ -49,4 +51,4 @@ Esta documentación distingue siempre entre:
 3. Lo que sigue siendo visión o diseño futuro
 
 Fecha base de esta versión: `2026-03-26`.
-Última revisión estructural: `2026-03-28`.
+Última revisión estructural: `2026-03-29`.

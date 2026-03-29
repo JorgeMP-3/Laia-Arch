@@ -9,7 +9,7 @@ El proyecto usa versioning semántico con **dos bloques independientes**:
 
 **Formato:** `LAIA A:X.Y B:X.Y YYYY.M.D`
 
-Ejemplo: `LAIA A:2.2 B:1.0 2026.3.29`
+Ejemplo: `LAIA A:2.3 B:1.0 2026.3.29`
 
 ## Cómo funciona
 
@@ -24,7 +24,13 @@ Contiene:
 - Fecha de compilación
 - Hash de git commit
 
-Se actualiza **antes de hacer release** o cuando se detectan cambios significativos.
+Se actualiza cuando se detectan cambios significativos en el bloque `A` o `B`.
+
+Importante:
+
+- `package.json` mantiene la versión-calendario `YYYY.M.D`
+- `version.manifest.json` mantiene la versión semántica interna `A/B`
+- no compiten entre sí; cumplen funciones distintas
 
 ### 2. Cambios detectados automáticamente
 
@@ -41,13 +47,13 @@ node --import tsx scripts/detect-version-increment.ts --since-tag
 **Output típico:**
 
 ```
-Block A changes detected (5 files):
-  - src/installer/bootstrap.ts (OAuth fix)
-  - src/installer/conversation.ts (new branch)
+Block A changes detected (2 files):
+  - src/installer/bootstrap.ts
+  - src/installer/provisional-gateway.ts
 
-Suggestion: A:2.1 → A:2.2 (minor bump)
+Suggestion: A:2.3.0 → A:2.4.0 (minor)
 Confidence: HIGH
-Reason: New OAuth flow changes (961 additions)
+Reason: Nueva capacidad o herramienta detectada en installer and setup engine
 ```
 
 ### 3. Actualizar la versión
@@ -70,6 +76,18 @@ El script automáticamente:
 - Actualiza la fecha de compilación
 - Obtiene el commit hash actual
 - Escribe el manifest actualizado
+- Puede actualizar también `changes`, `contributors` y `description`
+
+Ejemplo:
+
+```bash
+node --import tsx scripts/update-version.ts \
+  --block A \
+  --bump minor \
+  --set-changes "Añadido detector de versiones por IA;Mejorado runtime de versionado" \
+  --set-contributors "Codex, Claude Code" \
+  --set-description "Installer with AI-guided semantic versioning"
+```
 
 ## Decisiones de versioning
 
@@ -135,6 +153,9 @@ git commit -m "Add OAuth provider X"
 ```bash
 # Ver qué version se sugiere
 node --import tsx scripts/detect-version-increment.ts --since-commits 1
+
+# O salida JSON para otra IA o tooling
+node --import tsx scripts/detect-version-increment.ts --since-commits 1 --json
 ```
 
 ### 3. Si es un cambio significativo, actualizar versión
@@ -189,6 +210,8 @@ $ laia-arch --version
 Laia Arch 2026.3.29 (d35e703)
 ```
 
+La versión semántica `A/B` vive en el manifest y en el banner/log del instalador. La versión visible del binario sigue siendo la de `package.json`.
+
 ### En el manifest
 
 ```bash
@@ -200,11 +223,11 @@ Output:
 ```json
 {
   "major": 2,
-  "minor": 2,
+  "minor": 3,
   "patch": 0,
   "description": "Laia Arch as installer — hybrid agentic motor + OAuth Codex integration",
   "changes": ["Fixed Codex OAuth endpoint", "Added semantic versioning system"],
-  "lastUpdated": "2026-03-29",
+  "lastUpdated": "2026.3.29",
   "contributors": ["Codex", "Claude Code"]
 }
 ```
@@ -217,6 +240,7 @@ Output:
 - Cambios en tests
 - Cambios en CI/CD (.github/)
 - Cambios en configuración de linters (oxlint, eslint)
+- Cambios solo en `version.manifest.json` para corregir metadatos sin tocar código del bloque
 
 ### Cuando SÍ actualizar versión
 
@@ -225,9 +249,16 @@ Output:
 - Cambios en comportamiento del instalador
 - Cambios visibles para el usuario
 
-### Automatización futura
+### Automatización ya disponible
 
-Planeado (no implementado aún):
+- `scripts/detect-version-increment.ts` ya distingue:
+  - archivos del bloque `A`
+  - archivos del bloque `B`
+  - archivos ignorados sin impacto de versión
+  - archivos fuera de bloque
+- `--json` ya permite que otra IA o herramienta tome la decisión automáticamente
+
+### Automatización futura
 
 - Hook pre-commit que sugiera version bump
 - CI que detecte cambios y alerta si no hay version bump
@@ -236,7 +267,7 @@ Planeado (no implementado aún):
 ## Preguntas frecuentes
 
 **P: ¿Quién decide si es patch vs minor vs major?**
-R: El desarrollador que hace el cambio. Si tienes dudas, corre `detect-version-increment.ts` y confía en su sugerencia de "confidence".
+R: La IA o desarrollador que hace el cambio. La regla es: fix pequeño = `patch`, nueva capacidad = `minor`, cambio estructural = `major`, solo docs/tests/contexto = sin bump. Si tienes dudas, corre `detect-version-increment.ts` y confía en su sugerencia y `confidence`.
 
 **P: ¿Puedo hacer varios bumps en un commit?**
 R: Sí. Si afectas ambos bloques, puedes actualizar A y B en el mismo commit:
@@ -250,4 +281,4 @@ node --import tsx scripts/update-version.ts --block B --bump patch
 R: Solo edita `version.manifest.json` manualmente y commit de nuevo. El manifest es la fuente de verdad.
 
 **P: ¿A qué block afectan los cambios en src/cli/?**
-R: En general, `src/cli/` es parte de Block A (instalador) porque es usada durante bootstrap. Cambios en theming/presentación = patch. Cambios en flujo/opciones = minor.
+R: En este sistema solo `src/cli/laia-arch-theme.ts` se considera automáticamente parte del bloque `A`. Otros cambios de `src/cli/` no hacen bump por sí solos salvo que se amplíe la clasificación.

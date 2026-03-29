@@ -10,7 +10,19 @@ Las versiones de Laia Arch se organizan en dos bloques semánticos independiente
 LAIA A:X.Y B:X.Y YYYY.M.D
 ```
 
-Ejemplo: `LAIA A:2.1 B:1.0 2026.3.29`
+Ejemplo: `LAIA A:2.3 B:1.0 2026.3.29`
+
+## Dos planos de versión
+
+Laia Arch usa dos sistemas compatibles:
+
+- `package.json` -> versión-calendario `YYYY.M.D` para binario, build y release
+- `version.manifest.json` -> versión semántica interna por bloques `A` y `B`
+
+La regla práctica es:
+
+- no cambies `package.json` para reflejar `patch/minor/major`
+- usa `version.manifest.json` para registrar evolución funcional del instalador y del ecosistema
 
 ### Bloque A — Instalador (Laia Arch)
 
@@ -21,6 +33,9 @@ Ejemplo: `LAIA A:2.1 B:1.0 2026.3.29`
 - `src/installer/**/*` (bootstrap, conversation, executor, scanner, etc.)
 - `src/installer/tools/**/*` (credential, service, network, ldap, samba, system, verify)
 - `src/installer/presets/**/*`
+- `src/cli/laia-arch-theme.ts`
+- `scripts/detect-version-increment.ts`
+- `scripts/update-version.ts`
 
 **Qué triggeriza un increment:**
 
@@ -46,9 +61,9 @@ Ejemplo: `LAIA A:2.1 B:1.0 2026.3.29`
 - `src/nemo/**/*` (cuando exista más que templates)
 - `src/provider-web.ts` (UI web del ecosistema)
 - `apps/macos/Sources/**/*` (UI de control del servidor)
-- `docs/` (documentación del ecosistema post-instalación)
+- `docs/` no cuenta para el bump automático
 
-**Nota:** Mientras Agora y Nemo no tengan implementación más allá de templates, los cambios en esos directorios no triguerízan incremento de B.
+**Nota:** Mientras Agora y Nemo sigan siendo base/fundación, el bump de `B` debe reservarse a capacidades reales del ecosistema, no a documentación o templates sueltos.
 
 **Qué triggeriza un increment:**
 
@@ -83,14 +98,14 @@ Estructura:
   "blocks": {
     "A": {
       "major": 2,
-      "minor": 1,
-      "patch": 3,
+      "minor": 3,
+      "patch": 0,
       "description": "Laia Arch as installer — hybrid agentic motor + OAuth Codex integration",
       "changes": [
         "Fixed Codex OAuth endpoint (PKCE, /oauth/ path, Responses API)",
         "Added semantic versioning for blocks A and B"
       ],
-      "lastUpdated": "2026-03-29",
+      "lastUpdated": "2026.3.29",
       "contributors": ["Codex", "Claude Code"]
     },
     "B": {
@@ -99,12 +114,12 @@ Estructura:
       "patch": 0,
       "description": "Post-installation ecosystem — Agora base (templates), Nemo foundation",
       "changes": ["Base templates for Agora and Nemo"],
-      "lastUpdated": "2026-03-14",
+      "lastUpdated": "2026.3.14",
       "contributors": []
     }
   },
   "compilationDate": "2026.3.29",
-  "gitCommit": "HEAD",
+  "gitCommit": "unknown",
   "buildNumber": 719
 }
 ```
@@ -113,7 +128,7 @@ Estructura:
 
 **Ubicación:** `scripts/detect-version-increment.ts`
 
-**Función:** Analiza cambios en Git desde el último tag o commit y sugiere incrementos de versión.
+**Función:** Analiza cambios en Git desde el último tag o commit, clasifica por bloques y sugiere incrementos de versión.
 
 **Uso:**
 
@@ -126,24 +141,32 @@ node --import tsx scripts/detect-version-increment.ts --since dd4e6f1
 
 # Detectar cambios desde el último tag
 node --import tsx scripts/detect-version-increment.ts --since-tag
+
+# Salida estructurada para otra IA o script
+node --import tsx scripts/detect-version-increment.ts --since-commits 1 --json
 ```
 
 **Output:**
 
 ```
-Block A changes detected (5 files):
-  - src/installer/bootstrap.ts (1 addition, 2 deletions, 15 changes)
-  - src/installer/conversation.ts (50 lines added)
-  - src/installer/credential-manager.ts (25 lines added)
+Block A changes detected (2 files):
+  - src/installer/bootstrap.ts
+  - src/installer/provisional-gateway.ts
 
-Suggestion: A:2.0 → A:2.1 (minor bump — new OAuth flow, new conversation branch)
+Suggestion: A:2.3.0 → A:2.4.0 (minor)
 Confidence: HIGH
+Reason: Nueva capacidad o herramienta detectada en installer and setup engine
 
-Block B changes detected (0 files):
-No increment needed.
+Ignored files with no version impact: 3
 
-Suggested version: LAIA A:2.1 B:1.0 2026.3.29
+Uncategorized files outside A/B blocks: 1
 ```
+
+El detector ya sabe diferenciar:
+
+- `suggestions`: bloques que sí deben subir
+- `ignored`: docs, tests, contexto, `.github`, etc.
+- `uncategorized`: archivos tocados que no pertenecen a `A` o `B`
 
 ## Integración en el instalador
 
@@ -163,7 +186,7 @@ El banner agregará la versión y bloque activo:
 ⚡ L A I A   A R C H
 El arquitecto que construye tu servidor
 
-Version: LAIA A:2.1 B:1.0 (2026.3.29)
+LAIA A:2.3 B:1.0 2026.3.29
 Build: 719 | Installer Phase
 ```
 
@@ -171,9 +194,9 @@ Build: 719 | Installer Phase
 
 ### Cuándo actualizar el manifest
 
-1. **Antes de un release:** El script de CI detecta cambios, sugiere version, y un maintainer aprueba.
-2. **En desarrollo:** Desarrolladores pueden actualizar manualmente si necesitan.
-3. **Automático en build:** El build script puede auto-incrementar patch si se detectan cambios.
+1. **Antes de un release:** revisar el diff, correr el detector y decidir si hay bump en `A`, `B` o ninguno.
+2. **En desarrollo:** IAs y desarrolladores pueden actualizar manualmente el manifest cuando el cambio ya esté claro.
+3. **Build oficial:** mantiene la fecha/calver en `package.json`, pero no sustituye la decisión semántica del manifest.
 
 ### Antes de commit
 
@@ -183,11 +206,13 @@ Ejecutar:
 node --import tsx scripts/detect-version-increment.ts --since-commits 1
 ```
 
-Si hay cambios significativos, actualizar `version.manifest.json` manualmente o con:
+Si hay cambios significativos, actualizar `version.manifest.json` con:
 
 ```bash
 node --import tsx scripts/update-version.ts --block A --bump minor
 ```
+
+Si no hay cambios significativos, no hagas bump.
 
 ## Ejemplos de decisión
 
@@ -231,12 +256,13 @@ Análisis:
 
 **Decisión:** Minor → `B:1.0 → B:1.1`
 
-## Próximos pasos
+## Estado actual del sistema
 
-- [ ] Crear `version.manifest.json` con versiones iniciales
-- [ ] Implementar `scripts/detect-version-increment.ts`
-- [ ] Implementar `scripts/update-version.ts`
-- [ ] Integrar lectura de versión en `src/installer/bootstrap.ts`
-- [ ] Actualizar `laia-arch-theme.ts` para mostrar versión en banner
+- [x] Existe `version.manifest.json`
+- [x] Existe `scripts/detect-version-increment.ts`
+- [x] Existe `scripts/update-version.ts`
+- [x] `src/installer/bootstrap.ts` ya muestra versión en el banner vía `version-info.ts`
+- [x] `src/cli/laia-arch-theme.ts` ya acepta la versión para el banner
+- [x] El detector ya tiene salida `--json`
 - [ ] Configurar hook pre-commit que sugiera version bump
-- [ ] Agregar versión al binario compiled (`laia-arch.mjs --version`)
+- [ ] Exponer mejor la versión `A/B` también en más superficies del CLI si se considera necesario
