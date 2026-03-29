@@ -249,6 +249,19 @@ describe("agentic installer helpers", () => {
     expect(plan.warnings.some((warning) => warning.includes("proxy inverso"))).toBe(true);
   });
 
+  it("reuses the hardened WireGuard setup in adaptive plans", () => {
+    const intent = buildConversationIntent(createConfig(), "adaptive", []);
+    const plan = buildAdaptiveExecutionPlanFromIntent(intent);
+    const vpnStep = plan.steps.find((step) => step.id === "vpn-01");
+    const commands = vpnStep?.commands.join("\n") ?? "";
+
+    expect(vpnStep).toBeTruthy();
+    expect(commands).toContain("install -d -m 700 /etc/wireguard");
+    expect(commands).toContain('PRIVATE_KEY="$(cat /etc/wireguard/server_private.key)"');
+    expect(commands).toContain("PrivateKey = $PRIVATE_KEY");
+    expect(commands).toContain("systemctl restart wg-quick@wg0");
+  });
+
   it("derives fallback proposals and keeps Agora verification requirements", async () => {
     const plan = await generatePlan(createConfig());
     const proposals = buildActionProposalsFromPlan(plan);

@@ -36,6 +36,30 @@ function coalesceNonEmpty(value: string | undefined, fallback: string): string {
   return trimmed ? trimmed : fallback;
 }
 
+export function buildWireGuardServerSetupCommands(vpnServerIp: string): string[] {
+  const writeConfigCommand = [
+    'PRIVATE_KEY="$(cat /etc/wireguard/server_private.key)"',
+    "cat > /etc/wireguard/wg0.conf <<EOF",
+    "[Interface]",
+    `Address = ${vpnServerIp}/24`,
+    "ListenPort = 51820",
+    "PrivateKey = $PRIVATE_KEY",
+    "EOF",
+  ].join("\n");
+
+  return [
+    "apt-get install -y wireguard wireguard-tools",
+    "install -d -m 700 /etc/wireguard",
+    "if [ ! -s /etc/wireguard/server_private.key ]; then wg genkey > /etc/wireguard/server_private.key; fi",
+    "chmod 600 /etc/wireguard/server_private.key",
+    "wg pubkey < /etc/wireguard/server_private.key > /etc/wireguard/server_public.key",
+    writeConfigCommand,
+    "chmod 600 /etc/wireguard/wg0.conf",
+    "systemctl enable wg-quick@wg0",
+    "systemctl restart wg-quick@wg0",
+  ];
+}
+
 // Genera las líneas de shell que recuperan la contraseña LDAP desde el keyring.
 // Intenta en orden: secret-tool (Linux) → security (macOS) → fichero plano en
 // ~/.laia-arch/credentials/. Si ninguno funciona, aborta con exit 1.
@@ -431,13 +455,7 @@ export async function generatePlan(config: InstallerConfig): Promise<InstallPlan
       id: "vpn-01",
       phase: 5,
       description: `Instalar WireGuard VPN (rango: ${vpnRange})`,
-      commands: [
-        "apt-get install -y wireguard wireguard-tools",
-        "wg genkey | tee /etc/wireguard/server_private.key | wg pubkey > /etc/wireguard/server_public.key",
-        "chmod 600 /etc/wireguard/server_private.key",
-        `printf '[Interface]\nAddress = ${vpnServerIp}/24\nListenPort = 51820\nPrivateKey = $(cat /etc/wireguard/server_private.key)\n' > /etc/wireguard/wg0.conf`,
-        "chmod 600 /etc/wireguard/wg0.conf",
-      ],
+      commands: buildWireGuardServerSetupCommands(vpnServerIp),
       requiresApproval: true,
       rollback:
         "apt-get remove -y --purge wireguard wireguard-tools && rm -f /etc/wireguard/server_*.key /etc/wireguard/wg0.conf",

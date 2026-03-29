@@ -14,6 +14,7 @@
 //  createInstallSessionState()    → inicializa el InstallSessionState vacío que
 //                                   el executor irá rellenando durante la ejecución
 
+import { buildWireGuardServerSetupCommands } from "./plan-generator.js";
 import type {
   ActionProposal,
   ConversationContradiction,
@@ -633,13 +634,7 @@ function buildAdaptiveInstallPlanArtifacts(
       id: "vpn-01",
       phase: 5,
       description: `Instalar WireGuard VPN (rango: ${vpnRange})`,
-      commands: [
-        "apt-get install -y wireguard wireguard-tools",
-        "wg genkey | tee /etc/wireguard/server_private.key | wg pubkey > /etc/wireguard/server_public.key",
-        "chmod 600 /etc/wireguard/server_private.key",
-        `printf '[Interface]\nAddress = ${vpnServerIp}/24\nListenPort = 51820\nPrivateKey = $(cat /etc/wireguard/server_private.key)\n' > /etc/wireguard/wg0.conf`,
-        "chmod 600 /etc/wireguard/wg0.conf",
-      ],
+      commands: buildWireGuardServerSetupCommands(vpnServerIp),
       requiresApproval: true,
       rollback:
         "apt-get remove -y --purge wireguard wireguard-tools && rm -f /etc/wireguard/server_*.key /etc/wireguard/wg0.conf",
@@ -1041,6 +1036,11 @@ function deriveExpectedVerification(stepId: string, config?: InstallerConfig) {
         kind: "path-exists" as const,
         path: "/etc/wireguard/server_private.key",
         description: "WireGuard server private key exists.",
+      },
+      {
+        kind: "wireguard-active" as const,
+        service: "wg-quick@wg0",
+        description: "WireGuard service is active.",
       },
     ];
   }

@@ -188,3 +188,23 @@ Agentes: Codex, Claude Opus, Antigravity, Claude Haiku
 - [23:45] Claude Haiku: push a GitHub: OK, origen/main actualizado
 - [23:45] Claude Haiku: actualización de `context_Code/01-estado-actual.md` para documentar fixes de rutas
 - [23:45] Claude Haiku: actualización de `context_Code/sesion-activa.md` (este archivo)
+- [17:35] Codex: incidencia reproducida en máquina nueva durante `vpn-01`. Causa confirmada: el plan de WireGuard escribía `wg0.conf` con comillas simples, así que `$(cat /etc/wireguard/server_private.key)` quedaba literal y el servicio `wg-quick@wg0` fallaba al arrancar.
+- [17:35] Codex: `src/installer/plan-generator.ts` endurecido con helper compartido `buildWireGuardServerSetupCommands()`:
+  - crea `/etc/wireguard` explícitamente
+  - reutiliza `server_private.key` si ya existe para no romper un rescate previo
+  - regenera `server_public.key` desde la clave privada actual
+  - escribe `wg0.conf` con `PrivateKey = $PRIVATE_KEY` real
+  - habilita y reinicia `wg-quick@wg0` en el mismo paso
+- [17:35] Codex: `src/installer/agentic.ts` reutiliza el mismo helper para que el camino adaptativo no diverja del plan determinista; además `vpn-01` ahora exige verificación `wireguard-active`.
+- [17:35] Codex: `src/installer/executor.ts` ya no aborta automáticamente tras un fallo persistente del paso:
+  - añade selector post-fallo `reintentar / rescate / saltar`
+  - permite volver al modo rescate varias veces si hace falta
+  - un paso omitido tras fallo queda como `skipped`, no como completado
+- [17:35] Codex: tests añadidos/actualizados:
+  - `src/installer/plan-generator.test.ts` cubre el nuevo `vpn-01`
+  - `src/installer/agentic.test.ts` verifica que el plan adaptativo reutiliza la misma receta de WireGuard
+  - `src/installer/executor.test.ts` cubre el parser de decisiones `reintentar/rescate/saltar`
+- [17:35] Codex: validación local final:
+  - `pnpm test -- src/installer/plan-generator.test.ts src/installer/agentic.test.ts src/installer/executor.test.ts` -> 37/37 verde
+  - `pnpm exec oxfmt --check src/installer/plan-generator.ts src/installer/agentic.ts src/installer/executor.ts src/installer/plan-generator.test.ts src/installer/agentic.test.ts src/installer/executor.test.ts` -> verde
+  - `pnpm build` -> verde

@@ -1862,6 +1862,8 @@ interface ApprovalRequestLocal {
   timeoutSeconds: number;
 }
 
+type FailedStepResolution = "retry" | "rescue" | "skip";
+
 async function askConfirmationInline(question: string): Promise<boolean> {
   return new Promise((resolve) => {
     const rl = readline.createInterface({
@@ -1875,6 +1877,62 @@ async function askConfirmationInline(question: string): Promise<boolean> {
       resolve(norm === "s" || norm === "si" || norm === "sí");
     });
   });
+}
+
+export function parseFailedStepResolution(
+  answer: string,
+  rescueAvailable: boolean,
+): FailedStepResolution | undefined {
+  const normalized = answer.toLowerCase().trim();
+
+  if (["r", "reintentar", "retry", "intentar"].includes(normalized)) {
+    return "retry";
+  }
+  if (["s", "saltar", "skip", "omitir"].includes(normalized)) {
+    return "skip";
+  }
+  if (
+    rescueAvailable &&
+    ["rescate", "ayuda", "help", "rescue", "volver al rescate"].includes(normalized)
+  ) {
+    return "rescue";
+  }
+
+  return undefined;
+}
+
+async function askFailedStepResolution(
+  stepId: string,
+  rescueAvailable: boolean,
+): Promise<FailedStepResolution> {
+  const prompt = rescueAvailable
+    ? `  El paso ${stepId} ha fallado. ¿Qué quieres hacer? (reintentar/rescate/saltar): `
+    : `  El paso ${stepId} ha fallado. ¿Qué quieres hacer? (reintentar/saltar): `;
+
+  while (true) {
+    const answer = await new Promise<string>((resolve) => {
+      const rl = readline.createInterface({
+        input: process.stdin,
+        output: process.stdout,
+        terminal: true,
+      });
+      rl.question(prompt, (value) => {
+        rl.close();
+        resolve(value);
+      });
+    });
+
+    const decision = parseFailedStepResolution(answer, rescueAvailable);
+    if (decision) {
+      return decision;
+    }
+
+    console.log(
+      rescueAvailable
+        ? '  Responde "reintentar", "rescate" o "saltar".'
+        : '  Responde "reintentar" o "saltar".',
+    );
+  }
 }
 
 function createVerificationReport(
@@ -2563,12 +2621,6 @@ async function executePreparedProposals(
         }
       }
 
-      const execution: ActionExecution = {
-        proposalId: proposal.id,
-        status: "running",
-        startedAt: new Date().toISOString(),
-        attempt: (session.executions[proposal.id]?.length ?? 0) + 1,
-      };
       const enrichExecutionWithVerification = async (
         currentResult: StepResult,
         currentExecution: ActionExecution,
@@ -2604,73 +2656,91 @@ async function executePreparedProposals(
         return currentResult;
       };
 
-      let result = await executeStep(step, sudoCtx);
-      execution.finishedAt = new Date().toISOString();
-      execution.status = result.status;
-      execution.output = result.output;
-      execution.error = result.error;
-      result = await enrichExecutionWithVerification(result, execution);
+      const runStepAttempt = async (): Promise<StepResult> => {
+        const attemptExecution: ActionExecution = {
+          proposalId: proposal.id,
+          status: "running",
+          startedAt: new Date().toISOString(),
+          attempt: (session.executions[proposal.id]?.length ?? 0) + 1,
+        };
+        let currentResult = await executeStep(step, sudoCtx);
+        attemptExecution.finishedAt = new Date().toISOString();
+        attemptExecution.status = currentResult.status;
+        attemptExecution.output = currentResult.output;
+        attemptExecution.error = currentResult.error;
+        currentResult = await enrichExecutionWithVerification(currentResult, attemptExecution);
+        attemptExecution.status = currentResult.status;
+        attemptExecution.error = currentResult.error;
+        attemptExecution.verification = currentResult.verification;
+        upsertExecution(session, attemptExecution);
+        writeInstallSessionState(session);
+        return currentResult;
+      };
 
-      upsertExecution(session, execution);
+      let result = await runStepAttempt();
 
       let stopAfterFailure = false;
       if (result.status === "failed") {
-        let rescuedAndRetried = false;
-        if (bootstrap) {
-          const activateRescue = await askConfirmationInline(
-            "¿Activar el modo rescate para diagnosticar el error?",
-          );
-          if (activateRescue) {
-            const repairAttempt: RepairAttempt = {
-              proposalId: proposal.id,
-              attempt: (session.repairs[proposal.id]?.length ?? 0) + 1,
-              strategy: "ai-rescue",
-              status: "pending",
-              notes: result.error ?? "AI rescue requested after failed execution.",
-              startedAt: new Date().toISOString(),
-            };
-            const ctx = createSessionRescueContext({
-              step,
-              output: result.output ?? "",
-              error: result.error,
-            });
-            const rescueDecision = await runRescueMode(ctx, bootstrap);
-            repairAttempt.status = rescueDecision === "continue" ? "succeeded" : "cancelled";
-            repairAttempt.finishedAt = new Date().toISOString();
-            upsertRepair(session, repairAttempt);
-            writeInstallSessionState(session);
+        while (result.status === "failed") {
+          const failureResolution = await askFailedStepResolution(stepId, Boolean(bootstrap));
 
-            if (rescueDecision === "continue") {
-              // Un único reintento tras el rescate
-              console.log(`\n  ${t.muted("Reintentando paso " + stepId + " tras rescate...")}\n`);
-              const retryResult = await executeStep(step, sudoCtx);
-              const retryExecution: ActionExecution = {
-                proposalId: proposal.id,
-                status: retryResult.status,
-                startedAt: new Date().toISOString(),
-                finishedAt: new Date().toISOString(),
-                attempt: (session.executions[proposal.id]?.length ?? 0) + 1,
-                output: retryResult.output,
-                error: retryResult.error,
-              };
-              const verifiedRetryResult = await enrichExecutionWithVerification(
-                retryResult,
-                retryExecution,
-              );
-              retryExecution.status = verifiedRetryResult.status;
-              retryExecution.error = verifiedRetryResult.error;
-              upsertExecution(session, retryExecution);
-              writeInstallSessionState(session);
-              if (verifiedRetryResult.status === "done") {
-                result = verifiedRetryResult;
-                rescuedAndRetried = true;
-              } else {
-                console.error(`\n  El reintento del paso ${stepId} también ha fallado.`);
-              }
+          if (failureResolution === "skip") {
+            console.log(`\n  ${t.warn(`Paso ${stepId} omitido por el usuario tras el fallo.`)}`);
+            result = {
+              stepId,
+              status: "skipped",
+              output: result.output,
+              error: result.error ?? "omitido por el usuario tras el fallo",
+            };
+            break;
+          }
+
+          if (failureResolution === "retry") {
+            console.log(`\n  ${t.muted("Reintentando paso " + stepId + "...")}\n`);
+            result = await runStepAttempt();
+            if (result.status === "failed") {
+              console.error(`\n  El reintento del paso ${stepId} también ha fallado.`);
             }
+            continue;
+          }
+
+          if (!bootstrap) {
+            console.log(t.muted("  Modo rescate no disponible (proveedor IA no configurado)."));
+            continue;
+          }
+
+          const repairAttempt: RepairAttempt = {
+            proposalId: proposal.id,
+            attempt: (session.repairs[proposal.id]?.length ?? 0) + 1,
+            strategy: "ai-rescue",
+            status: "pending",
+            notes: result.error ?? "AI rescue requested after failed execution.",
+            startedAt: new Date().toISOString(),
+          };
+          const ctx = createSessionRescueContext({
+            step,
+            output: result.output ?? "",
+            error: result.error,
+          });
+          const rescueDecision = await runRescueMode(ctx, bootstrap);
+          repairAttempt.status = rescueDecision === "continue" ? "succeeded" : "cancelled";
+          repairAttempt.finishedAt = new Date().toISOString();
+          upsertRepair(session, repairAttempt);
+          writeInstallSessionState(session);
+
+          if (rescueDecision !== "continue") {
+            stopAfterFailure = true;
+            break;
+          }
+
+          console.log(`\n  ${t.muted("Reintentando paso " + stepId + " tras rescate...")}\n`);
+          result = await runStepAttempt();
+          if (result.status === "failed") {
+            console.error(`\n  El reintento del paso ${stepId} también ha fallado.`);
           }
         }
-        if (!rescuedAndRetried) {
+
+        if (result.status === "failed") {
           console.error(`\n  El paso ${stepId} ha fallado. Deteniendo ejecución.`);
           console.log(
             `  ${t.muted("Vuelve a ejecutar 'laia-arch install' para retomar desde aquí.")}`,
@@ -2681,18 +2751,20 @@ async function executePreparedProposals(
 
       results.push(result);
       saveStepStateForPlan(planSignature, stepId, result.status, result.error);
+      session.currentProposalId = undefined;
+      session.snapshot = buildInstallationSnapshot(planSignature, options?.scan);
+      writeInstallSessionState(session);
 
       if (stopAfterFailure) {
         break;
       }
 
-      if (!session.completedProposalIds.includes(proposal.id)) {
+      if (result.status === "done" && !session.completedProposalIds.includes(proposal.id)) {
         session.completedProposalIds.push(proposal.id);
       }
-      completedSteps.add(stepId);
-      session.currentProposalId = undefined;
-      session.snapshot = buildInstallationSnapshot(planSignature, options?.scan);
-      writeInstallSessionState(session);
+      if (result.status === "done") {
+        completedSteps.add(stepId);
+      }
       console.log(`  ✓ Paso ${stepId} completado.`);
     }
   } finally {

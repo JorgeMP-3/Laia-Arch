@@ -125,6 +125,27 @@ describe("generatePlan LDAP steps", () => {
     expect(dnsStep?.commands.join("\n")).toContain("ns1\tIN A\t127.0.0.1");
   });
 
+  it("creates an idempotent WireGuard setup that writes a real wg0.conf and restarts the service", async () => {
+    const config = createConfig([{ username: "usuario1", role: "Equipo", remote: true }]);
+    config.services.wireguard = true;
+    config.access.remoteUsers = 1;
+    config.access.needsVpn = true;
+    config.network!.vpnRange = "10.8.0.0/24";
+
+    const plan = await generatePlan(config);
+    const vpnStep = plan.steps.find((step) => step.id === "vpn-01");
+    const commands = vpnStep?.commands.join("\n") ?? "";
+
+    expect(vpnStep).toBeTruthy();
+    expect(commands).toContain("install -d -m 700 /etc/wireguard");
+    expect(commands).toContain("if [ ! -s /etc/wireguard/server_private.key ]; then");
+    expect(commands).toContain('PRIVATE_KEY="$(cat /etc/wireguard/server_private.key)"');
+    expect(commands).toContain("PrivateKey = $PRIVATE_KEY");
+    expect(commands).not.toContain("PrivateKey = $(cat /etc/wireguard/server_private.key)");
+    expect(commands).toContain("systemctl enable wg-quick@wg0");
+    expect(commands).toContain("systemctl restart wg-quick@wg0");
+  });
+
   it("generates the Agora token without a pipefail-sensitive tr/head pipeline", async () => {
     const config = createConfig([{ username: "usuario1", role: "Equipo", remote: false }]);
     config.services.docker = true;

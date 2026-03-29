@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildRescueOperationalMemory,
   captureInstallSecrets,
+  parseFailedStepResolution,
   parseResumeDecision,
   restoreInstallSecrets,
   verifySingleRequirement,
@@ -279,6 +280,22 @@ describe("installer executor resume decisions", () => {
       { id: "laia-arch-admin-password", value: "laia-arch-admin-password-value" },
     ]);
     expect(profileWrites).toEqual([{ profileId: "anthropic:default", provider: "anthropic" }]);
+  });
+});
+
+describe("installer executor failed-step decisions", () => {
+  it("parses retry, rescue, and skip answers", () => {
+    expect(parseFailedStepResolution("reintentar", true)).toBe("retry");
+    expect(parseFailedStepResolution("r", true)).toBe("retry");
+    expect(parseFailedStepResolution("rescate", true)).toBe("rescue");
+    expect(parseFailedStepResolution("volver al rescate", true)).toBe("rescue");
+    expect(parseFailedStepResolution("saltar", true)).toBe("skip");
+    expect(parseFailedStepResolution("s", true)).toBe("skip");
+  });
+
+  it("rejects rescue answers when rescue is not available", () => {
+    expect(parseFailedStepResolution("rescate", false)).toBeUndefined();
+    expect(parseFailedStepResolution("desconocido", true)).toBeUndefined();
   });
 });
 

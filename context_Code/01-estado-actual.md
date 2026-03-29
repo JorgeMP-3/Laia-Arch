@@ -81,6 +81,8 @@ Implementado:
 - El plan ya incorpora endurecimientos operativos que nacieron de fallos reales de instalación:
   - DNS con zona mínima válida y TTL explícito
   - Docker añadiendo el usuario invocador al grupo `docker`
+  - WireGuard creando `/etc/wireguard/` de forma explícita, reutilizando la clave privada si ya existe, regenerando `server_public.key` desde esa clave y escribiendo `wg0.conf` con interpolación real de `PrivateKey`
+  - `vpn-01` levantando y validando `wg-quick@wg0` en el mismo paso para que un fallo de configuración no quede oculto como “instalación parcial”
   - `Laia Agora` con `openclaw.json` mínimo, permisos compatibles con el contenedor y `healthcheck`
   - handoff de `auth-profiles.json` del bootstrap al home de Agora antes de `agora-03`
   - backup con retención por archivos (`find -type f`) para evitar falsos fallos en cron
@@ -102,6 +104,8 @@ Implementado:
 - Verificación activa: éxito técnico (código 0) + verificación fallida = fallo real. No hay false-greens.
 - Sesión completa persistida: `InstallSessionState` incluye snapshot, propuestas, ejecuciones, reparaciones, approvals.
 - El reintento tras rescate ya deja el paso persistido como resuelto si realmente quedó bien; no se "olvida" al relanzar el instalador.
+- Cuando un paso falla y vuelve a fallar tras rescate, el instalador ya no aborta inmediatamente: ofrece `reintentar`, `volver al rescate` o `saltar` ese paso.
+- Los pasos omitidos tras fallo ya no se marcan como completados en la sesión persistida; el executor solo marca como completado un paso con resultado `done`.
 - La reanudación ofrece tres caminos: reanudar, reiniciar desde cero o desinstalar todo y reinstalar.
 - La reinstalación limpia preserva y restaura automáticamente las credenciales generadas del plan y el perfil de autenticación del proveedor IA para no romper fases posteriores como LDAP.
 - `src/installer/hitl-controller.ts` pide aprobación humana explícita.
