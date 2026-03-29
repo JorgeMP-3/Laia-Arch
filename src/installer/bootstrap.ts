@@ -391,22 +391,46 @@ async function exchangeOAuthCode(code: string, codeVerifier: string): Promise<Co
 // ─── Flujo principal ──────────────────────────────────────────────────────────
 
 export async function runBootstrap(): Promise<BootstrapResult> {
-  const version = formatVersionForBanner();
+  // Presentación del ecosistema LAIA
   const manifestSummary = getManifestSummary();
-  console.log(t.ecosystemIntro(manifestSummary ?? undefined));
+  console.log("");
+  console.log(t.dim("  ─────────────────────────────────────────────────────────"));
+  console.log(t.label("    LAIA — Ecosistema modular de agentes inteligentes"));
+  console.log(t.dim("  ─────────────────────────────────────────────────────────"));
+  console.log("");
+  console.log(t.dim("    Infraestructura privada empresarial en tres capas:"));
+  console.log("");
+  console.log(
+    t.dim("      ") + t.brand("◆") + t.dim(" Laia Arch  → diseña e instala la infraestructura"),
+  );
+  console.log(
+    t.dim("      ") + t.info("◆") + t.dim(" Laia Agora → coordina operaciones del servidor"),
+  );
+  console.log(
+    t.dim("      ") +
+      t.success("◆") +
+      t.dim(" Laia Nemo  → acceso externo desde múltiples canales"),
+  );
+  console.log("");
+
   if (manifestSummary) {
     console.log(
-      `  ${t.label("Versión activa del proyecto:")} ${t.value(`LAIA A:${manifestSummary.blockA} B:${manifestSummary.blockB}`)} ${t.dim(`(build ${manifestSummary.buildNumber}, ${manifestSummary.compilationDate})`)}`,
+      t.dim("    Versión semántica: ") +
+        t.brand(`A:${manifestSummary.blockA}`) +
+        t.dim(" · ") +
+        t.info(`B:${manifestSummary.blockB}`) +
+        t.dim(` (${manifestSummary.compilationDate})`),
     );
-    console.log(`  ${t.dim("A = instalador, motor agentic y despliegue base.")}`);
-    console.log(`  ${t.dim("B = Agora, Nemo y evolución del ecosistema operativo.")}\n`);
-  } else {
-    console.log(
-      t.dim("  No se pudo resolver la versión semántica interna; continuaré con el modo básico.\n"),
-    );
+    console.log("");
   }
+
+  console.log(t.dim("  ─────────────────────────────────────────────────────────"));
+  console.log("");
+
+  // Banner de Laia Arch
+  const version = formatVersionForBanner();
   console.log(t.banner(version ?? undefined));
-  console.log(t.dim("  Ahora voy a configurar el modelo de IA que guiará esta instalación.\n"));
+  console.log(t.dim("  Voy a configurar el modelo de IA que guiará esta instalación.\n"));
 
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
 

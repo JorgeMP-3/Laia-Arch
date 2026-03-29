@@ -33,9 +33,22 @@ function resolveManifestPath(): string {
     return path.resolve(overridePath);
   }
 
+  // Try from current working directory first (where CLI is executed from)
+  const cwdPath = path.join(process.cwd(), "version.manifest.json");
+  if (fs.existsSync(cwdPath)) {
+    return cwdPath;
+  }
+
+  // Fallback: try from module location (works during development)
   const __dirname = path.dirname(fileURLToPath(import.meta.url));
   const projectRoot = path.resolve(__dirname, "../../");
-  return path.join(projectRoot, "version.manifest.json");
+  const projectPath = path.join(projectRoot, "version.manifest.json");
+  if (fs.existsSync(projectPath)) {
+    return projectPath;
+  }
+
+  // Final fallback: return a default path (will be null in readManifest)
+  return projectPath;
 }
 
 function formatBlockVersion(block: VersionBlock): string {
