@@ -9,6 +9,7 @@ type UninstallerModule = typeof import("./uninstaller.js");
 const serviceStatuses = new Map<string, ServiceStatus>();
 const existingPaths = new Set<string>();
 const dirEntries = new Map<string, string[]>();
+const failingCommands = new Set<string>();
 const execCalls: string[] = [];
 const readlineAnswers: string[] = [];
 
@@ -23,6 +24,7 @@ beforeEach(async () => {
   serviceStatuses.clear();
   existingPaths.clear();
   dirEntries.clear();
+  failingCommands.clear();
   execCalls.length = 0;
   readlineAnswers.length = 0;
 
@@ -52,6 +54,9 @@ beforeEach(async () => {
     const actual = await importOriginal<typeof import("node:child_process")>();
     const execSync = vi.fn((command: string) => {
       execCalls.push(String(command));
+      if (failingCommands.has(String(command))) {
+        throw new Error("sudo: command not found");
+      }
       return "";
     });
     return {
@@ -112,6 +117,8 @@ describe("installer uninstaller", () => {
     existingPaths.add("/etc/wireguard");
     existingPaths.add("/srv/samba");
     existingPaths.add("/var/lib/ldap");
+    existingPaths.add("/home/tester/.local/share/laia-arch");
+    existingPaths.add("/home/tester/.local/bin/laia-arch");
 
     dirEntries.set("/srv/samba", ["departamento"]);
     dirEntries.set("/var/lib/ldap", ["data.mdb"]);
@@ -141,6 +148,8 @@ describe("installer uninstaller", () => {
     expect(commands.bind9.join("\n")).toContain("/etc/bind/named.conf.local");
     expect(commands.config.join("\n")).toContain("/etc/sudoers.d/laia-arch");
     expect(commands.config.join("\n")).toContain("/home/tester/.laia-arch");
+    expect(commands.config.join("\n")).toContain("/home/tester/.local/share/laia-arch");
+    expect(commands.config.join("\n")).toContain("/home/tester/.local/bin/laia-arch");
   });
 
   it("runs selected cleanup even when the detector finds nothing active", async () => {
@@ -157,5 +166,32 @@ describe("installer uninstaller", () => {
         "sudo rm -rf /var/lib/docker /var/lib/containerd /etc/docker",
       ]),
     );
+  });
+
+  it("reports partial failures when a sudo cleanup command is unavailable", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    readlineAnswers.push("s", "CONFIRMAR", "s");
+    failingCommands.add("sudo rm -f /etc/sudoers.d/laia-arch");
+
+    await runGenericUninstall(["config"]);
+
+    expect(execCalls).toEqual(
+      expect.arrayContaining([
+        'rm -rf "/home/tester/.laia-arch"',
+        "sudo rm -f /etc/sudoers.d/laia-arch",
+      ]),
+    );
+    expect(logSpy.mock.calls.flat().join("\n")).toContain(
+      "Desinstalación completada con errores parciales.",
+    );
+  });
+
+  it("marks local Laia Arch install paths as config that should be removed", async () => {
+    existingPaths.add("/home/tester/.local/share/laia-arch");
+    existingPaths.add("/home/tester/.local/bin/laia-arch");
+
+    const detected = await detectInstalledServices();
+
+    expect(detected.laiaConfig).toBe(true);
   });
 });

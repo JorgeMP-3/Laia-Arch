@@ -43,6 +43,8 @@ type RemovalResult = {
 };
 
 const LAIA_HOME_DIR = path.join(os.homedir(), ".laia-arch");
+const LAIA_INSTALL_DIR = path.join(os.homedir(), ".local", "share", "laia-arch");
+const LAIA_WRAPPER_PATH = path.join(os.homedir(), ".local", "bin", "laia-arch");
 const LAIA_SUDOERS_FILE = "/etc/sudoers.d/laia-arch";
 const BACKUP_ROOT_DIR = "/backup";
 const BACKUP_ARCHIVE_DIR = "/var/backups/laia-arch";
@@ -251,6 +253,8 @@ export function buildRemovalCommands(
     logs: ["sudo rm -rf /var/log/laia-arch/"],
     config: [
       `rm -rf ${JSON.stringify(path.join(homeDir, ".laia-arch"))}`,
+      `rm -rf ${JSON.stringify(path.join(homeDir, ".local", "share", "laia-arch"))}`,
+      `rm -f ${JSON.stringify(path.join(homeDir, ".local", "bin", "laia-arch"))}`,
       `sudo rm -f ${LAIA_SUDOERS_FILE}`,
     ],
   };
@@ -439,7 +443,11 @@ export async function detectInstalledServices(): Promise<InstalledServices> {
       pathExists(BACKUP_ROOT_DIR) ||
       pathExists(BACKUP_ARCHIVE_DIR) ||
       pathExists(BACKUP_CRON_FILE),
-    laiaConfig: pathExists(LAIA_HOME_DIR) || pathExists(LAIA_SUDOERS_FILE),
+    laiaConfig:
+      pathExists(LAIA_HOME_DIR) ||
+      pathExists(LAIA_INSTALL_DIR) ||
+      pathExists(LAIA_WRAPPER_PATH) ||
+      pathExists(LAIA_SUDOERS_FILE),
     ldapData: pathExists("/var/lib/ldap") && dirHasEntries("/var/lib/ldap"),
     logs: pathExists("/var/log/laia-arch"),
   };

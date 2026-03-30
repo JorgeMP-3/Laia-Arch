@@ -43,7 +43,7 @@ async function askConfirm(question: string): Promise<boolean> {
   });
 }
 
-function verifyInstalledArtifacts(repoDir: string): void {
+export function verifyInstalledArtifacts(repoDir: string): void {
   const requiredPaths = [
     `${repoDir}/laia-arch.mjs`,
     `${repoDir}/dist`,
