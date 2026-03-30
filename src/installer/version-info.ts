@@ -3,27 +3,12 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
-
-interface VersionManifest {
-  format: string;
-  blocks: {
-    A: VersionBlock;
-    B: VersionBlock;
-  };
-  compilationDate: string;
-  gitCommit: string;
-  buildNumber: number;
-}
-
-interface VersionBlock {
-  major: number;
-  minor: number;
-  patch: number;
-  description: string;
-  changes: string[];
-  lastUpdated: string;
-  contributors: string[];
-}
+import {
+  formatBannerVersionFromManifest,
+  formatBlockVersion,
+  formatEcosystemVersionFromManifest,
+  type ProjectVersionManifest as VersionManifest,
+} from "../version-manifest.js";
 
 let cachedManifest: VersionManifest | null = null;
 
@@ -51,10 +36,6 @@ function resolveManifestPath(): string {
   return projectPath;
 }
 
-function formatBlockVersion(block: VersionBlock): string {
-  return `${block.major}.${block.minor}.${block.patch}`;
-}
-
 /**
  * Reads the version manifest from disk (cached after first read)
  */
@@ -79,7 +60,7 @@ function readManifest(): VersionManifest | null {
 }
 
 /**
- * Get the version string formatted as: LAIA A:X.Y B:X.Y YYYY.M.D
+ * Get the version string formatted as: LAIA A:X.Y.Z B:X.Y.Z
  */
 export function getFormattedVersion(): string | null {
   const manifest = readManifest();
@@ -87,10 +68,7 @@ export function getFormattedVersion(): string | null {
     return null;
   }
 
-  const blockA = manifest.blocks.A;
-  const blockB = manifest.blocks.B;
-
-  return `LAIA A:${blockA.major}.${blockA.minor} B:${blockB.major}.${blockB.minor} ${manifest.compilationDate}`;
+  return formatBannerVersionFromManifest(manifest);
 }
 
 /**
@@ -102,10 +80,7 @@ export function getShortVersion(): string | null {
     return null;
   }
 
-  const blockA = manifest.blocks.A;
-  const blockB = manifest.blocks.B;
-
-  return `A:${blockA.major}.${blockA.minor} B:${blockB.major}.${blockB.minor}`;
+  return formatEcosystemVersionFromManifest(manifest);
 }
 
 /**
@@ -131,10 +106,10 @@ export function getManifestSummary(): {
   return {
     blockA: formatBlockVersion(manifest.blocks.A),
     blockB: formatBlockVersion(manifest.blocks.B),
-    compilationDate: manifest.compilationDate,
-    buildNumber: manifest.buildNumber,
-    descriptionA: manifest.blocks.A.description,
-    descriptionB: manifest.blocks.B.description,
+    compilationDate: manifest.compilationDate ?? "unknown",
+    buildNumber: manifest.buildNumber ?? 0,
+    descriptionA: manifest.blocks.A.description ?? "",
+    descriptionB: manifest.blocks.B.description ?? "",
   };
 }
 
@@ -176,7 +151,7 @@ export function getGitCommit(): string | null {
 
 /**
  * Format version for banner display
- * Example output: "LAIA A:2.3 B:1.0 2026.3.29"
+ * Example output: "LAIA A:2.3.0 B:1.0.0"
  */
 export function formatVersionForBanner(): string | null {
   return getFormattedVersion();

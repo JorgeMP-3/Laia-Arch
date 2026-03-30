@@ -31,7 +31,8 @@
     "docs/",
     "!docs/.generated/**",
     "!docs/.i18n/zh-CN.tm.jsonl",
-    "skills/"
+    "skills/",
+    "version.manifest.json"
   ],
   "type": "module",
   "main": "dist/index.js",
@@ -713,8 +714,8 @@
     "ui:build": "node scripts/ui.js build",
     "ui:dev": "node scripts/ui.js dev",
     "ui:install": "node scripts/ui.js install",
-    "version:check": "bash scripts/bump-version-today.sh --check",
-    "version:today": "bash scripts/bump-version-today.sh"
+    "version:check": "node --import tsx scripts/detect-version-increment.ts --since-commits 1",
+    "version:update": "node --import tsx scripts/update-version.ts"
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "0.16.1",

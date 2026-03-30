@@ -2,9 +2,14 @@
 // runUpdater() es el punto de entrada que muestra el menú.
 
 import { execSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import * as readline from "node:readline";
 import { isCancel, select } from "@clack/prompts";
 import { laiaTheme as t } from "../cli/laia-arch-theme.js";
+import {
+  formatEcosystemVersionFromManifest,
+  isProjectVersionManifest,
+} from "../version-manifest.js";
 import { runBootstrap } from "./bootstrap.js";
 import { extractCredentialValue, retrieveProfileCredential } from "./credential-manager.js";
 import {
@@ -41,6 +46,20 @@ async function askConfirm(question: string): Promise<boolean> {
       resolve(n === "s" || n === "si" || n === "sí" || n === "y" || n === "yes");
     });
   });
+}
+
+function readRepoDisplayVersion(repoDir: string): string | null {
+  try {
+    const manifest = JSON.parse(
+      readFileSync(`${repoDir}/version.manifest.json`, "utf8"),
+    ) as unknown;
+    if (!isProjectVersionManifest(manifest)) {
+      return null;
+    }
+    return formatEcosystemVersionFromManifest(manifest);
+  } catch {
+    return null;
+  }
 }
 
 export function verifyInstalledArtifacts(repoDir: string): void {
@@ -326,16 +345,8 @@ export async function runGenericUpdate(): Promise<void> {
   const repoDir = detectRepoDir();
   const g = (cmd: string) => execSilent(`git -C "${repoDir}" ${cmd}`);
 
-  // Versión actual: combinamos package.json + commit hash
-  let pkgVersion = "";
-  try {
-    const pkgRaw = execSilent(
-      `node -e "process.stdout.write(require('${repoDir}/package.json').version)"`,
-    );
-    pkgVersion = pkgRaw ? `v${pkgRaw}` : "";
-  } catch {
-    /* ignore */
-  }
+  // Versión actual: combinamos la versión semántica A/B + commit hash.
+  const pkgVersion = readRepoDisplayVersion(repoDir) ?? "";
   const currentHash = g("rev-parse --short HEAD");
   const currentVersion =
     [pkgVersion, currentHash].filter(Boolean).join(" (") + (currentHash ? ")" : "");
@@ -392,15 +403,8 @@ export async function runGenericUpdate(): Promise<void> {
   }
 
   const newHash = g("rev-parse --short HEAD");
-  let newVersion = "";
-  try {
-    const v = execSilent(
-      `node -e "process.stdout.write(require('${repoDir}/package.json').version)"`,
-    );
-    newVersion = v ? `v${v} (${newHash})` : newHash;
-  } catch {
-    newVersion = newHash;
-  }
+  const repoVersion = readRepoDisplayVersion(repoDir);
+  const newVersion = repoVersion ? `${repoVersion} (${newHash})` : newHash;
 
   console.log(t.step("\n  Commits instalados:"));
   for (const line of g("log HEAD~5..HEAD --oneline").split("\n").filter(Boolean)) {

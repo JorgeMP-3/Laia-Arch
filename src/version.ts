@@ -1,7 +1,15 @@
 import { createRequire } from "node:module";
+import { formatPrimaryVersionFromManifest, isProjectVersionManifest } from "./version-manifest.js";
 
 declare const __LAIA_ARCH_VERSION__: string | undefined;
 const CORE_PACKAGE_NAME = "openclaw";
+
+const VERSION_MANIFEST_CANDIDATES = [
+  "../version.manifest.json",
+  "../../version.manifest.json",
+  "../../../version.manifest.json",
+  "./version.manifest.json",
+] as const;
 
 const PACKAGE_JSON_CANDIDATES = [
   "../package.json",
@@ -54,6 +62,26 @@ function firstNonEmpty(...values: Array<string | undefined>): string | undefined
   return undefined;
 }
 
+export function readVersionFromManifestForModuleUrl(moduleUrl: string): string | null {
+  try {
+    const require = createRequire(moduleUrl);
+    for (const candidate of VERSION_MANIFEST_CANDIDATES) {
+      try {
+        const parsed = require(candidate) as unknown;
+        if (!isProjectVersionManifest(parsed)) {
+          continue;
+        }
+        return formatPrimaryVersionFromManifest(parsed);
+      } catch {
+        // ignore missing or unreadable candidate
+      }
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 export function readVersionFromPackageJsonForModuleUrl(moduleUrl: string): string | null {
   return readVersionFromJsonCandidates(moduleUrl, PACKAGE_JSON_CANDIDATES, {
     requirePackageName: true,
@@ -66,8 +94,9 @@ export function readVersionFromBuildInfoForModuleUrl(moduleUrl: string): string 
 
 export function resolveVersionFromModuleUrl(moduleUrl: string): string | null {
   return (
-    readVersionFromPackageJsonForModuleUrl(moduleUrl) ||
-    readVersionFromBuildInfoForModuleUrl(moduleUrl)
+    readVersionFromManifestForModuleUrl(moduleUrl) ||
+    readVersionFromBuildInfoForModuleUrl(moduleUrl) ||
+    readVersionFromPackageJsonForModuleUrl(moduleUrl)
   );
 }
 
@@ -118,9 +147,11 @@ export function resolveRuntimeServiceVersion(
   );
 }
 
-// Single source of truth for the current OpenClaw version.
+// Single source of truth for the current Laia Arch runtime version.
 // - Embedded/bundled builds: injected define or env var.
-// - Dev/npm builds: package.json.
+// - Git/dev installs: semantic block A version from version.manifest.json.
+// - Built packages: dist/build-info.json.
+// - Final legacy fallback: package.json.
 export const VERSION = resolveBinaryVersion({
   moduleUrl: import.meta.url,
   injectedVersion: typeof __LAIA_ARCH_VERSION__ === "string" ? __LAIA_ARCH_VERSION__ : undefined,

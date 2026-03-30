@@ -2,8 +2,7 @@
 # Build script para Laia Arch -- omite el canvas/A2UI que no necesitamos en servidor
 set -e  # Detener si cualquier comando falla
 
-echo "-> Actualizando versión a la fecha de hoy..."
-bash scripts/bump-version-today.sh
+echo "-> Usando version.manifest.json como fuente de versión semántica..."
 
 echo "-> Compilando TypeScript..."
 node scripts/tsdown-build.mjs

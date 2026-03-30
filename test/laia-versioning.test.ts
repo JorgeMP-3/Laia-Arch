@@ -186,8 +186,8 @@ describe("laia runtime version info", () => {
     process.env.LAIA_ARCH_VERSION_MANIFEST_PATH = manifestPath;
     clearVersionInfoCache();
 
-    expect(getFormattedVersion()).toBe("LAIA A:2.3 B:1.0 2026.3.29");
-    expect(formatVersionForBanner()).toBe("LAIA A:2.3 B:1.0 2026.3.29");
+    expect(getFormattedVersion()).toBe("LAIA A:2.3.0 B:1.0.0");
+    expect(formatVersionForBanner()).toBe("LAIA A:2.3.0 B:1.0.0");
     expect(getBlockVersion("A")).toBe("2.3.0");
     expect(getManifestSummary()).toMatchObject({
       blockA: "2.3.0",

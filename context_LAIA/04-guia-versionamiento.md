@@ -7,9 +7,9 @@ El proyecto usa versioning semántico con **dos bloques independientes**:
 - **Bloque A** (instalador Laia Arch)
 - **Bloque B** (ecosistema post-instalación: Agora, Nemo)
 
-**Formato:** `LAIA A:X.Y B:X.Y YYYY.M.D`
+**Formato visible del ecosistema:** `LAIA A:X.Y.Z B:X.Y.Z`
 
-Ejemplo: `LAIA A:2.3 B:1.0 2026.3.29`
+Ejemplo: `LAIA A:2.3.0 B:1.0.0`
 
 ## Cómo funciona
 
@@ -28,9 +28,10 @@ Se actualiza cuando se detectan cambios significativos en el bloque `A` o `B`.
 
 Importante:
 
-- `package.json` mantiene la versión-calendario `YYYY.M.D`
-- `version.manifest.json` mantiene la versión semántica interna `A/B`
-- no compiten entre sí; cumplen funciones distintas
+- `version.manifest.json` mantiene la versión semántica real del proyecto
+- la CLI y el updater usan el bloque `A` como versión principal de `Laia Arch`
+- el banner y la documentación operativa pueden mostrar `A` y `B` juntos
+- `package.json` queda como metadato de compatibilidad y fallback, no como fuente principal de versión visible
 
 ### 2. Cambios detectados automáticamente
 
@@ -197,7 +198,7 @@ Al ejecutar `laia-arch install`, la versión aparece en el banner:
 ```
   ⚡ L A I A   A R C H
   El arquitecto que construye tu servidor
-  LAIA A:2.2 B:1.0 2026.3.29
+  LAIA A:2.2.0 B:1.0.0
 
   Qué es Laia Arch:
   Agente instalador que configura la infraestructura privada de tu empresa.
@@ -208,10 +209,10 @@ Al ejecutar `laia-arch install`, la versión aparece en el banner:
 
 ```bash
 $ laia-arch --version
-Laia Arch 2026.3.29 (d35e703)
+Laia Arch 2.2.0 (d35e703)
 ```
 
-La versión semántica `A/B` vive en el manifest y en el banner/log del instalador. La versión visible del binario sigue siendo la de `package.json`.
+La versión semántica `A/B` vive en el manifest y en el banner/log del instalador. La versión visible principal del binario sale del bloque `A` del manifest.
 
 ### En el manifest
 

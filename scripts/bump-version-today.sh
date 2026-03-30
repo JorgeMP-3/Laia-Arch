@@ -1,5 +1,6 @@
 #!/bin/bash
-# Actualiza la versión en package.json a la fecha de hoy (YYYY.M.D)
+# Helper legacy para sincronizar package.json con la fecha actual.
+# Ya no forma parte del build normal de Laia Arch.
 # Uso: bash scripts/bump-version-today.sh [--check]
 #   --check: solo muestra la versión nueva sin modificar nada
 set -euo pipefail

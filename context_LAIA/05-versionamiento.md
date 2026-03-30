@@ -2,27 +2,28 @@
 
 ## Estrategia de versiones
 
-Las versiones de Laia Arch se organizan en dos bloques semánticos independientes más una fecha de compilación.
+Las versiones de Laia Arch se organizan en dos bloques semánticos independientes. La fecha de compilación sigue existiendo, pero ya no define la versión visible del producto.
 
 ### Esquema de versión
 
 ```
-LAIA A:X.Y B:X.Y YYYY.M.D
+LAIA A:X.Y.Z B:X.Y.Z
 ```
 
-Ejemplo: `LAIA A:2.3 B:1.0 2026.3.29`
+Ejemplo: `LAIA A:2.3.0 B:1.0.0`
 
 ## Dos planos de versión
 
-Laia Arch usa dos sistemas compatibles:
+Laia Arch usa dos planos distintos:
 
-- `package.json` -> versión-calendario `YYYY.M.D` para binario, build y release
-- `version.manifest.json` -> versión semántica interna por bloques `A` y `B`
+- `version.manifest.json` -> fuente de verdad del versionado semántico por bloques `A` y `B`
+- `package.json` -> metadato de compatibilidad y fallback; ya no marca la versión visible del binario
 
 La regla práctica es:
 
-- no cambies `package.json` para reflejar `patch/minor/major`
 - usa `version.manifest.json` para registrar evolución funcional del instalador y del ecosistema
+- el bloque `A` del manifiesto es la versión principal que verá el usuario en `laia-arch --version`
+- la fecha de compilación queda como metadato auxiliar, no como identificador principal de release
 
 ### Bloque A — Instalador (Laia Arch)
 
@@ -185,7 +186,7 @@ El banner muestra la versión semántica en texto limpio:
 ```
   ⚡ L A I A   A R C H
   El arquitecto que construye tu servidor
-  LAIA A:2.3 B:1.0 2026.3.29
+  LAIA A:2.3.0 B:1.0.0
 
   Qué es Laia Arch:
   Agente instalador que configura la infraestructura privada de tu empresa.
@@ -201,7 +202,7 @@ formateado desde `formatVersionForBanner()` en `src/installer/version-info.ts`.
 
 1. **Antes de un release:** revisar el diff, correr el detector y decidir si hay bump en `A`, `B` o ninguno.
 2. **En desarrollo:** IAs y desarrolladores pueden actualizar manualmente el manifest cuando el cambio ya esté claro.
-3. **Build oficial:** mantiene la fecha/calver en `package.json`, pero no sustituye la decisión semántica del manifest.
+3. **Build oficial:** usa el manifest como fuente de versión visible y deja la fecha solo como metadato de compilación.
 
 ### Antes de commit
 

@@ -57,8 +57,9 @@ Implementado:
 - **Resolución de rutas corregida** (v2026.3.28): `conversation.ts` resuelve `install-prompts/` desde `import.meta.url` en lugar de `process.cwd()`; `laia-arch-root.ts` reconoce ahora tanto `"openclaw"` como `"laia-arch"` en `CORE_PACKAGE_NAMES`, permitiendo que el instalador encuentre recursos correctamente en instalaciones empaquetadas.
 - **Resolución de prompts endurecida** (v2026.3.30): `conversation.ts` ya no depende de un único directorio para `install-prompts/`; ahora prueba varias rutas sanas (módulo compilado, raíz del paquete, `cwd`, instalaciones en `~/.local/share/...` y override por `LAIA_ARCH_PROMPTS_DIR`) y, si no encuentra los prompts, devuelve un error explícito con las rutas comprobadas en lugar de un `ENOENT` opaco.
 - **Versionado A/B operativo** (v2026.3.29): el sistema ya distingue dos planos reales:
-  - `package.json` mantiene versión-calendario (`YYYY.M.D`) para compatibilidad de build y release
-  - `version.manifest.json` es la fuente de verdad del versionado semántico interno por bloques `A` y `B`
+  - `version.manifest.json` es la fuente de verdad del versionado semántico por bloques `A` y `B`
+  - la versión visible de `Laia Arch` ya no depende del día de compilación: la CLI y el updater usan el bloque `A` del manifiesto como versión principal
+  - `package.json` queda como metadato de compatibilidad y fallback, pero ya no se actualiza en cada build de `Laia Arch`
 - `scripts/detect-version-increment.ts` ya no es un borrador: ahora lee el manifiesto actual, clasifica cambios por bloque, ignora docs/tests/contexto, detecta archivos fuera de bloque y recomienda `none`, `patch`, `minor` o `major` con razón y confianza.
 - `scripts/update-version.ts` ya permite actualizar también metadatos del bloque (`changes`, `contributors`, `description`) al aplicar un bump.
 - `src/installer/version-info.ts` ya soporta override de ruta del manifiesto para pruebas y muestra en logs ambas versiones (`A` y `B`) además del build.

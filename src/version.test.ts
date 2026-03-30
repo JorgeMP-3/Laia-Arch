@@ -5,6 +5,7 @@ import { pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
   VERSION,
+  readVersionFromManifestForModuleUrl,
   readVersionFromBuildInfoForModuleUrl,
   readVersionFromPackageJsonForModuleUrl,
   resolveBinaryVersion,
@@ -44,6 +45,35 @@ function expectVersionMetadataToBeMissing(moduleUrl: string) {
 }
 
 describe("version resolution", () => {
+  it("resolves semantic block A version from version.manifest.json", async () => {
+    await withTempDir(async (root) => {
+      await writeJsonFixture(root, "version.manifest.json", {
+        blocks: {
+          A: { major: 2, minor: 3, patch: 1 },
+          B: { major: 1, minor: 4, patch: 0 },
+        },
+      });
+      const moduleUrl = await ensureModuleFixture(root);
+      expect(readVersionFromManifestForModuleUrl(moduleUrl)).toBe("2.3.1");
+      expect(resolveVersionFromModuleUrl(moduleUrl)).toBe("2.3.1");
+    });
+  });
+
+  it("prefers version.manifest.json over build-info and package.json", async () => {
+    await withTempDir(async (root) => {
+      await writeJsonFixture(root, "version.manifest.json", {
+        blocks: {
+          A: { major: 2, minor: 5, patch: 0 },
+          B: { major: 1, minor: 0, patch: 0 },
+        },
+      });
+      await writeJsonFixture(root, "build-info.json", { version: "9.9.9" });
+      await writeJsonFixture(root, "package.json", { name: "openclaw", version: "8.8.8" });
+      const moduleUrl = await ensureModuleFixture(root);
+      expect(resolveVersionFromModuleUrl(moduleUrl)).toBe("2.5.0");
+    });
+  });
+
   it("resolves package version from nested dist/plugin-sdk module URL", async () => {
     await withTempDir(async (root) => {
       await writeJsonFixture(root, "package.json", { name: "openclaw", version: "1.2.3" });
@@ -79,6 +109,7 @@ describe("version resolution", () => {
     await withTempDir(async (root) => {
       const moduleUrl = await ensureModuleFixture(root);
       expectVersionMetadataToBeMissing(moduleUrl);
+      expect(readVersionFromManifestForModuleUrl(moduleUrl)).toBeNull();
     });
   });
 

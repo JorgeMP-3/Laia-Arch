@@ -89,9 +89,6 @@ setup_repo() {
     if [[ -d "${INSTALL_DIR}/.git" ]]; then
         if [[ "$UPDATE_MODE" == "1" ]]; then
             info "Actualizando repo en ${INSTALL_DIR}..."
-            # bump-version-today.sh modifica package.json en cada build.
-            # Resetearlo antes del pull evita conflictos en actualizaciones sucesivas.
-            git -C "$INSTALL_DIR" checkout -- package.json 2>/dev/null || true
             git -C "$INSTALL_DIR" pull --rebase origin main
             ok "Repo actualizado"
         else
