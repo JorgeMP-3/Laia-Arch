@@ -18,6 +18,14 @@ export interface NetworkDevice {
   vendor?: string;
 }
 
+export interface ObservedNetworkInterface {
+  name: string;
+  ip: string;
+  cidr: string;
+  gateway?: string;
+  isDefaultRoute?: boolean;
+}
+
 export interface SystemScan {
   hardware: {
     arch: string;
@@ -39,6 +47,7 @@ export interface SystemScan {
     dns: string;
     hasInternet: boolean;
     devices: NetworkDevice[];
+    interfaces?: ObservedNetworkInterface[];
   };
   services: string[];
   ports: number[];

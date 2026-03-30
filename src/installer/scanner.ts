@@ -3,7 +3,7 @@
 import { exec, execSync } from "node:child_process";
 import { promisify } from "node:util";
 import { laiaTheme as t } from "../cli/laia-arch-theme.js";
-import type { NetworkDevice, SystemScan } from "./types.js";
+import type { NetworkDevice, ObservedNetworkInterface, SystemScan } from "./types.js";
 
 const execAsync = promisify(exec);
 const NETWORK_DETECTION_NOTE =
@@ -115,21 +115,99 @@ function findDeviceByIp(rawOutput: string, ip: string): NetworkDevice | undefine
   return parseNetworkDevices(rawOutput).find((device) => device.ip === ip);
 }
 
-function resolvePingSweepTargets(params: { gateway: string; localIp: string }): string[] {
-  const targets = new Set<string>();
-  const gateway = params.gateway.trim();
-  if (/^\d+\.\d+\.\d+\.\d+$/.test(gateway)) {
-    targets.add(gateway);
+function parseDefaultRouteMap(rawOutput: string): Map<string, string | undefined> {
+  const routes = new Map<string, string | undefined>();
+  for (const line of rawOutput.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith("default ")) {
+      continue;
+    }
+    const devMatch = trimmed.match(/\bdev\s+(\S+)/);
+    if (!devMatch) {
+      continue;
+    }
+    const gatewayMatch = trimmed.match(/\bvia\s+(\d+\.\d+\.\d+\.\d+)/);
+    routes.set(devMatch[1], gatewayMatch?.[1]);
+  }
+  return routes;
+}
+
+export function parseObservedNetworkInterfaces(
+  rawOutput: string,
+  defaultRoutesRaw = "",
+): ObservedNetworkInterface[] {
+  const interfaces = new Map<string, ObservedNetworkInterface>();
+  const defaultRoutes = parseDefaultRouteMap(defaultRoutesRaw);
+
+  for (const line of rawOutput.split("\n")) {
+    const match = line.match(/^\d+:\s+([^ ]+)\s+inet\s+(\d+\.\d+\.\d+\.\d+)\/(\d+)\b/);
+    if (!match) {
+      continue;
+    }
+
+    const name = match[1];
+    if (name === "lo") {
+      continue;
+    }
+
+    const key = `${name}:${match[2]}`;
+    interfaces.set(key, {
+      name,
+      ip: match[2],
+      cidr: `/${match[3]}`,
+      gateway: defaultRoutes.get(name),
+      isDefaultRoute: defaultRoutes.has(name),
+    });
   }
 
-  const localIp = params.localIp.trim();
-  const octets = localIp.split(".");
-  if (octets.length === 4 && octets.every((part) => /^\d+$/.test(part))) {
-    const prefix = `${octets[0]}.${octets[1]}.${octets[2]}`;
-    for (let host = 1; host <= 10; host += 1) {
-      const candidate = `${prefix}.${host}`;
-      if (candidate !== localIp) {
-        targets.add(candidate);
+  return [...interfaces.values()];
+}
+
+function resolvePrimaryNetworkInterface(params: {
+  interfaces: ObservedNetworkInterface[];
+  localIp: string;
+  gateway: string;
+}): ObservedNetworkInterface | undefined {
+  const normalizedLocalIp = params.localIp.trim();
+  const normalizedGateway = params.gateway.trim();
+
+  if (normalizedLocalIp) {
+    const exact = params.interfaces.find((iface) => iface.ip === normalizedLocalIp);
+    if (exact) {
+      return exact;
+    }
+  }
+
+  if (normalizedGateway) {
+    const byGateway = params.interfaces.find((iface) => iface.gateway === normalizedGateway);
+    if (byGateway) {
+      return byGateway;
+    }
+  }
+
+  return params.interfaces.find((iface) => iface.isDefaultRoute) ?? params.interfaces[0];
+}
+
+function resolvePingSweepTargets(params: { gateways: string[]; localIps: string[] }): string[] {
+  const targets = new Set<string>();
+
+  for (const rawGateway of params.gateways) {
+    const gateway = rawGateway.trim();
+    if (/^\d+\.\d+\.\d+\.\d+$/.test(gateway)) {
+      targets.add(gateway);
+    }
+  }
+
+  for (const rawLocalIp of params.localIps) {
+    const localIp = rawLocalIp.trim();
+    const octets = localIp.split(".");
+    if (octets.length === 4 && octets.every((part) => /^\d+$/.test(part))) {
+      const prefix = `${octets[0]}.${octets[1]}.${octets[2]}`;
+      for (let host = 1; host <= 10; host += 1) {
+        const candidate = `${prefix}.${host}`;
+        if (candidate !== localIp) {
+          targets.add(candidate);
+        }
       }
     }
   }
@@ -138,8 +216,8 @@ function resolvePingSweepTargets(params: { gateway: string; localIp: string }): 
 }
 
 async function runPingSweep(params: {
-  gateway: string;
-  localIp: string;
+  gateways: string[];
+  localIps: string[];
 }): Promise<NetworkDevice[]> {
   const targets = resolvePingSweepTargets(params);
   if (targets.length === 0) {
@@ -173,8 +251,8 @@ async function discoverNetworkDevices(params: { gateway: string; localIp: string
   }
 
   const pingSweepDevices = await runPingSweep({
-    gateway: params.gateway,
-    localIp: params.localIp,
+    gateways: [params.gateway],
+    localIps: [params.localIp],
   });
   if (pingSweepDevices.length > 0) {
     return { devices: pingSweepDevices };
@@ -228,6 +306,43 @@ async function discoverNetworkDevices(params: { gateway: string; localIp: string
   };
 }
 
+async function discoverNetworkDevicesForInterfaces(params: {
+  gateway: string;
+  localIp: string;
+  interfaces: ObservedNetworkInterface[];
+}): Promise<{
+  devices: NetworkDevice[];
+  note?: string;
+}> {
+  const arpScanRaw = await run(
+    "command -v arp-scan >/dev/null 2>&1 && (sudo -n arp-scan --localnet 2>/dev/null || arp-scan --localnet 2>/dev/null)",
+    20000,
+  );
+  const arpScanDevices = parseNetworkDevices(arpScanRaw);
+  if (arpScanDevices.length > 0) {
+    return { devices: arpScanDevices };
+  }
+
+  const ipNeighRaw = await run("ip neigh show 2>/dev/null", 10000);
+  const ipNeighDevices = parseNetworkDevices(ipNeighRaw);
+  if (ipNeighDevices.length > 0) {
+    return { devices: ipNeighDevices };
+  }
+
+  const pingSweepDevices = await runPingSweep({
+    gateways: [
+      params.gateway,
+      ...params.interfaces.map((iface) => iface.gateway ?? "").filter(Boolean),
+    ],
+    localIps: [params.localIp, ...params.interfaces.map((iface) => iface.ip)],
+  });
+  if (pingSweepDevices.length > 0) {
+    return { devices: pingSweepDevices };
+  }
+
+  return await discoverNetworkDevices(params);
+}
+
 function detectWarnings(scan: Omit<SystemScan, "warnings">): string[] {
   const warnings: string[] = [];
 
@@ -248,6 +363,12 @@ function detectWarnings(scan: Omit<SystemScan, "warnings">): string[] {
   }
   if (!scan.network.hasInternet) {
     warnings.push("Sin conexion a internet: algunas instalaciones requieren descarga de paquetes");
+  }
+  const observedInterfaces = scan.network.interfaces ?? [];
+  if (observedInterfaces.length > 1) {
+    warnings.push(
+      `Multiples interfaces IPv4 detectadas: ${observedInterfaces.map((iface) => `${iface.name}=${iface.ip}${iface.cidr}`).join(", ")}`,
+    );
   }
   if (scan.software?.node) {
     const nodeVersion = parseInt(scan.software.node.replace("v", ""), 10);
@@ -280,6 +401,8 @@ export async function runScanner(): Promise<SystemScan> {
     gitVersionRaw,
     localIpRaw,
     gatewayRaw,
+    defaultRoutesRaw,
+    interfacesRaw,
     dnsRaw,
     subnetRaw,
     internetRaw,
@@ -303,6 +426,8 @@ export async function runScanner(): Promise<SystemScan> {
     run("git --version 2>/dev/null | awk '{print $3}'"),
     run('ip route get 1.1.1.1 2>/dev/null | grep -oP "src \\K\\S+" | head -1'),
     run("ip route | grep default | awk '{print $3}' | head -1"),
+    run("ip route show default 2>/dev/null"),
+    run("ip -o -4 addr show scope global 2>/dev/null"),
     run(
       "resolvectl status 2>/dev/null | grep 'DNS Servers' | awk '{print $3}' | head -1 || grep nameserver /etc/resolv.conf | awk '{print $2}' | head -1",
     ),
@@ -320,12 +445,22 @@ export async function runScanner(): Promise<SystemScan> {
     .map((p) => parseInt(p.trim(), 10))
     .filter((p) => !isNaN(p));
 
-  const subnetMatch = subnetRaw.match(/\/(\d+)$/);
-  const subnet = subnetMatch ? `/${subnetMatch[1]}` : "/24";
-  const { devices: networkDevices, note: networkDetectionNote } = await discoverNetworkDevices({
-    gateway: gatewayRaw || "",
-    localIp: localIpRaw || "",
+  const interfaces = parseObservedNetworkInterfaces(interfacesRaw, defaultRoutesRaw);
+  const primaryInterface = resolvePrimaryNetworkInterface({
+    interfaces,
+    localIp: localIpRaw,
+    gateway: gatewayRaw,
   });
+  const subnetMatch = subnetRaw.match(/\/(\d+)$/);
+  const subnet = primaryInterface?.cidr ?? (subnetMatch ? `/${subnetMatch[1]}` : "/24");
+  const primaryLocalIp = primaryInterface?.ip || localIpRaw || "192.168.1.x";
+  const primaryGateway = primaryInterface?.gateway || gatewayRaw || "desconocido";
+  const { devices: networkDevices, note: networkDetectionNote } =
+    await discoverNetworkDevicesForInterfaces({
+      gateway: primaryGateway,
+      localIp: primaryLocalIp,
+      interfaces,
+    });
 
   const base: Omit<SystemScan, "warnings"> = {
     hardware: {
@@ -342,12 +477,13 @@ export async function runScanner(): Promise<SystemScan> {
       hostname: hostnameRaw,
     },
     network: {
-      localIp: localIpRaw || "192.168.1.x",
+      localIp: primaryLocalIp,
       subnet,
-      gateway: gatewayRaw || "desconocido",
+      gateway: primaryGateway,
       dns: dnsRaw || "desconocido",
       hasInternet: internetRaw === "ok",
       devices: networkDevices,
+      interfaces,
     },
     services,
     ports,
@@ -387,6 +523,19 @@ export async function runScanner(): Promise<SystemScan> {
   row("DNS:", scan.network.dns);
   row("Internet:", scan.network.hasInternet ? t.success("Disponible") : t.error("Sin conexión"));
   row("Red:", `${scan.network.devices.length} dispositivos detectados`);
+  if ((scan.network.interfaces?.length ?? 0) > 1) {
+    row("Interfaces:", `${scan.network.interfaces?.length ?? 0} IPv4 activas`);
+    console.log(
+      `  ${t.label("Detalle red: ")}${t.muted(
+        (scan.network.interfaces ?? [])
+          .map(
+            (iface) =>
+              `${iface.name}=${iface.ip}${iface.cidr}${iface.isDefaultRoute ? " [default]" : ""}`,
+          )
+          .join(", "),
+      )}`,
+    );
+  }
   row("Servicios:", `${servicesActive.length} activos`);
   row("Puertos:", `${portsOpen.length} abiertos`);
 

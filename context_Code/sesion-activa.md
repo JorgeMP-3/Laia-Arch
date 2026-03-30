@@ -27,6 +27,9 @@ Agentes: Codex, Claude Opus, Antigravity, Claude Haiku
 | src/installer/index.ts                            | Codex        | libre  |
 | src/installer/conversation.ts                     | Codex        | libre  |
 | src/installer/plan-generator.ts                   | Codex        | libre  |
+| src/installer/scanner.ts                          | Codex        | libre  |
+| scripts/install-laia-arch.sh                      | Codex        | libre  |
+| context_Code/plan-reparacion-instalador.md        | Codex        | libre  |
 | contextLaiaProyect/01-estado-actual.md            | Codex        | libre  |
 | contextLaiaProyect/03-roadmap.md                  | Codex        | libre  |
 | contextLaiaProyect/sesion-activa.md               | Codex        | libre  |
@@ -238,6 +241,12 @@ Agentes: Codex, Claude Opus, Antigravity, Claude Haiku
   - `pnpm test -- test/laia-versioning.test.ts` -> 10/10 verde
   - `pnpm exec oxfmt --check scripts/detect-version-increment.ts scripts/update-version.ts src/installer/version-info.ts test/laia-versioning.test.ts` -> verde
   - `node --import tsx scripts/detect-version-increment.ts --since-commits 1 --json` -> salida correcta
+- [2026-03-30 00:00] Codex: nueva incidencia reportada en instalación real sobre máquina nueva.
+  - Síntoma 1: modo `Asistido` falla en Fase 2 con `ENOENT ... /home/<user>/.local/share/install-prompts/00-system-context.md`.
+  - Hallazgo: el repo actual ya contiene el fix de rutas en `src/installer/conversation.ts` (commit `69ce356007`), por lo que el fallo apunta a instalación/build/wrapper desactualizado o a una ruta alternativa aún no cubierta en la máquina afectada.
+  - Síntoma 2: sospecha de escaneo de red incompleto por múltiples interfaces.
+  - Hallazgo: `src/installer/scanner.ts` hoy resuelve una sola `localIp` usando `ip route get 1.1.1.1`, una sola gateway por ruta por defecto y deriva el barrido de red desde esa interfaz/ruta, así que no representa bien hosts con varias NICs o rutas relevantes.
+  - Acción: creado `context_Code/plan-reparacion-instalador.md` como documento operativo compartido para coordinación Codex/Claude y reparación incremental.
 - [17:59] Codex: `pnpm build` lanzado para validación final del cambio de versionado.
 - [18:01] Codex: validación final completada:
   - `pnpm test -- test/laia-versioning.test.ts` -> 10/10 verde
@@ -304,3 +313,249 @@ Agentes: Codex, Claude Opus, Antigravity, Claude Haiku
   - Commit 2 (82be5fd54c): "fix: Cambiar banner para explicar Laia Arch, no LAIA"
 - [18:40] Claude Haiku: push a GitHub completado. Los cambios están en `origin/main`.
 - [18:40] Claude Haiku: actualización de documentación de contexto (`sesion-activa.md` y `01-estado-actual.md`) pendiente.
+- [2026-03-30 10:55] Codex: primer bloque de reparación de instalación real implementado y validado.
+  - `src/installer/conversation.ts`: endurecida la resolución de `install-prompts/` con múltiples rutas candidatas (`import.meta.url`, raíz del paquete, `cwd`, instalaciones en `~/.local/share/...` y override `LAIA_ARCH_PROMPTS_DIR`), más error explícito cuando faltan prompts.
+  - `src/installer/scanner.ts`: ampliado el escaneo para observar varias interfaces IPv4 activas, mantener una interfaz primaria por compatibilidad y usar más de una IP/gateway al intentar descubrir dispositivos.
+  - `src/installer/types.ts`: añadido `network.interfaces?` con metadatos básicos de interfaces observadas.
+  - `src/installer/scanner.test.ts`: nueva cobertura del parser de interfaces y rutas por defecto.
+  - `src/installer/conversation.test.ts`: nueva cobertura de resolución de directorio de prompts por override.
+  - `src/installer/index.test.ts`: mock corregido para no romper el camino adaptativo al reutilizar `buildWireGuardServerSetupCommands()` desde `plan-generator.ts`.
+  - Validación local:
+    - `pnpm test -- src/installer/conversation.test.ts src/installer/scanner.test.ts src/installer/index.test.ts src/installer/agentic.test.ts src/installer/plan-generator.test.ts` -> 38/38 verde
+    - `pnpm exec oxfmt --check src/installer/types.ts src/installer/scanner.ts src/installer/scanner.test.ts src/installer/conversation.ts src/installer/conversation.test.ts src/installer/index.test.ts` -> verde
+    - `pnpm build` -> verde
+- [2026-03-30 11:05] Codex: coordinación multi-agente reafirmada para evitar solapes.
+  - Codex no tocará `context_Code/plan-reparacion-instalador.md` ni `scripts/build-laia-arch.sh` mientras Claude los lleve.
+  - Claude puede actualizar `plan-reparacion-instalador.md` con diagnóstico del día y endurecer `scripts/build-laia-arch.sh` con verificación post-build.
+  - Codex queda temporalmente fuera de esos archivos y esperará evidencia nueva de Claude antes de abrir el siguiente bloque de cambios.
+- [2026-03-30 11:20] Codex: segundo bloque de robustez implementado tras liberar la frontera con Claude.
+  - `scripts/install-laia-arch.sh`: añadidas verificaciones explícitas del árbol instalado (`laia-arch.mjs`, `dist/`, `install-prompts/00-system-context.md`), del wrapper `~/.local/bin/laia-arch` y de la respuesta del runtime a `--version`.
+  - `scripts/install-laia-arch.sh`: el resumen final ahora muestra también el commit instalado cuando el repo está disponible.
+  - `src/installer/updater.ts`: tras `build`/`merge` verifica artefactos críticos y falla si la actualización deja una instalación incompleta o un runtime que no arranca.
+  - Validación local:
+    - `bash -n scripts/install-laia-arch.sh` -> verde
+    - `pnpm build` -> verde
+
+- [2026-03-30] Claude Code: sesión de diagnóstico y cierre del bloque operativo.
+  - Diagnóstico causa raíz Incidencia A: inspeccionado `dist/installer-zYgzOoXA.js` línea 2126.
+    Confirmado que `../../install-prompts` desde bundle plano en `dist/` sale al directorio padre
+    de la instalación. Coincide exactamente con la ruta del error (`/home/jorgetm/.local/share/install-prompts/`).
+  - H1 descartada: el bundle sí contenía el fix, pero con ruta errónea.
+  - H2 confirmada: `../../` asumía output en `dist/installer/conversation.js`; tsdown genera `dist/installer-<hash>.js` (plano).
+  - H3 confirmada: tres `head -1` en scanner.ts líneas 304-309.
+  - `scripts/build-laia-arch.sh` endurecido con verificación post-build de `laia-arch.mjs`, `install-prompts/` y `dist/`.
+  - Creado y documentado `context_Code/plan-reparacion-instalador.md` con causa raíz, fix aplicado y criterios de validación real.
+  - Creado `## Roadmap de trabajo por IA` en este archivo como frontera de coordinación Codex/Claude.
+  - Estado al cierre: bloque operativo de Claude completado. Pendiente: validación en máquina jorgetm tras confirmar pull del commit `668223c19b`.
+
+---
+
+## Roadmap de trabajo por IA — 2026-03-30
+
+> Este bloque define el trabajo pendiente de cada agente de forma separada e
+> independiente para cerrar Bloque A sin mezclar otros frentes.
+>
+> Regla de uso:
+>
+> - Codex trabaja y valida su bloque de código del repo, tests y documentación técnica del fix
+> - Claude trabaja y valida su bloque de build, máquina real y evidencia operativa
+> - ambos trabajan de forma totalmente separada
+> - cada uno toca solo sus archivos
+> - cada uno valida solo su propio trabajo
+> - no hay edición compartida salvo este roadmap como frontera de coordinación
+> - no mezclar en este roadmap los documentos de `paperclip-integration/`
+> - no tocar los archivos del otro agente sin coordinación explícita
+
+---
+
+### Estado del proyecto en este momento
+
+| Área                                  | Estado                                          |
+| ------------------------------------- | ----------------------------------------------- |
+| Fase 0–3 (motor + verificación)       | Completadas                                     |
+| Fase 4 — Agora base                   | En progreso — falta validación real             |
+| Incidencia A (PROMPTS_DIR)            | Fix implementado y pendiente de validación real |
+| Incidencia B (scanner multi-interfaz) | Fix implementado y pendiente de validación real |
+| Scripts de instalación                | Robustecidos entre Codex y Claude               |
+| Documentación                         | Separada por ownership                          |
+
+---
+
+### BLOQUE CODEX
+
+**Objetivo de esta sesión: cerrar el fix de instalador en el repo y dejarlo
+publicable para validación real.**
+
+Carga de trabajo de Codex en este roadmap:
+
+- implementar y validar el fix técnico en el repo
+- preparar un commit limpio y publicable
+- dejar listo el siguiente diagnóstico si Fase 4 falla
+
+#### Tarea 1 — Cerrar el bloque técnico del fix
+
+Archivos bajo responsabilidad directa de Codex:
+
+- `src/installer/conversation.ts` — resolución multi-ruta de prompts
+- `src/installer/scanner.ts` — escaneo multi-interfaz
+- `src/installer/types.ts` — campo `network.interfaces?`
+- `src/installer/conversation.test.ts` — test de prompts
+- `src/installer/scanner.test.ts` — test de interfaces/red
+- `src/installer/index.test.ts` — mock corregido
+- `scripts/install-laia-arch.sh` — verificaciones post-instalación
+- `src/installer/updater.ts` — verificaciones post-update
+- `context_Code/01-estado-actual.md` — estado técnico del fix
+- `context_Code/06-como-funciona-por-dentro.md` — arquitectura y flujo interno
+- `context_Code/sesion-activa.md` — este roadmap, solo para ajustes de coordinación de Codex
+
+Validación mínima antes de commitear:
+
+```bash
+pnpm test -- src/installer/conversation.test.ts src/installer/scanner.test.ts src/installer/index.test.ts src/installer/agentic.test.ts src/installer/plan-generator.test.ts
+pnpm build
+```
+
+Mensaje de commit sugerido:
+`fix: harden installer prompt resolution, scanner networking, and install verification`
+
+#### Tarea 2 — Validar el bloque técnico de Codex
+
+Codex valida su propia parte antes de publicar:
+
+- tests verdes del bloque tocado
+- `pnpm build` verde
+- revisión del diff para confirmar que el commit no mezcla Paperclip ni archivos de Claude
+
+#### Tarea 3 — Publicar el fix para trabajo externo
+
+Condición previa:
+
+- el commit de Codex debe incluir solo el bloque técnico del instalador
+- no incluir `context_LAIA/paperclip-integration/*`
+- no incluir `context_LAIA/README.md`
+- no incluir `context_Code/plan-reparacion-instalador.md`
+- no incluir `scripts/build-laia-arch.sh`
+
+Acción:
+
+```bash
+git push origin main
+```
+
+Objetivo:
+
+- dejar disponible el fix para que Claude valide con `--update` o con pull
+  directo en la máquina real
+
+#### Tarea 4 — Preparar el siguiente bloque técnico si Fase 4 falla
+
+Objetivo:
+
+- dejar identificado dónde tocar si luego aparece un fallo en `agora-01` a
+  `agora-03`
+- si Fase 4 falla, abrir un bloque nuevo con síntoma, evidencia y superficie exacta
+
+Archivos relevantes para lectura o fix posterior:
+
+- `src/installer/plan-generator.ts` — pasos `agora-01`, `agora-02`, `agora-03`
+- `src/installer/executor.ts` — verificación `gateway-health`
+
+#### Archivos que Codex NO debe tocar en esta sesión
+
+- `context_Code/plan-reparacion-instalador.md` — Claude lo lleva
+- `scripts/build-laia-arch.sh` — Claude lo lleva
+- `context_LAIA/paperclip-integration/` — fuera de este roadmap
+
+---
+
+### BLOQUE CLAUDE CODE
+
+**Objetivo de esta sesión: cerrar y validar la parte operativa de Claude sin
+tocar el bloque técnico de Codex.**
+
+Carga de trabajo de Claude en este roadmap:
+
+- endurecer y validar el flujo de build que usa la instalación real
+- comprobar el comportamiento en máquina afectada
+- dejar la evidencia operativa y el cierre documental
+
+#### Tarea 1 — Cerrar el bloque operativo de Claude
+
+Archivos bajo responsabilidad directa de Claude:
+
+- `scripts/build-laia-arch.sh` — verificación post-build
+- `context_Code/plan-reparacion-instalador.md` — diagnóstico y criterios de cierre
+- `context_Code/sesion-activa.md` — este roadmap, solo para ajustes de coordinación de Claude
+
+Claude valida su propia parte antes de darla por cerrada:
+
+- comprobar que `scripts/build-laia-arch.sh` falla si faltan artefactos críticos
+- comprobar que el plan refleja la causa raíz y el estado real del fix
+- comprobar que la evidencia operativa queda resumida de forma útil y mínima
+
+#### Tarea 2 — Validación operativa en la máquina jorgetm
+
+Una vez el fix publicado esté disponible, Claude puede probar en la máquina afectada:
+
+```bash
+cd ~/.local/share/laia-arch
+git pull --rebase origin main
+bash scripts/build-laia-arch.sh
+grep -c "LAIA_ARCH_PROMPTS_DIR" dist/installer-*.js
+laia-arch install --mode guided
+```
+
+Qué comprobar:
+
+- si Fase 2 pasa sin `ENOENT`: incidencia A cerrada en entorno real
+- si el resumen del scanner muestra varias interfaces cuando existen: incidencia B cerrada en entorno real
+- si Agora llega al tramo `agora-01` a `agora-03`: avance real de Fase 4
+- si aparece un error nuevo: capturarlo con salida exacta y contexto mínimo
+
+#### Tarea 3 — Actualizar `plan-reparacion-instalador.md`
+
+Una vez cerrada su validación operativa:
+
+- actualizar solo la sección de criterios de cierre
+- añadir fecha, comandos usados y evidencia resumida
+- no reescribir el diagnóstico ya cerrado
+
+Archivo bajo responsabilidad directa de Claude:
+
+- `context_Code/plan-reparacion-instalador.md`
+
+#### Tarea 4 — Cerrar su bloque documental sin tocar el de Codex
+
+Claude deja su evidencia final en:
+
+- `context_Code/plan-reparacion-instalador.md`
+
+No necesita editar más archivos del bloque de Codex para dar su parte por cerrada.
+
+#### Archivos que Claude NO debe tocar en esta sesión
+
+- `src/installer/conversation.ts`
+- `src/installer/scanner.ts`
+- `src/installer/types.ts`
+- `src/installer/executor.ts`
+- `src/installer/index.ts`
+- `src/installer/plan-generator.ts`
+- `src/installer/bootstrap.ts`
+- `scripts/install-laia-arch.sh`
+- `context_LAIA/paperclip-integration/`
+
+---
+
+### Criterios de cierre de este roadmap
+
+Este bloque se considera cerrado cuando:
+
+1. Codex ha commiteado y publicado solo el bloque técnico del instalador
+2. Codex ha validado su bloque técnico con tests, build y diff limpio
+3. Claude ha validado su bloque operativo y lo ha documentado en `context_Code/plan-reparacion-instalador.md`
+4. Existe una comprobación operativa del tramo `agora-01` a `agora-03` con éxito o con fallo concreto y reproducible
+
+Siguiente paso según resultado:
+
+- si Fase 4 queda cerrada: abrir roadmap nuevo para el siguiente tramo de Bloque A
+- si Fase 4 sigue fallando: abrir roadmap nuevo de reparación con ownership separado igual que este

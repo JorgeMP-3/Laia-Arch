@@ -8,6 +8,7 @@ import * as path from "node:path";
 import * as readline from "node:readline";
 import { fileURLToPath } from "node:url";
 import { laiaTheme as t } from "../cli/laia-arch-theme.js";
+import { resolveOpenClawPackageRootSync } from "../infra/laia-arch-root.js";
 import {
   buildArchAgoraOutcomeMessage,
   buildConversationArtifacts,
@@ -49,6 +50,49 @@ export type ConversationState = "idle" | "active" | "complete";
 interface Message {
   role: "user" | "assistant";
   content: string;
+}
+
+function uniqueNonEmptyPaths(paths: string[]): string[] {
+  return [...new Set(paths.map((candidate) => candidate.trim()).filter(Boolean))];
+}
+
+export function getPromptCandidateDirs(): string[] {
+  const packageRoot =
+    resolveOpenClawPackageRootSync({
+      cwd: process.cwd(),
+      argv1: process.argv[1],
+      moduleUrl: import.meta.url,
+    }) ?? undefined;
+
+  return uniqueNonEmptyPaths([
+    process.env.LAIA_ARCH_PROMPTS_DIR ?? "",
+    PROMPTS_DIR,
+    packageRoot ? path.join(packageRoot, "install-prompts") : "",
+    path.resolve(process.cwd(), "install-prompts"),
+    path.join(os.homedir(), ".local/share/laia-arch/install-prompts"),
+    path.join(os.homedir(), ".local/share/install-prompts"),
+  ]);
+}
+
+function resolvePromptBaseDir(requiredFiles: string[]): string | null {
+  for (const candidate of getPromptCandidateDirs()) {
+    if (requiredFiles.every((fileName) => fs.existsSync(path.join(candidate, fileName)))) {
+      return candidate;
+    }
+  }
+  return null;
+}
+
+function buildMissingPromptsMessage(requiredFiles: string[]): string {
+  const candidates = getPromptCandidateDirs()
+    .map((candidate) => `- ${candidate}`)
+    .join("\n");
+  return [
+    "No se pudo localizar el directorio de install-prompts para el instalador.",
+    `Archivos requeridos: ${requiredFiles.join(", ")}`,
+    "Rutas comprobadas:",
+    candidates || "- (ninguna)",
+  ].join("\n");
 }
 
 // ── Detección de capacidades del modelo ───────────────────────────────────
@@ -332,8 +376,15 @@ async function callAI(
 
 // ── Utilidades ────────────────────────────────────────────────────────────
 
-function loadPrompt(name: string, baseDir = PROMPTS_DIR): string {
-  const filePath = path.join(baseDir, name);
+function loadPrompt(name: string, baseDir?: string): string {
+  const resolvedBaseDir = baseDir ?? resolvePromptBaseDir([name]);
+  if (!resolvedBaseDir) {
+    console.warn(`  Aviso: no se pudo cargar el prompt ${name}`);
+    console.warn(t.dim(buildMissingPromptsMessage([name])));
+    return "";
+  }
+
+  const filePath = path.join(resolvedBaseDir, name);
   try {
     return fs.readFileSync(filePath, "utf8");
   } catch {
@@ -343,13 +394,18 @@ function loadPrompt(name: string, baseDir = PROMPTS_DIR): string {
 }
 
 function createGuidedPromptSessionDir(): string {
+  const promptSourceDir = resolvePromptBaseDir(GUIDED_STAGE_FILES);
+  if (!promptSourceDir) {
+    throw new Error(buildMissingPromptsMessage(GUIDED_STAGE_FILES));
+  }
+
   const sessionId = `guided-${new Date().toISOString().replace(/[:.]/g, "-")}-pid${process.pid}`;
   const sessionDir = path.join(PROMPTS_SESSION_ROOT, sessionId);
 
   fs.mkdirSync(sessionDir, { recursive: true });
 
   for (const fileName of GUIDED_STAGE_FILES) {
-    const sourcePath = path.join(PROMPTS_DIR, fileName);
+    const sourcePath = path.join(promptSourceDir, fileName);
     const targetPath = path.join(sessionDir, fileName);
     const content = fs.readFileSync(sourcePath, "utf8");
     fs.writeFileSync(targetPath, content, { mode: 0o600 });
@@ -362,7 +418,7 @@ function createGuidedPromptSessionDir(): string {
       {
         createdAt: new Date().toISOString(),
         mode: "guided",
-        sourceDir: PROMPTS_DIR,
+        sourceDir: promptSourceDir,
         files: GUIDED_STAGE_FILES,
       },
       null,

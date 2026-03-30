@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("./plan-generator.js", () => ({
   displayPlan: vi.fn(),
+  buildWireGuardServerSetupCommands: vi.fn(() => []),
   generatePlan: vi.fn(async () => ({
     steps: [],
     estimatedMinutes: 1,

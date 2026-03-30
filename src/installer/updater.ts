@@ -43,6 +43,26 @@ async function askConfirm(question: string): Promise<boolean> {
   });
 }
 
+function verifyInstalledArtifacts(repoDir: string): void {
+  const requiredPaths = [
+    `${repoDir}/laia-arch.mjs`,
+    `${repoDir}/dist`,
+    `${repoDir}/install-prompts`,
+    `${repoDir}/install-prompts/00-system-context.md`,
+  ];
+
+  const missing = requiredPaths.filter(
+    (candidate) => !execSilent(`test -e "${candidate}" && echo ok`),
+  );
+  if (missing.length > 0) {
+    throw new Error(`Instalación incompleta tras build. Faltan: ${missing.join(", ")}`);
+  }
+
+  if (!execSilent(`node "${repoDir}/laia-arch.mjs" --version >/dev/null 2>&1 && echo ok`)) {
+    throw new Error("El runtime instalado no responde a --version tras la actualización.");
+  }
+}
+
 // ── Cliente IA mínimo (sin ModeConfig, sin stages) ────────────────────────
 
 interface ChatMessage {
@@ -365,6 +385,7 @@ export async function runGenericUpdate(): Promise<void> {
       stdio: "inherit",
       cwd: repoDir,
     });
+    verifyInstalledArtifacts(repoDir);
   } catch {
     console.error(t.bad("  El build falló. Revisa los errores anteriores."));
     return;
@@ -428,6 +449,7 @@ export async function runOpenClawSync(): Promise<void> {
     execSilent(`git -C "${repoDir}" merge origin/main --no-edit`);
     console.log(t.step("  Merge completado. Compilando..."));
     execSync(`bash "${repoDir}/scripts/build-laia-arch.sh"`, { stdio: "inherit", cwd: repoDir });
+    verifyInstalledArtifacts(repoDir);
     console.log(t.good("  Sincronización con OpenClaw upstream completada.\n"));
   } catch {
     const conflicted = execSilent(`git -C "${repoDir}" diff --name-only --diff-filter=U`);

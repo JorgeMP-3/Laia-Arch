@@ -120,6 +120,30 @@ build() {
     ok "Build completado"
 }
 
+resolve_repo_head() {
+    git -C "$INSTALL_DIR" rev-parse --short HEAD 2>/dev/null || true
+}
+
+verify_install_tree() {
+    [[ -f "${INSTALL_DIR}/laia-arch.mjs" ]] || die "Falta ${INSTALL_DIR}/laia-arch.mjs"
+    [[ -d "${INSTALL_DIR}/dist" ]] || die "Falta ${INSTALL_DIR}/dist"
+    [[ -d "${INSTALL_DIR}/install-prompts" ]] || die "Falta ${INSTALL_DIR}/install-prompts"
+    [[ -f "${INSTALL_DIR}/install-prompts/00-system-context.md" ]] || die "Falta ${INSTALL_DIR}/install-prompts/00-system-context.md"
+}
+
+verify_wrapper_target() {
+    local wrapper="${SYMLINK_DIR}/laia-arch"
+    [[ "$CREATE_SYMLINK" == "0" ]] && return
+    [[ -f "$wrapper" ]] || die "No se encontró el wrapper ${wrapper}"
+    grep -F "exec node \"${INSTALL_DIR}/laia-arch.mjs\" \"\$@\"" "$wrapper" >/dev/null \
+        || die "El wrapper ${wrapper} no apunta al INSTALL_DIR esperado (${INSTALL_DIR})"
+}
+
+verify_runtime_invocation() {
+    node "${INSTALL_DIR}/laia-arch.mjs" --version >/dev/null 2>&1 \
+        || die "El runtime instalado no responde a --version"
+}
+
 # ── Crear wrapper ejecutable ──────────────────────────────────────────────────
 create_wrapper() {
     [[ "$CREATE_SYMLINK" == "0" ]] && return
@@ -147,12 +171,20 @@ WRAPPER
 # ── Verificar instalación ─────────────────────────────────────────────────────
 verify() {
     local bin="${SYMLINK_DIR}/laia-arch"
+    local head
+    head="$(resolve_repo_head)"
+
+    verify_install_tree
+    verify_wrapper_target
+    verify_runtime_invocation
+
     if [[ -x "$bin" ]]; then
         local ver
         ver="$("$bin" --version 2>/dev/null || node "${INSTALL_DIR}/laia-arch.mjs" --version 2>/dev/null || echo '(versión no disponible)')"
         echo ""
         echo -e "${SUCCESS}${BOLD}Laia Arch instalada correctamente${NC}"
         echo -e "  Versión:    ${ver}"
+        [[ -n "$head" ]] && echo -e "  Commit:     ${head}"
         echo -e "  Ejecutable: ${bin}"
         echo -e "  Directorio: ${INSTALL_DIR}"
         echo ""
@@ -160,6 +192,7 @@ verify() {
     else
         echo ""
         ok "Laia Arch compilada en ${INSTALL_DIR}"
+        [[ -n "$head" ]] && echo -e "  Commit:     ${head}"
         echo -e "  Ejecuta: ${BOLD}node ${INSTALL_DIR}/laia-arch.mjs --help${NC}"
     fi
 }

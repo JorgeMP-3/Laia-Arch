@@ -55,6 +55,7 @@ Implementado:
 - `install-prompts/00-06.md` define etapas editables para el modo guiado.
 - `src/installer/presets/` y `presets/*.json` permiten configuraciones reutilizables.
 - **Resolución de rutas corregida** (v2026.3.28): `conversation.ts` resuelve `install-prompts/` desde `import.meta.url` en lugar de `process.cwd()`; `laia-arch-root.ts` reconoce ahora tanto `"openclaw"` como `"laia-arch"` en `CORE_PACKAGE_NAMES`, permitiendo que el instalador encuentre recursos correctamente en instalaciones empaquetadas.
+- **Resolución de prompts endurecida** (v2026.3.30): `conversation.ts` ya no depende de un único directorio para `install-prompts/`; ahora prueba varias rutas sanas (módulo compilado, raíz del paquete, `cwd`, instalaciones en `~/.local/share/...` y override por `LAIA_ARCH_PROMPTS_DIR`) y, si no encuentra los prompts, devuelve un error explícito con las rutas comprobadas en lugar de un `ENOENT` opaco.
 - **Versionado A/B operativo** (v2026.3.29): el sistema ya distingue dos planos reales:
   - `package.json` mantiene versión-calendario (`YYYY.M.D`) para compatibilidad de build y release
   - `version.manifest.json` es la fuente de verdad del versionado semántico interno por bloques `A` y `B`
@@ -67,6 +68,7 @@ Implementado:
 Implementado:
 
 - `src/installer/scanner.ts` detecta hardware, OS, red, servicios, puertos, software instalado y advertencias.
+- `src/installer/scanner.ts` mantiene `localIp` como interfaz primaria por compatibilidad, pero ya observa interfaces IPv4 activas adicionales y las muestra cuando existen.
 - El escaneo se guarda en `~/.laia-arch/last-scan.json`.
 
 #### Planificación determinista
@@ -174,6 +176,8 @@ Implementado:
 
 - `src/installer/uninstaller.ts` detecta y elimina servicios instalados.
 - `src/installer/updater.ts` existe como base para actualizar Laia Arch.
+- `scripts/install-laia-arch.sh` ya no se limita a clonar + compilar: verifica árbol instalado (`laia-arch.mjs`, `dist/`, `install-prompts/00-system-context.md`), wrapper y respuesta básica de runtime antes de dar la instalación por válida.
+- `src/installer/updater.ts` ahora re-verifica esos artefactos críticos tras `build`/`update`, de forma que una actualización no termine como “correcta” si deja una instalación incompleta o un runtime roto.
 
 ### 3. Lo que existe pero todavía está a medio camino
 

@@ -79,7 +79,7 @@ El scanner observa el servidor sin modificar nada. Devuelve un `SystemScan`:
 {
   hardware: { arch, cores, ramGb, diskFreeGb, diskTotalGb },
   os: { distribution, version, kernel, hostname },
-  network: { localIp, subnet, gateway, dns, hasInternet, devices[] },
+  network: { localIp, subnet, gateway, dns, hasInternet, devices[], interfaces? },
   services: string[],   // servicios systemd activos
   ports: number[],      // puertos en escucha
   software: { node?, docker?, python3?, git? },
@@ -88,6 +88,12 @@ El scanner observa el servidor sin modificar nada. Devuelve un `SystemScan`:
 ```
 
 El resultado se guarda en `~/.laia-arch/last-scan.json` y se pasa a la conversación para que la IA sepa en qué servidor está trabajando.
+
+Semántica actual del bloque de red:
+
+- `network.localIp` sigue siendo la interfaz primaria por compatibilidad
+- `network.interfaces` puede incluir varias interfaces IPv4 activas observadas
+- la detección de dispositivos sigue favoreciendo la ruta principal, pero ya no oculta que el host pueda tener más de una red relevante
 
 ---
 
@@ -124,11 +130,12 @@ Esta transición ya quedó cerrada en su primer nivel funcional: el siguiente pa
 
 ### Qué hace conversation.ts
 
-1. Carga el prompt del sistema desde `install-prompts/` según el modo
-2. Envía el SystemScan como contexto inicial
-3. Gestiona los turnos de conversación (usuario ↔ IA)
-4. Si el modelo soporta reasoning (`supportsReasoning=true`), añade parámetros de chain-of-thought
-5. Al final extrae la `InstallerConfig` del último mensaje de la IA (JSON incrustado)
+1. Resuelve el directorio de prompts desde varias rutas candidatas (`import.meta.url`, raíz del paquete, `cwd`, instalaciones locales y override por `LAIA_ARCH_PROMPTS_DIR`)
+2. Carga el prompt del sistema desde `install-prompts/` según el modo
+3. Envía el SystemScan como contexto inicial
+4. Gestiona los turnos de conversación (usuario ↔ IA)
+5. Si el modelo soporta reasoning (`supportsReasoning=true`), añade parámetros de chain-of-thought
+6. Al final extrae la `InstallerConfig` del último mensaje de la IA (JSON incrustado)
 
 ### Qué hace conversation-semantics.ts
 
