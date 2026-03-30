@@ -23,4 +23,31 @@ node --import tsx scripts/copy-hook-metadata.ts
 echo "-> Copiando plantillas HTML..."
 node --import tsx scripts/copy-export-html-templates.ts
 
+echo "-> Verificando artefactos..."
+FAIL=0
+
+if [[ ! -f "laia-arch.mjs" ]]; then
+    echo "ERROR: laia-arch.mjs no fue generado" >&2
+    FAIL=1
+fi
+
+if [[ ! -d "install-prompts" ]]; then
+    echo "ERROR: install-prompts/ no existe en el directorio de instalación" >&2
+    FAIL=1
+elif [[ ! -f "install-prompts/00-system-context.md" ]]; then
+    echo "ERROR: install-prompts/00-system-context.md no encontrado" >&2
+    FAIL=1
+fi
+
+if [[ ! -d "dist" ]]; then
+    echo "ERROR: dist/ no fue generado" >&2
+    FAIL=1
+fi
+
+if [[ "$FAIL" -eq 1 ]]; then
+    echo "" >&2
+    echo "Build incompleto — revisa los errores anteriores" >&2
+    exit 1
+fi
+
 echo "Build completado correctamente"
