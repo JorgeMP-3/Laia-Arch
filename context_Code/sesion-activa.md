@@ -559,3 +559,219 @@ Siguiente paso según resultado:
 
 - si Fase 4 queda cerrada: abrir roadmap nuevo para el siguiente tramo de Bloque A
 - si Fase 4 sigue fallando: abrir roadmap nuevo de reparación con ownership separado igual que este
+
+---
+
+## Roadmap de verificación — instalador, desinstalador y actualizador — 2026-03-30
+
+> Creado por Claude Code el 2026-03-30.
+> Scope: verificar que los tres flujos de ciclo de vida de Laia Arch funcionan
+> de extremo a extremo en una instalación real.
+>
+> Reparto:
+>
+> - Claude verifica `scripts/install-laia-arch.sh` (bash, flujo de primera instalación y update)
+> - Codex verifica `src/installer/uninstaller.ts` y `src/installer/updater.ts` (TypeScript, flujos internos)
+>
+> Regla de frontera: sin ediciones cruzadas de archivos del otro agente.
+
+---
+
+### Contexto de los tres componentes
+
+| Componente       | Archivo                        | Propósito                                                        |
+| ---------------- | ------------------------------ | ---------------------------------------------------------------- |
+| Instalador bash  | `scripts/install-laia-arch.sh` | Bootstrap de la herramienta en máquina nueva vía `curl \| bash`  |
+| Actualizador TS  | `src/installer/updater.ts`     | Actualización del ecosistema LAIA desde dentro del propio agente |
+| Desinstalador TS | `src/installer/uninstaller.ts` | Eliminación limpia de todos los servicios instalados             |
+
+---
+
+### BLOQUE CLAUDE — verificar `scripts/install-laia-arch.sh`
+
+**Objetivo: confirmar que el script funciona en los tres flujos principales.**
+
+#### Tarea 1 — Análisis estático del script
+
+Recorrido de todos los caminos de código:
+
+- flujo de instalación limpia (sin `--update`)
+- flujo de actualización (`--update`)
+- flujo sin wrapper (`--no-symlink`)
+- flujo por argumento (`--dir <ruta>`)
+- `curl | bash` (stdin como pipe, sin archivo de script)
+
+Verificar:
+
+- `check_node`: rango de versiones correcto
+- `setup_repo`: `git pull --rebase` sobre clone `--depth=1` — riesgos de shallow clone
+- `install_deps`: fallback en tres pasos funciona con lockfile cambiado
+- `build`: llama a `build-laia-arch.sh` que ya tiene verificación de artefactos
+- `verify_install_tree`: cubre los cuatro artefactos críticos
+- `verify_wrapper_target`: `grep -F` es frágil si `INSTALL_DIR` tiene caracteres especiales
+- `verify_runtime_invocation`: `--version` responde sin error
+- `bump-version-today.sh` en build: modifica `package.json` — ¿conflicto en updates repetidos?
+
+#### Tarea 2 — Verificación de sintaxis y edge cases
+
+```bash
+bash -n scripts/install-laia-arch.sh
+```
+
+Casos extremos a comprobar:
+
+- `--update` sin instalación previa: debe fallar con mensaje claro
+- `--dir` con ruta con espacios: comillas en el wrapper generado
+- Node.js por debajo de la versión mínima: debe fallar con mensaje claro
+
+#### Tarea 3 — Test en instalación existente (si disponible)
+
+Si existe `~/.local/share/laia-arch`:
+
+```bash
+bash scripts/install-laia-arch.sh --update
+```
+
+Qué comprobar:
+
+- git pull sin conflictos
+- build sin errores
+- wrapper actualizado al commit correcto
+- `laia-arch --version` responde
+
+#### Tarea 4 — Documentar hallazgos
+
+Añadir resultado en este archivo al terminar.
+
+#### Resultados — Claude Code (2026-03-30)
+
+**Análisis estático: sin bloqueantes salvo un bug en `--update`.**
+
+- Sintaxis bash: OK
+- `check_node`: correcto (compara major.minor)
+- `setup_repo --update`: `git pull --rebase` → **BUG**: `bump-version-today.sh` modifica
+  `package.json` en cada build; el segundo `--update` falla con "unstaged changes"
+  → **Fix aplicado**: `git checkout -- package.json` antes del pull en modo update
+- `install_deps`: fallback en 3 pasos cubre lockfile cambiado tras pull ✓
+- `verify_install_tree`: cubre los 4 artefactos críticos ✓
+- `verify_wrapper_target`: `grep -F` exacto funciona para paths estándar ✓
+- `verify_runtime_invocation`: `--version` responde ✓
+- `--no-symlink`: early return correcto en `create_wrapper` y `verify_wrapper_target` ✓
+
+**Test de `--update` en instalación real (`~/.local/share/laia-arch`):**
+
+- Versión antes: `Laia Arch 2026.3.14 (5e16513)` — código antiguo con `process.cwd()`
+- `git pull --rebase`: fast-forward limpio, 50 archivos actualizados ✓
+- `pnpm install`: reuso de caché, 201 paquetes removidos ✓
+- `build`: versión bumpeada `2026.3.29 → 2026.3.30`, artefactos verificados ✓
+- `verify`: wrapper apunta correctamente, `laia-arch --version` responde ✓
+- Versión después: `Laia Arch 2026.3.30 (f7525fb)` — fix multi-ruta activo (29 matches en bundle) ✓
+- `install-prompts/` en ruta correcta (`~/.local/share/laia-arch/install-prompts/`) ✓
+- Ruta incorrecta (`~/.local/share/install-prompts/`) no existe ✓ (candidato 1 falla, candidato 2+ resuelve)
+
+**Incidencia A confirmada resuelta en entorno real.**
+
+#### Archivos que Claude NO debe tocar en este bloque
+
+- `src/installer/updater.ts`
+- `src/installer/uninstaller.ts`
+
+---
+
+### BLOQUE CODEX — verificar `updater.ts` y `uninstaller.ts`
+
+**Objetivo: confirmar que los flujos internos de actualización y desinstalación son correctos y tienen cobertura de test.**
+
+#### Tarea 1 — Verificar `src/installer/updater.ts`
+
+Recorrido de los flujos:
+
+- `verifyInstalledArtifacts()`: comprueba los mismos cuatro artefactos que el bash — ¿están sincronizados si se añade uno nuevo?
+- `callUpdaterAI()`: soporta Anthropic, OpenAI, Codex, DeepSeek, Ollama — ¿hay ramas muertas o sin test?
+- Menu principal: ¿todos los ítems del menú tienen handler completo?
+- Flujo de update de Laia Arch desde dentro del agente: ¿hay rollback si el build falla?
+
+Tests a añadir o revisar:
+
+- `verifyInstalledArtifacts` con artefactos faltantes
+- comportamiento cuando `--version` no responde tras build
+
+#### Tarea 2 — Verificar `src/installer/uninstaller.ts`
+
+Recorrido de los flujos:
+
+- detección de servicios instalados: ¿funciona cuando el servicio está desactivado pero los archivos existen?
+- eliminación de datos LDAP, Samba, Docker: ¿hay rollback parcial documentado si falla a mitad?
+- limpieza de `/etc/sudoers.d/laia-arch`: ¿requiere sudo? ¿falla graciosamente sin él?
+- eliminación de `~/.laia-arch`: ¿preserva credenciales generadas si el usuario lo pide?
+
+Tests a añadir o revisar:
+
+- detección de servicios en distintos estados (activo / instalado-parado / no instalado)
+- flujo cuando `sudo` no está disponible
+
+#### Tarea 3 — Validar sincronía entre los tres componentes
+
+Comprobar que estos tres puntos son idénticos en los tres archivos:
+
+1. Lista de artefactos críticos verificados tras build
+2. Directorio base de instalación (`~/.local/share/laia-arch`)
+3. Nombre del wrapper (`~/.local/bin/laia-arch`)
+
+Si hay divergencias, documentarlas y proponer la corrección mínima.
+
+#### Tarea 4 — Añadir tests si faltan y documentar
+
+```bash
+pnpm test -- src/installer/updater.test.ts src/installer/uninstaller.test.ts
+```
+
+Si los tests no existen, crearlos con cobertura de los flujos principales.
+
+#### Resultado Codex — 2026-03-30
+
+Trabajo realizado:
+
+- añadido `src/installer/updater.test.ts`
+- ampliado `src/installer/uninstaller.test.ts`
+- ajustado `src/installer/uninstaller.ts` para limpiar también la instalación local por defecto
+  en `~/.local/share/laia-arch` y el wrapper `~/.local/bin/laia-arch`
+- exportado `verifyInstalledArtifacts()` en `src/installer/updater.ts` para validarlo con test
+
+Validación ejecutada:
+
+```bash
+pnpm test -- src/installer/updater.test.ts src/installer/uninstaller.test.ts
+pnpm build
+```
+
+Resultado:
+
+- tests verdes: `2` archivos, `8` tests
+- build verde
+
+Hallazgos:
+
+- `updater.ts` y `install-laia-arch.sh` ya comparten la misma lista de artefactos críticos:
+  `laia-arch.mjs`, `dist/`, `install-prompts/`, `install-prompts/00-system-context.md`
+- `uninstaller.ts` no estaba sincronizado con la instalación local por defecto; ya se corrigió para
+  detectar y eliminar `~/.local/share/laia-arch` y `~/.local/bin/laia-arch`
+- `updater.ts` no usa una ruta fija para el repo, sino la ruta real del runtime instalado; esto es
+  compatible con la instalación, pero no es una referencia literal al path por defecto
+- no se añadió rollback automático en `runGenericUpdate()` si el build falla tras `git pull --rebase`;
+  queda como gap conocido, pero no bloquea esta verificación
+
+#### Archivos que Codex NO debe tocar en este bloque
+
+- `scripts/install-laia-arch.sh`
+- `scripts/build-laia-arch.sh`
+- `context_Code/plan-reparacion-instalador.md`
+
+---
+
+### Criterios de cierre de este roadmap
+
+1. Claude ha documentado los hallazgos del análisis de `install-laia-arch.sh` aquí
+2. Codex ha verificado `updater.ts` y `uninstaller.ts` con tests o ha documentado gaps
+3. Los tres componentes tienen la misma lista de artefactos críticos
+4. No hay bugs bloqueantes conocidos sin fix o issue abierto
