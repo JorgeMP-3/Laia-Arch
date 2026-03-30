@@ -6,41 +6,32 @@ El contexto está dividido en tres carpetas con responsabilidades distintas:
 
 ## Estructura de las tres carpetas
 
-### `context_LAIA/` — Visión estática del proyecto (estás aquí)
+### `context_LAIA/` — Visión y diseño del proyecto (estás aquí)
 
-Contiene la visión, el propósito, roadmap y versionamiento del proyecto. Es el punto de partida para entender qué es LAIA y hacia dónde va.
+Contiene la visión, el propósito, roadmap, versionamiento y diseño de producto. Punto de partida para entender qué es LAIA y hacia dónde va.
 
-**Para IAs y desarrolladores (EMPIEZA AQUÍ):**
+- `02-proyecto-laia.md` — Qué es LAIA, los tres agentes, modos de instalación y filosofía técnica
+- `03-roadmap.md` — Plan de evolución, fases y estado actual del proyecto
+- `04-guia-versionamiento.md` — Guía práctica de versionamiento semántico A/B con ejemplos
+- `05-versionamiento.md` — Especificación técnica del sistema de versiones (archivos, scripts, bloques)
+- `agora-arquitectura.md` — Diseño de Laia Agora como producto empresarial (arquitectura Bloque B)
 
-- `context_Code/00-como-trabajan-las-ias.md` — protocolo real para agentes y versionado operativo
-- `04-guia-versionamiento.md` — guía práctica de uso diario del sistema de versiones
-- `05-versionamiento.md` — especificación técnica del sistema A/B
-
-**Documentación completa:**
-
-- `02-proyecto-laia.md` — Qué es LAIA y para qué existe
-- `03-roadmap.md` — Plan de evolución del proyecto, fases y estado actual
-- `04-guia-versionamiento.md` — Guía práctica con ejemplos detallados
-- `05-versionamiento.md` — Especificación técnica del sistema de versiones
-
-### `context_Code/` — Código y trabajo de IAs
+### `context_Code/` — Estado del código y protocolo para IAs
 
 Contiene el estado real del código, la arquitectura interna y las reglas de trabajo para los agentes. Cualquier IA debe leer esto antes de tocar código.
 
-- `00-como-trabajan-las-ias.md` — **Entrada obligatoria para IAs.** Reglas, protocolos y resumen de carpetas
-- `01-estado-actual.md` — Qué está implementado de verdad a fecha de esta revisión
-- `04-colaboracion-codex-claude.md` — Reglas prácticas de trabajo para agentes de código
+- `00-como-trabajan-las-ias.md` — **Entrada obligatoria para IAs.** Protocolo completo: qué leer, reglas, coordinación multi-agente, lo que está permitido y lo que no, versionamiento y criterios de entrega
+- `01-estado-actual.md` — Qué está implementado de verdad hoy en el repo
 - `06-como-funciona-por-dentro.md` — Arquitectura interna detallada: fases, archivos, flujo de datos
-- `agora-arquitectura.md` — Diseño de Laia Agora
-- `sesion-activa.md` — Qué se está haciendo ahora mismo y qué archivos están reservados
+- `sesion-activa.md` — Log de la sesión de trabajo activa y tabla de archivos reservados
 
-### `context_Guias/` — Guías para el administrador humano (Jorge)
+### `context_Guias/` — Guías para el administrador humano
 
 Contiene documentación pensada para el administrador del proyecto. No es relevante para las IAs.
 
 - `07-guia-programacion-para-entender-laia.md` — Conceptos técnicos explicados de forma accesible
 - `08-guia-git-github.md` — Git, GitHub y commits en el repo
-- `09-comandos-laia-arch.md` — comandos de build, test, instalación y versiones
+- `09-comandos-laia-arch.md` — Comandos de build, test, instalación y versiones
 
 ## Principio editorial
 
@@ -51,4 +42,4 @@ Esta documentación distingue siempre entre:
 3. Lo que sigue siendo visión o diseño futuro
 
 Fecha base de esta versión: `2026-03-26`.
-Última revisión estructural: `2026-03-29`.
+Última revisión estructural: `2026-03-30`.

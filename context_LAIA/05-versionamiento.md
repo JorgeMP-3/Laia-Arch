@@ -178,17 +178,22 @@ La versión se lee desde `version.manifest.json` y se mostrará en:
 2. Logs de sesión
 3. Verificación final de instalación
 
-### Cambios en `laia-arch-theme.ts`
+### Banner en `laia-arch-theme.ts`
 
-El banner agregará la versión y bloque activo:
+El banner muestra la versión semántica en texto limpio:
 
 ```
-⚡ L A I A   A R C H
-El arquitecto que construye tu servidor
+  ⚡ L A I A   A R C H
+  El arquitecto que construye tu servidor
+  LAIA A:2.3 B:1.0 2026.3.29
 
-LAIA A:2.3 B:1.0 2026.3.29
-Build: 719 | Installer Phase
+  Qué es Laia Arch:
+  Agente instalador que configura la infraestructura privada de tu empresa.
+  ...
 ```
+
+La función `banner(version?)` en `src/cli/laia-arch-theme.ts` acepta el string de versión
+formateado desde `formatVersionForBanner()` en `src/installer/version-info.ts`.
 
 ## Política de actualización
 

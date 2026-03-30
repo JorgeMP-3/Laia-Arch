@@ -195,12 +195,13 @@ git push origin feature/new-oauth-provider
 Al ejecutar `laia-arch install`, la versión aparece en el banner:
 
 ```
-  ╔══════════════════════════════════════════════════════════╗
-  ║                                                          ║
-  ║           ⚡ L A I A   A R C H                        ║
-  ║       El arquitecto que construye tu servidor       ║
-  ║       LAIA A:2.2 B:1.0 2026.3.29                    ║
-  ║                                                          ║
+  ⚡ L A I A   A R C H
+  El arquitecto que construye tu servidor
+  LAIA A:2.2 B:1.0 2026.3.29
+
+  Qué es Laia Arch:
+  Agente instalador que configura la infraestructura privada de tu empresa.
+  ...
 ```
 
 ### En CLI
