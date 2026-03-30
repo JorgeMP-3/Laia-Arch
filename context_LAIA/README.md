@@ -15,6 +15,7 @@ Contiene la visión, el propósito, roadmap, versionamiento y diseño de product
 - `04-guia-versionamiento.md` — Guía práctica de versionamiento semántico A/B con ejemplos
 - `05-versionamiento.md` — Especificación técnica del sistema de versiones (archivos, scripts, bloques)
 - `agora-arquitectura.md` — Diseño de Laia Agora como producto empresarial (arquitectura Bloque B)
+- `paperclip-integration/` — Evaluación, arquitectura propuesta, plan y decisión sobre una posible integración de Paperclip en LAIA
 
 ### `context_Code/` — Estado del código y protocolo para IAs
 
